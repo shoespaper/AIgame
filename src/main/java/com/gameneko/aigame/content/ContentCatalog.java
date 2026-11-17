@@ -1,5 +1,6 @@
 package com.gameneko.aigame.content;
 
-/** Boundary for world, prompt, and media metadata. */
+/** Read-only access to validated static content definitions. */
 public interface ContentCatalog {
+    WorldDefinition world(String worldId);
 }

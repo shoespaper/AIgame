@@ -1,0 +1,2879 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "world_name": "isekai_grey",
+    "description": "抽象世界模板：只有分类与数值区间，不含任何具体名字。GM 在生成时给所有实体命名。脚本在 init 时读它、分发到存档，之后不再改动本文件。",
+    "opening_abilities_note": "一阶开局能力（skill_offense / skill_defense / skill_evasion / spell_damage_1 / spell_light）在 1 级即可学——其属性门槛才是各职业的差别所在。其余槽位保持 level>=2，让成长保持阶梯感。",
+    "regions_note": "regions: 区域表，键是地形（forest/mountain/ruins/town…），供脚本决定该地形能生成哪些怪物类型。monster_type_pool 指向 monster_types 的键，是硬约束：池外的类型不会在这些区域生成。物种自己的 regions 字段只是软提示（只调整候选顺序、不改变可行性）。空池（如 town）表示该区域没有原生怪物，但生成请求仍会成功，以免玩家在城镇里接不到任务。叙事地名不需要与这些键同名，用 world.json 的 current_region 指定地形即可。"
+  },
+  "world_setting": {
+    "world_name_hint": "世界名由 GM 命名",
+    "world_desc_hint": "一片被深渊裂隙撕裂的大陆。东方的裂口涌出魔军，已经吞掉了两个王国。人类牵头组建的联盟勉强守住阵线。冒险者公会是最后一道防线——所有能打的人都要登记。这是职责，不是荣耀。",
+    "adventurer_guild": {
+      "ranks": [
+        {
+          "rank": "F",
+          "title_hint": "见习",
+          "min_level": 1,
+          "desc_hint": "新手。公会配发基础装备。",
+          "title": "见习"
+        },
+        {
+          "rank": "E",
+          "title_hint": "已证",
+          "min_level": 3,
+          "desc_hint": "可以独自下 E 级地窟。",
+          "title": "已证"
+        },
+        {
+          "rank": "D",
+          "title_hint": "稳妥",
+          "min_level": 5,
+          "desc_hint": "D 级以上任务建议结队。",
+          "title": "稳妥"
+        },
+        {
+          "rank": "C",
+          "title_hint": "老手",
+          "min_level": 8,
+          "desc_hint": "能带队。",
+          "title": "老手"
+        },
+        {
+          "rank": "B",
+          "title_hint": "精锐",
+          "min_level": 12,
+          "desc_hint": "可清剿首领级地窟。",
+          "title": "精锐"
+        },
+        {
+          "rank": "A",
+          "title_hint": "闻名",
+          "min_level": 16,
+          "desc_hint": "国家级威胁。",
+          "title": "闻名"
+        },
+        {
+          "rank": "S",
+          "title_hint": "传说",
+          "min_level": 20,
+          "desc_hint": "关乎世界命运的任务。",
+          "title": "传说"
+        }
+      ],
+      "quest_rank_to_cr": {
+        "F": 1,
+        "E": 2,
+        "D": 3,
+        "C": 4,
+        "B": 5,
+        "A": 6,
+        "S": 7
+      }
+    },
+    "factions": [
+      {
+        "type": "human_kingdom",
+        "desc_hint": "最大的人类国家。公会总部设在此处。"
+      },
+      {
+        "type": "elf_federation",
+        "desc_hint": "古老的森林守望者。不信任人类，但仍与人类共抗外敌。"
+      },
+      {
+        "type": "dwarf_clans",
+        "desc_hint": "山中锻造世家。正在被兽群围困。"
+      },
+      {
+        "type": "beast_nomads",
+        "desc_hint": "草原上的战士。有人以雇佣兵身份受雇。"
+      },
+      {
+        "type": "mage_academy",
+        "desc_hint": "首屈一指的魔法学府。政治上中立，财政拮据。"
+      },
+      {
+        "type": "demon_legion",
+        "desc_hint": "所有生灵的敌人。正在变强。已灭两国。"
+      }
+    ],
+    "regions": {
+      "forest": {
+        "desc_hint": "密林",
+        "monster_type_pool": [
+          "low",
+          "small",
+          "beast"
+        ]
+      },
+      "plains": {
+        "desc_hint": "开阔草原",
+        "monster_type_pool": [
+          "low",
+          "beast",
+          "mid"
+        ]
+      },
+      "mountain": {
+        "desc_hint": "山岭地带",
+        "monster_type_pool": [
+          "mid",
+          "flying",
+          "beast"
+        ]
+      },
+      "dungeon": {
+        "desc_hint": "地窟",
+        "monster_type_pool": [
+          "low",
+          "mid",
+          "high"
+        ]
+      },
+      "swamp": {
+        "desc_hint": "沼泽",
+        "monster_type_pool": [
+          "small",
+          "mid",
+          "beast"
+        ]
+      },
+      "ruins": {
+        "desc_hint": "废墟",
+        "monster_type_pool": [
+          "mid",
+          "high"
+        ]
+      },
+      "cavern": {
+        "desc_hint": "洞穴群",
+        "monster_type_pool": [
+          "small",
+          "low",
+          "mid"
+        ]
+      },
+      "town": {
+        "desc_hint": "城镇",
+        "monster_type_pool": []
+      },
+      "corrupted_land": {
+        "desc_hint": "侵蚀之地",
+        "monster_type_pool": [
+          "high",
+          "flying"
+        ]
+      },
+      "volcanic": {
+        "desc_hint": "火山带",
+        "monster_type_pool": [
+          "mid",
+          "high"
+        ]
+      }
+    },
+    "origin_contexts": [
+      "出身由 GM 定：父亲是铁匠，母亲在兽潮中失踪。由一位退隐的冒险者带大。十六岁，必须去公会登记。",
+      "出身由 GM 定：猎户之子，父母被野兽所伤落下残疾。还有弟妹要养。十六岁，除了登记没有别的选择。",
+      "出身由 GM 定：在修道院长大的孤儿。十六岁生日那天，老院长给了一封信和一把剑。",
+      "出身由 GM 定：三代渔家。他不肯认这个命。攒钱买了把二手剑，天亮前就走了。"
+    ],
+    "world_tropes": [
+      "魂印铁牌——天生的凭证。公会登记时触碰水晶，牌中信息只有本人与公会鉴定师能看见。",
+      "冒险者等级从 F 到 S。所有人都从 F 起步。没有捷径。",
+      "D 级以上的任务独行等于送死。公会鼓励结队，但找到可信的同伴比杀怪还难。",
+      "这个世界有「成长」——突破。足够的战斗与濒死经历会带来肉体与精神的质变。这是常识，不是秘密。",
+      "怪物会留下材料——皮毛、晶核，偶尔还有装备。公会收购材料。这叫「取料」。",
+      "地窟是散落在大陆各处的亚空间结构。清空之后会缓慢再生。越深，战利品越好，死亡率越高。",
+      "每个倒下的冒险者名字都刻在公会纪念墙上。每个分会的墙都比你想的要长。",
+      "魔王不是传说。四位将军——每一位都是灾厄级的威胁——率军从深渊裂隙涌出。两个国家已经陷落。这场战争不会结束，只会加剧。"
+    ]
+  },
+  "monster_types": {
+    "low": {
+      "cr_range": [
+        1,
+        2
+      ],
+      "hp_range": [
+        8,
+        18
+      ],
+      "power_range": [
+        3,
+        7
+      ],
+      "mit_range": [
+        0,
+        2
+      ],
+      "speed_range": [
+        6,
+        10
+      ],
+      "ap": 4,
+      "xp_range": [
+        15,
+        35
+      ],
+      "loot_gold_range": [
+        0,
+        8
+      ],
+      "behavior": "凶狠",
+      "ability_pool": [
+        "濒死逃窜",
+        "伏击",
+        "合围",
+        "下作手段"
+      ]
+    },
+    "mid": {
+      "cr_range": [
+        3,
+        4
+      ],
+      "hp_range": [
+        20,
+        45
+      ],
+      "power_range": [
+        8,
+        14
+      ],
+      "mit_range": [
+        1,
+        4
+      ],
+      "speed_range": [
+        8,
+        14
+      ],
+      "ap": 4,
+      "xp_range": [
+        40,
+        80
+      ],
+      "loot_gold_range": [
+        5,
+        20
+      ],
+      "behavior": "游斗",
+      "ability_pool": [
+        "守势",
+        "反击",
+        "协同",
+        "佯攻"
+      ]
+    },
+    "high": {
+      "cr_range": [
+        5,
+        7
+      ],
+      "hp_range": [
+        50,
+        120
+      ],
+      "power_range": [
+        15,
+        28
+      ],
+      "mit_range": [
+        3,
+        7
+      ],
+      "speed_range": [
+        10,
+        18
+      ],
+      "ap": 5,
+      "xp_range": [
+        100,
+        250
+      ],
+      "loot_gold_range": [
+        20,
+        80
+      ],
+      "behavior": "游斗",
+      "ability_pool": [
+        "重砸",
+        "咆哮",
+        "自愈",
+        "连击",
+        "施法"
+      ]
+    },
+    "small": {
+      "cr_range": [
+        1,
+        2
+      ],
+      "hp_range": [
+        4,
+        10
+      ],
+      "power_range": [
+        2,
+        5
+      ],
+      "mit_range": [
+        0,
+        1
+      ],
+      "speed_range": [
+        8,
+        14
+      ],
+      "ap": 4,
+      "xp_range": [
+        10,
+        25
+      ],
+      "loot_gold_range": [
+        0,
+        4
+      ],
+      "behavior": "群起",
+      "ability_pool": [
+        "群扑",
+        "毒牙",
+        "濒死逃窜"
+      ]
+    },
+    "flying": {
+      "cr_range": [
+        2,
+        5
+      ],
+      "hp_range": [
+        12,
+        35
+      ],
+      "power_range": [
+        6,
+        16
+      ],
+      "mit_range": [
+        0,
+        2
+      ],
+      "speed_range": [
+        14,
+        22
+      ],
+      "ap": 5,
+      "xp_range": [
+        30,
+        90
+      ],
+      "loot_gold_range": [
+        3,
+        15
+      ],
+      "behavior": "打了就跑",
+      "speed_mult": 1.5,
+      "ability_pool": [
+        "俯冲扑击",
+        "空中闪避",
+        "掠走"
+      ]
+    },
+    "beast": {
+      "cr_range": [
+        2,
+        6
+      ],
+      "hp_range": [
+        18,
+        80
+      ],
+      "power_range": [
+        8,
+        22
+      ],
+      "mit_range": [
+        1,
+        5
+      ],
+      "speed_range": [
+        10,
+        18
+      ],
+      "ap": 5,
+      "xp_range": [
+        35,
+        150
+      ],
+      "loot_gold_range": [
+        2,
+        25
+      ],
+      "behavior": "凶狠",
+      "ability_pool": [
+        "冲锋",
+        "撕咬",
+        "暴走",
+        "威吓"
+      ]
+    },
+    "undead": {
+      "cr_range": [
+        3,
+        7
+      ],
+      "hp_range": [
+        25,
+        100
+      ],
+      "power_range": [
+        10,
+        24
+      ],
+      "mit_range": [
+        2,
+        6
+      ],
+      "speed_range": [
+        6,
+        12
+      ],
+      "ap": 4,
+      "xp_range": [
+        50,
+        200
+      ],
+      "loot_gold_range": [
+        5,
+        40
+      ],
+      "behavior": "死缠",
+      "ability_pool": [
+        "威压",
+        "汲命",
+        "尸骸坚韧",
+        "绝不退"
+      ]
+    },
+    "caster": {
+      "cr_range": [
+        3,
+        6
+      ],
+      "hp_range": [
+        15,
+        40
+      ],
+      "power_range": [
+        10,
+        20
+      ],
+      "mit_range": [
+        0,
+        3
+      ],
+      "speed_range": [
+        8,
+        14
+      ],
+      "ap": 5,
+      "xp_range": [
+        60,
+        180
+      ],
+      "loot_gold_range": [
+        10,
+        50
+      ],
+      "behavior": "游斗",
+      "ability_pool": [
+        "施法",
+        "召唤",
+        "护罩",
+        "鼓舞同伙"
+      ]
+    }
+  },
+  "npc_types": {
+    "family": {
+      "personality_pool": [
+        "慈和",
+        "谨慎",
+        "骄傲",
+        "严厉",
+        "热络"
+      ],
+      "schedule_template": "home_based",
+      "relationship_base": 80,
+      "can_train": false
+    },
+    "companion": {
+      "personality_pool": [
+        "热络",
+        "谨慎",
+        "骄傲",
+        "精明",
+        "粗犷"
+      ],
+      "schedule_template": "follow_player",
+      "relationship_base": 50,
+      "can_train": false,
+      "can_combat": true
+    },
+    "merchant": {
+      "personality_pool": [
+        "精明",
+        "热络",
+        "多疑",
+        "慈和",
+        "精明"
+      ],
+      "schedule_template": "shop_hours",
+      "relationship_base": 30,
+      "sells_items": true
+    },
+    "instructor": {
+      "personality_pool": [
+        "严厉",
+        "谨慎",
+        "严厉",
+        "慈和",
+        "沉默"
+      ],
+      "schedule_template": "guild_hours",
+      "relationship_base": 40,
+      "can_train": true
+    },
+    "questgiver": {
+      "personality_pool": [
+        "疲惫",
+        "严厉",
+        "沉默",
+        "慈和",
+        "热络"
+      ],
+      "schedule_template": "guild_board",
+      "relationship_base": 20,
+      "gives_quests": true
+    },
+    "antagonist": {
+      "personality_pool": [
+        "骄傲",
+        "精明",
+        "严厉",
+        "热络",
+        "多疑"
+      ],
+      "schedule_template": "self_directed",
+      "relationship_base": -20,
+      "is_enemy": true
+    },
+    "authority": {
+      "personality_pool": [
+        "严厉",
+        "疲惫",
+        "谨慎",
+        "精明",
+        "慈和"
+      ],
+      "schedule_template": "office_hours",
+      "relationship_base": 10
+    }
+  },
+  "skill_types": {
+    "defense": {
+      "mechanic": {
+        "category": "defend_bonus",
+        "bonus": 4,
+        "guard_bank": 3
+      }
+    },
+    "offense": {
+      "mechanic": {
+        "category": "attack_modifier",
+        "power_mult": 1.5,
+        "self_expose": 1
+      }
+    },
+    "ranged": {
+      "mechanic": {
+        "category": "multi_attack",
+        "targets": 2,
+        "power_mult_per_target": 0.75
+      }
+    },
+    "support": {
+      "mechanic": {
+        "category": "action_cost_override",
+        "action": "dodge",
+        "new_cost": 1
+      }
+    },
+    "passive_str": {
+      "mechanic": {
+        "category": "stat_modifier",
+        "stat": "STR",
+        "bonus": 2
+      }
+    },
+    "passive_hp": {
+      "mechanic": {
+        "category": "stat_modifier",
+        "stat": "max_hp",
+        "bonus": 5
+      }
+    },
+    "reaction": {
+      "mechanic": {
+        "category": "defend_reaction",
+        "trigger": "after_defend",
+        "counter_power_mult": 0.5
+      }
+    },
+    "caster": {
+      "mechanic": {
+        "category": "extra_action",
+        "action_type": "spell",
+        "extra_per_turn": 1,
+        "cost_penalty": 1
+      }
+    },
+    "dualwield": {
+      "mechanic": {
+        "category": "attack_bonus",
+        "bonus_type": "offhand_power",
+        "power_bonus": 3
+      }
+    },
+    "debuff": {
+      "mechanic": {
+        "category": "debuff",
+        "effect": "mitigation_drain",
+        "amount": 2,
+        "duration": 3
+      }
+    },
+    "heal_skill": {
+      "mechanic": {
+        "category": "self_heal",
+        "heal_amount": 10,
+        "ap_cost": 2
+      }
+    },
+    "insight": {
+      "mechanic": {
+        "category": "info_reveal",
+        "reveal": "monster_stats"
+      }
+    }
+  },
+  "spell_types": {
+    "damage": {
+      "tier1": {
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "power_range": [
+          8,
+          14
+        ]
+      },
+      "tier2": {
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "power_range": [
+          15,
+          25
+        ]
+      },
+      "tier3": {
+        "sp_cost": 8,
+        "ap_cost": 4,
+        "power_range": [
+          30,
+          50
+        ]
+      }
+    },
+    "damage_debuff": {
+      "tier1": {
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "power_range": [
+          6,
+          10
+        ],
+        "debuff": {
+          "effect": "mitigation_drain",
+          "amount": 2,
+          "duration": 2
+        }
+      },
+      "tier2": {
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "power_range": [
+          12,
+          18
+        ],
+        "debuff": {
+          "effect": "mitigation_drain",
+          "amount": 3,
+          "duration": 3
+        }
+      }
+    },
+    "heal": {
+      "tier1": {
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "heal_range": [
+          5,
+          12
+        ]
+      },
+      "tier2": {
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "heal_range": [
+          15,
+          28
+        ]
+      },
+      "tier3": {
+        "sp_cost": 8,
+        "ap_cost": 4,
+        "heal_range": [
+          40,
+          65
+        ],
+        "clear_statuses": true
+      }
+    },
+    "self_buff": {
+      "tier1": {
+        "sp_cost": 3,
+        "ap_cost": 2,
+        "buff_stat": "guard",
+        "buff_amount": 5,
+        "duration": 3
+      },
+      "tier2": {
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "buff_stat": "guard",
+        "buff_amount": 10,
+        "duration": 3
+      }
+    },
+    "debuff": {
+      "tier1": {
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "debuff_effect": "exposed",
+        "duration": 2
+      },
+      "tier2": {
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "debuff_effect": "ap_drain",
+        "amount": 2,
+        "duration": 3
+      }
+    },
+    "utility": {
+      "tier1": {
+        "sp_cost": 2,
+        "ap_cost": 2,
+        "effect": "light"
+      },
+      "tier2": {
+        "sp_cost": 4,
+        "ap_cost": 3,
+        "effect": "detect_aura"
+      },
+      "tier3": {
+        "sp_cost": 8,
+        "ap_cost": 4,
+        "effect": "teleport"
+      }
+    },
+    "dot": {
+      "tier1": {
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "power_range": [
+          4,
+          8
+        ],
+        "dot_effect": "hp_drain",
+        "dot_amount": 3,
+        "dot_duration": 3
+      },
+      "tier2": {
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "power_range": [
+          8,
+          14
+        ],
+        "dot_effect": "hp_drain",
+        "dot_amount": 5,
+        "dot_duration": 4
+      }
+    }
+  },
+  "loot_types": {
+    "healing": {
+      "common": {
+        "effect": {
+          "heal": 3
+        },
+        "value_range": [
+          3,
+          8
+        ]
+      },
+      "uncommon": {
+        "effect": {
+          "heal": 8
+        },
+        "value_range": [
+          10,
+          20
+        ]
+      },
+      "rare": {
+        "effect": {
+          "heal": 20,
+          "clear_statuses": true
+        },
+        "value_range": [
+          30,
+          50
+        ]
+      }
+    },
+    "weapon": {
+      "common": {
+        "effect": {
+          "damage_bonus": 1
+        },
+        "value_range": [
+          5,
+          12
+        ]
+      },
+      "uncommon": {
+        "effect": {
+          "damage_bonus": 3
+        },
+        "value_range": [
+          20,
+          35
+        ]
+      },
+      "rare": {
+        "effect": {
+          "damage_bonus": 6
+        },
+        "value_range": [
+          50,
+          80
+        ]
+      },
+      "epic": {
+        "effect": {
+          "damage_bonus": 10
+        },
+        "value_range": [
+          100,
+          200
+        ]
+      }
+    },
+    "armor": {
+      "common": {
+        "effect": {
+          "mitigation_bonus": 1
+        },
+        "value_range": [
+          8,
+          15
+        ]
+      },
+      "uncommon": {
+        "effect": {
+          "mitigation_bonus": 3
+        },
+        "value_range": [
+          25,
+          45
+        ]
+      },
+      "rare": {
+        "effect": {
+          "mitigation_bonus": 5
+        },
+        "value_range": [
+          60,
+          100
+        ]
+      }
+    },
+    "consumable_sp": {
+      "common": {
+        "effect": {
+          "sp_restore": 3
+        },
+        "value_range": [
+          3,
+          8
+        ]
+      },
+      "uncommon": {
+        "effect": {
+          "sp_restore": 8
+        },
+        "value_range": [
+          15,
+          30
+        ]
+      }
+    },
+    "accessory": {
+      "uncommon": {
+        "effect": {
+          "stat_bonus": {
+            "stat": "SPD",
+            "amount": 1
+          }
+        },
+        "value_range": [
+          20,
+          40
+        ]
+      },
+      "rare": {
+        "effect": {
+          "stat_bonus": {
+            "stat": "STR",
+            "amount": 2
+          }
+        },
+        "value_range": [
+          50,
+          90
+        ]
+      },
+      "epic": {
+        "effect": {
+          "stat_bonus": {
+            "stat": "INT",
+            "amount": 3
+          }
+        },
+        "value_range": [
+          120,
+          250
+        ]
+      }
+    },
+    "material": {
+      "common": {
+        "effect": {
+          "sell_only": true
+        },
+        "value_range": [
+          1,
+          5
+        ]
+      },
+      "uncommon": {
+        "effect": {
+          "sell_only": true
+        },
+        "value_range": [
+          5,
+          15
+        ]
+      },
+      "rare": {
+        "effect": {
+          "sell_only": true
+        },
+        "value_range": [
+          20,
+          50
+        ]
+      },
+      "epic": {
+        "effect": {
+          "sell_only": true
+        },
+        "value_range": [
+          80,
+          200
+        ]
+      }
+    }
+  },
+  "talent_types": {
+    "power_boost": {
+      "mechanic": {
+        "category": "conditional_power_boost",
+        "trigger": "on_damage_calc",
+        "tiers": [
+          {
+            "hp_threshold": 0.5,
+            "power_mult": 1.25
+          },
+          {
+            "hp_threshold": 0.25,
+            "power_mult": 1.5
+          }
+        ],
+        "stacking": "multiplicative",
+        "kind": "passive"
+      },
+      "name": "濒伤之力",
+      "description": "伤得越重，出手越沉。身体自己在算这笔账。"
+    },
+    "survival": {
+      "mechanic": {
+        "category": "death_save",
+        "trigger": "on_lethal_damage",
+        "min_hp": 1,
+        "once_per_combat": true,
+        "kind": "passive"
+      },
+      "name": "一口气",
+      "description": "该断的时候没断。命被自己攥住了。"
+    },
+    "magic_defense": {
+      "mechanic": {
+        "category": "magic_resist",
+        "trigger": "on_magic_damage_taken",
+        "damage_reduction_mult": 0.3,
+        "sp_recover_per_hit": 1,
+        "kind": "passive"
+      },
+      "name": "抗法之体",
+      "description": "咒落在身上，像雨落在石头上，滑掉大半。"
+    },
+    "fortify": {
+      "mechanic": {
+        "category": "defend_bonus",
+        "bonus": 4,
+        "guard_bank": 3,
+        "kind": "passive"
+      },
+      "name": "铁壁之姿",
+      "description": "站在原地不躲，靠肩膀接。"
+    },
+    "initiative": {
+      "mechanic": {
+        "category": "initiative_boost",
+        "first_turn_ap_bonus": 2,
+        "always_first_round_1": true,
+        "kind": "passive"
+      },
+      "name": "先手直觉",
+      "description": "还没想明白，人已经动了。"
+    },
+    "regen": {
+      "mechanic": {
+        "category": "regen",
+        "trigger": "on_turn_end",
+        "hp_recover": 1,
+        "kind": "passive"
+      },
+      "name": "缓愈",
+      "description": "伤口在没人看的时候自己收口。"
+    },
+    "reflect": {
+      "mechanic": {
+        "category": "damage_reflect",
+        "trigger": "on_defended_hit",
+        "damage_threshold": 1,
+        "reflect_stat": "STR",
+        "reflect_ignores_mit": true,
+        "kind": "passive"
+      },
+      "name": "回震",
+      "description": "挡下的力道不从身上走，原路弹回去。"
+    },
+    "ap_burst": {
+      "mechanic": {
+        "category": "ap_recover",
+        "trigger_condition": "ap_zero",
+        "ap_recover": 4,
+        "self_damage": 3,
+        "self_damage_ignores_mit": true,
+        "once_per_day": true,
+        "kind": "passive"
+      },
+      "name": "力竭再燃",
+      "description": "力气用尽的那一刻，身体又挤出一点。"
+    }
+  },
+  "difficulty_presets": {
+    "story": {
+      "enemy_hp_mult": 0.7,
+      "enemy_power_mult": 0.7,
+      "enemy_ap_mult": 0.75,
+      "enemy_mit_mult": 0.5,
+      "xp_mult": 1.5,
+      "gold_mult": 1.3,
+      "loot_lucky_bonus": 15,
+      "hp_recover_bonus": 2,
+      "daily_expense_mult": 0.5,
+      "threat_interval": 14,
+      "starting_copper": 50,
+      "starting_rations": 5,
+      "starting_potions": 3,
+      "label": "叙事",
+      "desc_hint": "敌人很软，钱好赚，很少真的会死。用来讲故事。"
+    },
+    "adventure": {
+      "enemy_hp_mult": 1.0,
+      "enemy_power_mult": 1.0,
+      "enemy_ap_mult": 1.0,
+      "enemy_mit_mult": 1.0,
+      "xp_mult": 1.0,
+      "gold_mult": 1.0,
+      "loot_lucky_bonus": 0,
+      "hp_recover_bonus": 0,
+      "daily_expense_mult": 1.0,
+      "threat_interval": 7,
+      "starting_copper": 15,
+      "starting_rations": 3,
+      "starting_potions": 2,
+      "label": "冒险",
+      "desc_hint": "标准难度。会受伤，会缺钱，走错一步可能就没了。"
+    },
+    "hard": {
+      "enemy_hp_mult": 1.4,
+      "enemy_power_mult": 1.3,
+      "enemy_ap_mult": 1.25,
+      "enemy_mit_mult": 1.3,
+      "xp_mult": 1.2,
+      "gold_mult": 0.8,
+      "loot_lucky_bonus": -10,
+      "hp_recover_bonus": -1,
+      "daily_expense_mult": 1.5,
+      "threat_interval": 5,
+      "starting_copper": 5,
+      "starting_rations": 2,
+      "starting_potions": 1,
+      "label": "艰难",
+      "desc_hint": "敌人更硬更狠，战利品更少。每一场都要算。"
+    },
+    "nightmare": {
+      "enemy_hp_mult": 2.0,
+      "enemy_power_mult": 1.8,
+      "enemy_ap_mult": 1.5,
+      "enemy_mit_mult": 1.6,
+      "xp_mult": 1.5,
+      "gold_mult": 0.5,
+      "loot_lucky_bonus": -20,
+      "hp_recover_bonus": -2,
+      "daily_expense_mult": 2.0,
+      "threat_interval": 3,
+      "starting_copper": 0,
+      "starting_rations": 1,
+      "starting_potions": 0,
+      "label": "噩梦",
+      "desc_hint": "敌人远超同阶。能活下来就是运气。"
+    }
+  },
+  "quest_templates": [
+    {
+      "structure": "hunt",
+      "category": "combat",
+      "desc_hint": "除掉一只有威胁的怪物。（目标由 GM 指定）",
+      "reward_gold_range": [
+        5,
+        30
+      ],
+      "reward_xp_range": [
+        20,
+        60
+      ],
+      "name": "剿灭"
+    },
+    {
+      "structure": "escort",
+      "category": "protection",
+      "desc_hint": "护送某人穿过危险地带。（人物与目的地由 GM 指定）",
+      "reward_gold_range": [
+        10,
+        40
+      ],
+      "reward_xp_range": [
+        25,
+        70
+      ],
+      "name": "护送"
+    },
+    {
+      "structure": "dungeon",
+      "category": "exploration",
+      "desc_hint": "清空一处地窟中的敌人。（地窟与其主题由 GM 指定）",
+      "reward_gold_range": [
+        20,
+        80
+      ],
+      "reward_xp_range": [
+        40,
+        120
+      ],
+      "name": "探窟"
+    },
+    {
+      "structure": "delivery",
+      "category": "logistics",
+      "desc_hint": "把货物送到某地。（货物与收件人由 GM 指定）",
+      "reward_gold_range": [
+        5,
+        20
+      ],
+      "reward_xp_range": [
+        10,
+        30
+      ],
+      "name": "递送"
+    },
+    {
+      "structure": "rescue",
+      "category": "protection",
+      "desc_hint": "找到并救出被掳走或失散的人。（受害者与掳人者由 GM 指定）",
+      "reward_gold_range": [
+        15,
+        50
+      ],
+      "reward_xp_range": [
+        30,
+        80
+      ],
+      "name": "营救"
+    },
+    {
+      "structure": "gather",
+      "category": "collection",
+      "desc_hint": "在某地收集特定材料。（材料与来源由 GM 指定）",
+      "reward_gold_range": [
+        8,
+        25
+      ],
+      "reward_xp_range": [
+        15,
+        45
+      ],
+      "name": "采集"
+    },
+    {
+      "structure": "investigate",
+      "category": "mystery",
+      "desc_hint": "查清一件怪异之事。（谜团与线索由 GM 设定）",
+      "reward_gold_range": [
+        10,
+        35
+      ],
+      "reward_xp_range": [
+        20,
+        60
+      ],
+      "name": "查探"
+    },
+    {
+      "structure": "defend",
+      "category": "combat",
+      "desc_hint": "抵挡即将到来的进攻，守住一处地点。（地点与来袭者由 GM 指定）",
+      "reward_gold_range": [
+        15,
+        60
+      ],
+      "reward_xp_range": [
+        30,
+        90
+      ],
+      "name": "防守"
+    },
+    {
+      "structure": "subdue",
+      "category": "combat",
+      "desc_hint": "活捉目标，而不是杀死他。（目标由 GM 指定）",
+      "reward_gold_range": [
+        12,
+        45
+      ],
+      "reward_xp_range": [
+        25,
+        75
+      ],
+      "name": "生擒"
+    },
+    {
+      "structure": "competition",
+      "category": "social",
+      "desc_hint": "参加一场比武或竞赛。（规则与对手由 GM 设定）",
+      "reward_gold_range": [
+        20,
+        100
+      ],
+      "reward_xp_range": [
+        30,
+        100
+      ],
+      "name": "竞试"
+    },
+    {
+      "structure": "diplomacy",
+      "category": "social",
+      "desc_hint": "在双方势力之间斡旋。（势力与争端由 GM 指定）",
+      "reward_gold_range": [
+        10,
+        50
+      ],
+      "reward_xp_range": [
+        25,
+        70
+      ],
+      "name": "调停"
+    },
+    {
+      "structure": "ritual",
+      "category": "mystical",
+      "desc_hint": "执行或破坏一场法术仪式。（仪式与目的由 GM 设定）",
+      "reward_gold_range": [
+        15,
+        60
+      ],
+      "reward_xp_range": [
+        35,
+        100
+      ],
+      "name": "仪式"
+    }
+  ],
+  "event_templates": {
+    "timed": [
+      {
+        "type": "threat_escalation",
+        "category": "world_threat",
+        "level": 1,
+        "trigger": {
+          "condition": "threat_counter >= threat_interval and plot_progress < threat_level",
+          "repeating": false,
+          "advances_threat": true
+        },
+        "effects": {
+          "price_mod": {
+            "weapon": 1.2,
+            "food": 1.1
+          },
+          "spawn_threat": true
+        },
+        "desc_hint": "远处的不安在滋长。商人们低声说着怪异的征兆。（威胁源由 GM 按设定落实）"
+      },
+      {
+        "type": "threat_escalation",
+        "category": "world_threat",
+        "level": 2,
+        "trigger": {
+          "condition": "threat_counter >= threat_interval and plot_progress < threat_level",
+          "repeating": false,
+          "advances_threat": true
+        },
+        "effects": {
+          "price_mod": {
+            "weapon": 1.3,
+            "food": 1.2
+          },
+          "spawn_threat": true,
+          "npc_mood_shift": -5
+        },
+        "desc_hint": "边远村落遭袭，难民开始涌入。（袭击经过与影响由 GM 补写）"
+      },
+      {
+        "type": "threat_escalation",
+        "category": "world_threat",
+        "level": 3,
+        "trigger": {
+          "condition": "threat_counter >= threat_interval and plot_progress < threat_level",
+          "repeating": false,
+          "advances_threat": true
+        },
+        "effects": {
+          "price_mod": {
+            "weapon": 1.5,
+            "food": 1.3,
+            "potion": 1.4
+          },
+          "spawn_threat": true,
+          "npc_mood_shift": -10
+        },
+        "desc_hint": "一座聚落被攻破，领主开始征募冒险者。夜里的道路不再安全。（战斗与人心反应由 GM 补写）"
+      },
+      {
+        "type": "threat_escalation",
+        "category": "world_threat",
+        "level": 4,
+        "trigger": {
+          "condition": "threat_counter >= threat_interval and plot_progress < threat_level",
+          "repeating": false,
+          "advances_threat": true
+        },
+        "effects": {
+          "price_mod": {
+            "weapon": 1.8,
+            "food": 1.5,
+            "potion": 1.6
+          },
+          "spawn_threat": true,
+          "npc_mood_shift": -15
+        },
+        "desc_hint": "一座要塞陷落，战争已难避免。（陷落过程与蔓延的恐慌由 GM 补写）"
+      },
+      {
+        "type": "threat_escalation",
+        "category": "world_threat",
+        "level": 5,
+        "trigger": {
+          "condition": "threat_counter >= threat_interval and plot_progress < threat_level",
+          "repeating": false,
+          "advances_threat": true
+        },
+        "effects": {
+          "price_mod": {
+            "all": 2.0
+          },
+          "npc_mood_shift": -25,
+          "game_over_risk": true
+        },
+        "desc_hint": "王国倾覆。幸存者逃入荒野。若无人阻止，这便是结局。（末日景象由 GM 补写）"
+      },
+      {
+        "type": "deadline",
+        "category": "plot",
+        "trigger": {
+          "condition": "day >= {deadline_day}",
+          "one_time": true
+        },
+        "fields": [
+          "deadline_day",
+          "consequence_desc"
+        ],
+        "effects": {
+          "custom": true
+        },
+        "desc_hint": "GM 设定的主线期限。到指定之日，事先约定的后果必然发生：某人死去、某地陷落、某方势力崩塌。"
+      },
+      {
+        "type": "migration",
+        "category": "social",
+        "trigger": {
+          "condition": "threat_level >= 2 and day % 10 == 0",
+          "repeating": true
+        },
+        "effects": {
+          "npc_pool_add": "refugee",
+          "price_mod": {
+            "food": 1.2,
+            "housing": 1.3
+          }
+        },
+        "desc_hint": "难民涌入聚落。（来历、人数与社会冲击由 GM 决定）"
+      },
+      {
+        "type": "supply_disruption",
+        "category": "economic",
+        "trigger": {
+          "condition": "threat_level >= 3 and day % 7 == 0",
+          "repeating": true
+        },
+        "effects": {
+          "price_mod": {
+            "weapon": 1.4,
+            "armor": 1.4,
+            "potion": 1.3
+          }
+        },
+        "desc_hint": "商路被切断。货物紧缺、价格飞涨。（断在哪里、因何而断由 GM 补写）"
+      }
+    ],
+    "incidental": [
+      {
+        "type": "market",
+        "category": "economic",
+        "weight": 10,
+        "effects": {
+          "price_mod": {
+            "rare_goods": 0.8
+          },
+          "shop_refresh": true
+        },
+        "desc_hint": "一支商队抵达。（商队来历与稀有货物由 GM 决定）"
+      },
+      {
+        "type": "storm",
+        "category": "environmental",
+        "weight": 8,
+        "effects": {
+          "travel_penalty": true,
+          "outdoor_combat_mod": {
+            "speed": -2
+          }
+        },
+        "desc_hint": "恶劣天气降临。（类型与持续时间由 GM 决定）"
+      },
+      {
+        "type": "festival",
+        "category": "social",
+        "weight": 5,
+        "effects": {
+          "price_mod": {
+            "food": 0.5
+          },
+          "npc_mood_shift": 5
+        },
+        "desc_hint": "聚落办起了庆典。（缘由与活动由 GM 决定）"
+      },
+      {
+        "type": "stranger",
+        "category": "social",
+        "weight": 7,
+        "effects": {
+          "npc_pool_add": "traveler",
+          "quest_hook_chance": 0.3
+        },
+        "desc_hint": "有陌生人到来。（身份、来意与潜在委托由 GM 决定）"
+      },
+      {
+        "type": "omen",
+        "category": "supernatural",
+        "weight": 4,
+        "effects": {
+          "custom": true
+        },
+        "desc_hint": "出现超自然的征兆。（现象及其预示由 GM 决定）"
+      },
+      {
+        "type": "supply_sale",
+        "category": "economic",
+        "weight": 6,
+        "effects": {
+          "price_mod": {
+            "weapon": 0.7,
+            "armor": 0.7
+          }
+        },
+        "desc_hint": "某商人放出减价消息。（商人与折价货物由 GM 决定）"
+      },
+      {
+        "type": "wildlife",
+        "category": "environmental",
+        "weight": 5,
+        "effects": {
+          "rations_bonus": 2
+        },
+        "desc_hint": "野兽活动异常。（种类与由此带来的收益由 GM 决定）"
+      },
+      {
+        "type": "drought",
+        "category": "environmental",
+        "weight": 3,
+        "effects": {
+          "price_mod": {
+            "food": 1.3,
+            "water": 1.5
+          },
+          "npc_mood_shift": -3
+        },
+        "desc_hint": "水源短缺。（严重程度与由此引发的紧张由 GM 决定）"
+      },
+      {
+        "type": "pilgrim",
+        "category": "social",
+        "weight": 4,
+        "effects": {
+          "npc_pool_add": "pilgrim",
+          "rumor_chance": 0.5
+        },
+        "desc_hint": "朝圣者路过，带来远方圣地的消息。"
+      },
+      {
+        "type": "fugitive",
+        "category": "social",
+        "weight": 4,
+        "effects": {
+          "quest_hook_chance": 0.4
+        },
+        "desc_hint": "有人在附近看见了通缉犯。（犯人身份与赏格由 GM 决定）"
+      },
+      {
+        "type": "rumor",
+        "category": "social",
+        "weight": 8,
+        "effects": {
+          "quest_hook_chance": 0.2
+        },
+        "desc_hint": "酒馆里浮起流言。（内容真伪由 GM 决定）"
+      },
+      {
+        "type": "beast_migration",
+        "category": "environmental",
+        "weight": 5,
+        "effects": {
+          "spawn_threat": true
+        },
+        "desc_hint": "兽群穿过此地。（种类与危险程度由 GM 决定）"
+      }
+    ]
+  },
+  "npc_data": {
+    "_desc": "抽象 NPC 生成数据：只有名字池、性格与作息模板——具体的人是 GM 现编现命名的。",
+    "name_syllables": {
+      "_desc": "中文音节兜底池。仅当 name_pools 缺失时使用，正常情况不会触发。",
+      "start": [
+        "阿",
+        "布",
+        "科",
+        "德",
+        "埃",
+        "芬",
+        "盖",
+        "哈",
+        "伊",
+        "约",
+        "凯",
+        "罗",
+        "马",
+        "奈",
+        "奥",
+        "派",
+        "昆",
+        "罗",
+        "萨",
+        "托",
+        "乌",
+        "瓦",
+        "温",
+        "约",
+        "赞"
+      ],
+      "mid": [
+        "尔",
+        "恩",
+        "里",
+        "德",
+        "兰",
+        "姆",
+        "斯"
+      ],
+      "end": [
+        "文",
+        "丹",
+        "恩",
+        "拉斯",
+        "米尔",
+        "顿",
+        "德拉",
+        "维克",
+        "林",
+        "莎",
+        "加德",
+        "蒙德",
+        "利",
+        "尼克斯",
+        "沃"
+      ],
+      "family_start": [
+        "灰",
+        "黑",
+        "冷",
+        "晨",
+        "余",
+        "白",
+        "荆",
+        "铁",
+        "橡",
+        "月",
+        "北",
+        "乌",
+        "银",
+        "石",
+        "西",
+        "狼",
+        "风",
+        "格",
+        "夜",
+        "霜"
+      ],
+      "family_end": [
+        "石",
+        "木",
+        "泉",
+        "星",
+        "烬",
+        "桦",
+        "棘",
+        "砧",
+        "盾",
+        "谷",
+        "风",
+        "鸦",
+        "溪",
+        "楠",
+        "岭",
+        "耳",
+        "谷",
+        "林",
+        "原"
+      ]
+    },
+    "personalities": {
+      "粗犷": {
+        "warmth": -10,
+        "patience": 5,
+        "helpfulness": 0,
+        "desc": "直来直去，不容易热络。靠本事赢得尊重。"
+      },
+      "热络": {
+        "warmth": 20,
+        "patience": 15,
+        "helpfulness": 10,
+        "desc": "话多、热心、容易信任人，也可能天真。"
+      },
+      "谨慎": {
+        "warmth": 0,
+        "patience": 12,
+        "helpfulness": 5,
+        "desc": "先观察再行动，说话留三分。"
+      },
+      "沉默": {
+        "warmth": -5,
+        "patience": 10,
+        "helpfulness": -5,
+        "desc": "话极少，情绪藏得很深。"
+      },
+      "精明": {
+        "warmth": 5,
+        "patience": 8,
+        "helpfulness": 0,
+        "desc": "看重利害，交易时寸步不让。"
+      },
+      "忧郁": {
+        "warmth": 0,
+        "patience": 6,
+        "helpfulness": 0,
+        "desc": "常走神，像在惦记什么旧事。"
+      },
+      "严厉": {
+        "warmth": -15,
+        "patience": 3,
+        "helpfulness": 5,
+        "desc": "要求高，容不下敷衍。"
+      },
+      "天真": {
+        "warmth": 25,
+        "patience": 18,
+        "helpfulness": 15,
+        "desc": "相信世界比实际更善意。"
+      },
+      "骄傲": {
+        "warmth": -20,
+        "patience": 4,
+        "helpfulness": -5,
+        "desc": "自尊极高，被冒犯会记很久。"
+      },
+      "疲惫": {
+        "warmth": -5,
+        "patience": 2,
+        "helpfulness": -10,
+        "desc": "被生活磨得没什么余力。"
+      },
+      "慈和": {
+        "warmth": 22,
+        "patience": 20,
+        "helpfulness": 18,
+        "desc": "愿意听人说话，习惯照顾别人。"
+      },
+      "多疑": {
+        "warmth": -25,
+        "patience": 4,
+        "helpfulness": -5,
+        "desc": "对陌生人的每一句话都先打个折。"
+      }
+    },
+    "schedule_templates": {
+      "shop_hours": [
+        {
+          "time": "清晨",
+          "activity": "开店"
+        },
+        {
+          "time": "正午",
+          "activity": "招呼客人"
+        },
+        {
+          "time": "午后",
+          "activity": "招呼客人"
+        },
+        {
+          "time": "傍晚",
+          "activity": "清点当天的铜钱"
+        },
+        {
+          "time": "夜里",
+          "activity": "睡觉"
+        }
+      ],
+      "guild_hours": [
+        {
+          "time": "清晨",
+          "activity": "整理任务板"
+        },
+        {
+          "time": "正午",
+          "activity": "应付冒险者"
+        },
+        {
+          "time": "午后",
+          "activity": "应付冒险者"
+        },
+        {
+          "time": "傍晚",
+          "activity": "一个人喝酒"
+        },
+        {
+          "time": "夜里",
+          "activity": "睡觉"
+        }
+      ],
+      "home_based": [
+        {
+          "time": "清晨",
+          "activity": "做家务"
+        },
+        {
+          "time": "正午",
+          "activity": "待在家里"
+        },
+        {
+          "time": "午后",
+          "activity": "待在家里"
+        },
+        {
+          "time": "傍晚",
+          "activity": "待在家里"
+        },
+        {
+          "time": "夜里",
+          "activity": "睡觉"
+        }
+      ],
+      "patrol": [
+        {
+          "time": "清晨",
+          "activity": "巡城墙"
+        },
+        {
+          "time": "正午",
+          "activity": "巡道"
+        },
+        {
+          "time": "午后",
+          "activity": "巡道"
+        },
+        {
+          "time": "傍晚",
+          "activity": "回营报到"
+        },
+        {
+          "time": "夜里",
+          "activity": "守夜"
+        }
+      ],
+      "office_hours": [
+        {
+          "time": "清晨",
+          "activity": "听取陈情"
+        },
+        {
+          "time": "正午",
+          "activity": "批阅文书"
+        },
+        {
+          "time": "午后",
+          "activity": "会见官员"
+        },
+        {
+          "time": "傍晚",
+          "activity": "用饭"
+        },
+        {
+          "time": "夜里",
+          "activity": "睡觉"
+        }
+      ],
+      "wander": [
+        {
+          "time": "清晨",
+          "activity": "哪里有兴致就往哪去"
+        },
+        {
+          "time": "正午",
+          "activity": "哪里有兴致就往哪去"
+        },
+        {
+          "time": "午后",
+          "activity": "哪里有兴致就往哪去"
+        },
+        {
+          "time": "傍晚",
+          "activity": "有乐声的地方"
+        },
+        {
+          "time": "夜里",
+          "activity": "不见踪影"
+        }
+      ],
+      "outdoors": [
+        {
+          "time": "清晨",
+          "activity": "查陷阱、看足迹"
+        },
+        {
+          "time": "正午",
+          "activity": "在城外巡猎"
+        },
+        {
+          "time": "午后",
+          "activity": "在城外巡猎"
+        },
+        {
+          "time": "傍晚",
+          "activity": "处理当天的猎物"
+        },
+        {
+          "time": "夜里",
+          "activity": "在营地"
+        }
+      ],
+      "follow_player": [
+        {
+          "time": "清晨",
+          "activity": "跟着同行"
+        },
+        {
+          "time": "正午",
+          "activity": "跟着同行"
+        },
+        {
+          "time": "午后",
+          "activity": "跟着同行"
+        },
+        {
+          "time": "傍晚",
+          "activity": "围着同一堆火"
+        },
+        {
+          "time": "夜里",
+          "activity": "守第一班"
+        }
+      ]
+    },
+    "life_events": [
+      "{name}收到了家里的来信，看起来心事重重。",
+      "{name}今天帮了一个陌生人，心情不错。",
+      "{name}病了几天，脸上还带着倦色。",
+      "{name}和邻里吵了一架，说话比平时冲。",
+      "{name}在集市上买到便宜货，见人就炫耀。",
+      "{name}的货被雨淋了，一脸阴沉。",
+      "{name}最近常往城外跑，回来时身上带着土。"
+    ],
+    "name_pools": {
+      "_desc": "中文人名池。generate_npc_name 优先用这里；音节池只作为兜底。",
+      "male": [
+        "阿尔文",
+        "布兰",
+        "科恩",
+        "德里克",
+        "埃德",
+        "芬恩",
+        "盖尔",
+        "哈尔",
+        "伊沃",
+        "约恩",
+        "凯尔",
+        "罗兰",
+        "马伦",
+        "奈恩",
+        "奥兰",
+        "派克",
+        "昆廷",
+        "罗斯",
+        "萨恩",
+        "托林",
+        "乌尔",
+        "瓦尔",
+        "温德",
+        "约里克",
+        "赞恩"
+      ],
+      "female": [
+        "艾拉",
+        "贝拉",
+        "柯拉",
+        "黛拉",
+        "伊芙",
+        "菲奥娜",
+        "格蕾",
+        "海伦",
+        "伊莎",
+        "茱恩",
+        "凯特",
+        "莉娜",
+        "米拉",
+        "奈拉",
+        "奥莉",
+        "佩拉",
+        "琪拉",
+        "瑞娜",
+        "塞拉",
+        "塔拉",
+        "薇拉",
+        "温妮",
+        "雪莉",
+        "伊莲",
+        "泽娜"
+      ],
+      "family": [
+        "灰石",
+        "黑木",
+        "冷泉",
+        "晨星",
+        "余烬",
+        "白桦",
+        "荆棘",
+        "铁砧",
+        "橡盾",
+        "月谷",
+        "北风",
+        "乌鸦",
+        "银溪",
+        "石楠",
+        "西岭",
+        "狼耳",
+        "风谷",
+        "格林姆",
+        "夜鸦",
+        "霜原"
+      ]
+    }
+  },
+  "quest_features": [
+    "身上有一道旧疤",
+    "一只眼睛浑浊发白",
+    "毛皮颜色比同类深得多",
+    "角断了一截",
+    "四肢缠着破布条",
+    "颈上挂着铁片",
+    "行动时几乎没有声音",
+    "身上有烧焦的气味",
+    "眼睛在暗处泛着光",
+    "走路一瘸一拐"
+  ],
+  "modifier_pool": {
+    "_desc": "怪物修饰词池。数值由脚本套用，名字由 GM 现编。",
+    "prefixes": [
+      {
+        "id": "prefix_big",
+        "kind": "prefix",
+        "name": "厚躯",
+        "cr_offset": 1,
+        "hp_mult": 1.4,
+        "power_mult": 1.2,
+        "desc_hint": "比同类壮一大圈"
+      },
+      {
+        "id": "prefix_lean",
+        "kind": "prefix",
+        "name": "筋瘦",
+        "cr_offset": 0,
+        "hp_mult": 0.7,
+        "power_mult": 1.35,
+        "speed_mult": 1.2,
+        "desc_hint": "瘦得只剩筋，快得反常"
+      },
+      {
+        "id": "prefix_old",
+        "kind": "prefix",
+        "name": "疤老",
+        "cr_offset": 1,
+        "hp_mult": 1.2,
+        "mit_mult": 1.3,
+        "desc_hint": "满身旧伤疤的老家伙"
+      },
+      {
+        "id": "prefix_tainted",
+        "kind": "prefix",
+        "name": "裂染",
+        "cr_offset": 1,
+        "hp_mult": 1.1,
+        "power_mult": 1.3,
+        "desc_hint": "被裂隙扭曲过"
+      },
+      {
+        "id": "prefix_rags",
+        "kind": "prefix",
+        "name": "荒饿",
+        "cr_offset": 0,
+        "hp_mult": 0.9,
+        "mit_mult": 0.8,
+        "desc_hint": "饿得皮包骨，从荒野里摸过来的"
+      }
+    ],
+    "suffixes": [
+      {
+        "id": "suffix_hunter",
+        "kind": "suffix",
+        "name": "成群",
+        "ability_add": "合围",
+        "desc_hint": "配合着围猎"
+      },
+      {
+        "id": "suffix_rage",
+        "kind": "suffix",
+        "name": "见血狂",
+        "power_mult": 1.25,
+        "mit_mult": 0.85,
+        "desc_hint": "一受伤就发狂"
+      },
+      {
+        "id": "suffix_carapace",
+        "kind": "suffix",
+        "name": "披甲",
+        "mit_mult": 1.5,
+        "speed_mult": 0.8,
+        "desc_hint": "覆甲而迟缓"
+      },
+      {
+        "id": "suffix_silent",
+        "kind": "suffix",
+        "name": "无声",
+        "ability_add": "伏击",
+        "desc_hint": "从看不见的一侧下手"
+      }
+    ]
+  },
+  "quest_features_note": "抽象特征。GM 把它挂到具体目标身上。",
+  "ability_slots": {
+    "skills": [
+      {
+        "id": "skill_offense",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 2,
+        "prereq": {
+          "level": 1,
+          "STR": 12
+        },
+        "effect_hint": "一击打出 1.5 倍力量，一场战斗一次",
+        "mechanic": {
+          "category": "attack_modifier",
+          "power_mult": 1.5,
+          "self_expose": 1,
+          "once_per_combat": true,
+          "kind": "active"
+        },
+        "name": "裂骨斩",
+        "description": "把全身重量压进一击，砸在骨节最脆的地方。"
+      },
+      {
+        "id": "skill_offense_greater",
+        "kind": "skill",
+        "tier": 2,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 5,
+          "STR": 14
+        },
+        "effect_hint": "一击打出 1.8 倍力量，一场战斗一次",
+        "mechanic": {
+          "category": "attack_modifier",
+          "power_mult": 1.8,
+          "self_expose": 1,
+          "once_per_combat": true,
+          "kind": "active"
+        },
+        "name": "碎骨式",
+        "description": "同一处伤口再砸一次，力道顺着旧裂往深处走。"
+      },
+      {
+        "id": "skill_defense",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 1,
+        "prereq": {
+          "level": 1
+        },
+        "effect_hint": "被动：格挡加成 +4，并可存 3 点行动力作护势",
+        "mechanic": {
+          "category": "defend_bonus",
+          "bonus": 4,
+          "guard_bank": 3,
+          "kind": "passive"
+        },
+        "name": "沉桩守",
+        "description": "脚步钉进地里，肩背一起收住，等着接。"
+      },
+      {
+        "id": "skill_reaction",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 3,
+          "DEX": 12
+        },
+        "effect_hint": "被动：成功格挡后，以半力反击",
+        "mechanic": {
+          "category": "defend_reaction",
+          "trigger": "after_defend",
+          "counter_power_mult": 0.5,
+          "kind": "passive"
+        },
+        "name": "回手",
+        "description": "架住的瞬间顺势拧腰，反击比对手快半分。"
+      },
+      {
+        "id": "skill_cleave",
+        "kind": "skill",
+        "tier": 2,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 5,
+          "STR": 14
+        },
+        "effect_hint": "一次攻击命中两个目标，各按 75% 力量结算",
+        "mechanic": {
+          "category": "multi_attack",
+          "targets": 2,
+          "power_mult_per_target": 0.75,
+          "kind": "active",
+          "max_targets": 2
+        },
+        "name": "横扫",
+        "description": "一刀带着弧线压过去，两个方向一起照顾。"
+      },
+      {
+        "id": "skill_whirlwind",
+        "kind": "skill",
+        "tier": 3,
+        "ap_cost": 4,
+        "prereq": {
+          "level": 8,
+          "STR": 16,
+          "DEX": 14
+        },
+        "effect_hint": "横扫所有敌人，各按 75% 力量结算",
+        "mechanic": {
+          "category": "multi_attack",
+          "targets": -1,
+          "power_mult_per_target": 0.75,
+          "kind": "active",
+          "max_targets": -1
+        },
+        "name": "旋斩",
+        "description": "整个人跟着刀势转一圈，谁也躲不开这圈。"
+      },
+      {
+        "id": "skill_evasion",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 1,
+          "DEX": 11
+        },
+        "effect_hint": "被动：闪避只花 1 点行动力（原本 2 点）",
+        "mechanic": {
+          "category": "action_cost_override",
+          "action": "dodge",
+          "new_cost": 1,
+          "kind": "passive"
+        },
+        "name": "轻身步",
+        "description": "闪身成了本能，脚下不用先想，人已经偏开了。"
+      },
+      {
+        "id": "skill_might",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 3
+        },
+        "effect_hint": "被动：力量永久 +2",
+        "mechanic": {
+          "category": "stat_modifier",
+          "stat": "STR",
+          "bonus": 2,
+          "kind": "passive"
+        },
+        "name": "铁筋",
+        "description": "日子久了，筋像被反复捶过的铁，越用越硬。"
+      },
+      {
+        "id": "skill_vitality",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 3,
+          "CON": 11
+        },
+        "effect_hint": "被动：最大生命永久 +5",
+        "mechanic": {
+          "category": "stat_modifier",
+          "stat": "max_hp",
+          "bonus": 5,
+          "kind": "passive"
+        },
+        "name": "厚血",
+        "description": "伤了能扛，血留得比别人慢。"
+      },
+      {
+        "id": "skill_double_cast",
+        "kind": "skill",
+        "tier": 2,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 6,
+          "INT": 14
+        },
+        "effect_hint": "被动：每回合可多施放一个法术，额外 +1 法力",
+        "mechanic": {
+          "category": "extra_action",
+          "action_type": "spell",
+          "extra_per_turn": 1,
+          "cost_penalty": 1,
+          "kind": "passive"
+        },
+        "name": "双诀",
+        "description": "两段咒在两手之间分开走，互不冲撞。"
+      },
+      {
+        "id": "skill_dual_wield",
+        "kind": "skill",
+        "tier": 2,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 5,
+          "DEX": 13
+        },
+        "effect_hint": "被动：副手补击，按 60% 力量追加伤害",
+        "mechanic": {
+          "category": "attack_bonus",
+          "bonus_type": "offhand_power",
+          "power_bonus": 3,
+          "kind": "passive",
+          "power_mult": 0.6
+        },
+        "name": "副手补击",
+        "description": "主手被挡住的空档，副手自己递上去。"
+      },
+      {
+        "id": "skill_sunder",
+        "kind": "skill",
+        "tier": 2,
+        "ap_cost": 2,
+        "prereq": {
+          "level": 4,
+          "STR": 13
+        },
+        "effect_hint": "削掉目标 2 点减伤，持续 3 回合",
+        "mechanic": {
+          "category": "debuff",
+          "effect": "mitigation_drain",
+          "amount": 2,
+          "duration": 3,
+          "kind": "active"
+        },
+        "name": "破甲",
+        "description": "不去砍人，先砍甲。甲一裂，后面的都好办。"
+      },
+      {
+        "id": "skill_second_wind",
+        "kind": "skill",
+        "tier": 2,
+        "ap_cost": 2,
+        "prereq": {
+          "level": 4,
+          "CON": 12
+        },
+        "effect_hint": "回复 10 点生命，一场战斗一次",
+        "mechanic": {
+          "category": "self_heal",
+          "heal_amount": 10,
+          "ap_cost": 2,
+          "kind": "active",
+          "once_per_combat": true
+        },
+        "name": "再起",
+        "description": "撑到眼前发黑时，硬从胸口挤出一口气。"
+      },
+      {
+        "id": "skill_insight",
+        "kind": "skill",
+        "tier": 1,
+        "ap_cost": 0,
+        "prereq": {
+          "level": 2,
+          "INT": 12
+        },
+        "effect_hint": "被动：战斗开始时看穿怪物的确切数值",
+        "mechanic": {
+          "category": "info_reveal",
+          "reveal": "enemy_stats",
+          "kind": "passive"
+        },
+        "name": "审敌",
+        "description": "交上手的第一眼，就知道对方能挨几下、能砍多深。"
+      }
+    ],
+    "spells": [
+      {
+        "id": "spell_damage_1",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 1,
+          "INT": 12
+        },
+        "effect_hint": "单体元素伤害",
+        "mechanic": {
+          "category": "damage",
+          "kind": "spell",
+          "power": 8
+        },
+        "name": "火舌术",
+        "description": "掌心里含着一线火，送出去就贴在对方身上烧。",
+        "power": 8
+      },
+      {
+        "id": "spell_damage_2",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 5,
+          "INT": 15
+        },
+        "effect_hint": "单体元素伤害，威力更高",
+        "mechanic": {
+          "category": "damage",
+          "kind": "spell",
+          "power": 15
+        },
+        "name": "炙焰术",
+        "description": "火在指间先被压扁，出手时才炸开。",
+        "power": 15
+      },
+      {
+        "id": "spell_damage_3",
+        "kind": "spell",
+        "tier": 3,
+        "sp_cost": 8,
+        "ap_cost": 4,
+        "prereq": {
+          "level": 9,
+          "INT": 18
+        },
+        "effect_hint": "单体元素伤害，毁灭级",
+        "mechanic": {
+          "category": "damage",
+          "kind": "spell",
+          "power": 30
+        },
+        "name": "焚野术",
+        "description": "念完最后一个字，身前那一整片都成了火的地界。",
+        "power": 30
+      },
+      {
+        "id": "spell_bolt_debuff_1",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 3,
+          "INT": 13
+        },
+        "effect_hint": "造成伤害，并从目标身上抽走 2 点行动力",
+        "mechanic": {
+          "category": "damage_debuff",
+          "kind": "spell",
+          "power": 6,
+          "debuff": {
+            "effect": "ap_drain",
+            "amount": 2,
+            "duration": 2
+          }
+        },
+        "name": "抽力刺",
+        "description": "刺痛只是开头，真正被拿走的是对方的力气。",
+        "power": 6
+      },
+      {
+        "id": "spell_bolt_debuff_2",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 7,
+          "INT": 16
+        },
+        "effect_hint": "造成伤害，并从目标身上抽走 3 点行动力",
+        "mechanic": {
+          "category": "damage_debuff",
+          "kind": "spell",
+          "power": 12,
+          "debuff": {
+            "effect": "ap_drain",
+            "amount": 3,
+            "duration": 3
+          }
+        },
+        "name": "夺势刺",
+        "description": "一道细光扎进去，对手连抬手都要多想一下。",
+        "power": 12
+      },
+      {
+        "id": "spell_heal_1",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 2,
+          "INT": 12,
+          "WIS": 12
+        },
+        "effect_hint": "回复少量生命",
+        "mechanic": {
+          "category": "heal",
+          "kind": "spell",
+          "heal_amount": 5
+        },
+        "name": "止血诀",
+        "description": "掌心贴住伤口，血慢慢就停了。",
+        "heal": 5
+      },
+      {
+        "id": "spell_heal_2",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 6,
+          "WIS": 15
+        },
+        "effect_hint": "回复较多生命",
+        "mechanic": {
+          "category": "heal",
+          "kind": "spell",
+          "heal_amount": 15
+        },
+        "name": "续骨诀",
+        "description": "骨头归位，肉自己长回去，疼是少不了的。",
+        "heal": 15
+      },
+      {
+        "id": "spell_heal_3",
+        "kind": "spell",
+        "tier": 3,
+        "sp_cost": 8,
+        "ap_cost": 4,
+        "prereq": {
+          "level": 10,
+          "WIS": 18
+        },
+        "effect_hint": "回复大量生命，并清除所有异常",
+        "mechanic": {
+          "category": "heal",
+          "kind": "spell",
+          "heal_amount": 40,
+          "clear_statuses": true
+        },
+        "name": "复生祷",
+        "description": "把命从边缘往回拽，代价是施术者自己也要虚脱。",
+        "heal": 40,
+        "clear_statuses": true
+      },
+      {
+        "id": "spell_ward_1",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 3,
+        "ap_cost": 2,
+        "prereq": {
+          "level": 3,
+          "INT": 12
+        },
+        "effect_hint": "护势 +5，持续 3 回合",
+        "mechanic": {
+          "category": "self_buff",
+          "kind": "spell",
+          "buff_stat": "guard",
+          "buff_amount": 5,
+          "duration": 3
+        },
+        "name": "薄护",
+        "description": "一层看不见的薄膜裹在身上，能挡几下。"
+      },
+      {
+        "id": "spell_ward_2",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 7,
+          "INT": 15
+        },
+        "effect_hint": "护势 +10，持续 3 回合",
+        "mechanic": {
+          "category": "self_buff",
+          "kind": "spell",
+          "buff_stat": "guard",
+          "buff_amount": 10,
+          "duration": 3
+        },
+        "name": "坚护",
+        "description": "薄膜压成硬壳，走起路来能听见它在响。"
+      },
+      {
+        "id": "spell_curse_1",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 4,
+          "INT": 13
+        },
+        "effect_hint": "使目标露出破绽：接下来受到的伤害 +50%",
+        "mechanic": {
+          "category": "debuff",
+          "kind": "spell",
+          "debuff": {
+            "effect": "exposed",
+            "duration": 2
+          }
+        },
+        "name": "露隙咒",
+        "description": "让对方身上的破绽亮起来，谁都能看见该往哪儿下手。"
+      },
+      {
+        "id": "spell_curse_2",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 8,
+          "INT": 16
+        },
+        "effect_hint": "每回合从目标身上抽走 2 点行动力，持续 3 回合",
+        "mechanic": {
+          "category": "debuff",
+          "kind": "spell",
+          "debuff": {
+            "effect": "ap_drain",
+            "amount": 2,
+            "duration": 3
+          }
+        },
+        "name": "缠滞咒",
+        "description": "缠住对方的气，每一动都要多费一分力。"
+      },
+      {
+        "id": "spell_light",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 2,
+        "ap_cost": 2,
+        "prereq": {
+          "level": 1,
+          "INT": 11
+        },
+        "effect_hint": "唤出光源",
+        "mechanic": {
+          "category": "utility",
+          "kind": "spell",
+          "utility_type": "light"
+        },
+        "name": "唤光",
+        "description": "把一点光叫到手里。不亮路，只亮眼前。"
+      },
+      {
+        "id": "spell_sense",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 4,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 5,
+          "INT": 14
+        },
+        "effect_hint": "感知气息与隐藏之物",
+        "mechanic": {
+          "category": "utility",
+          "kind": "spell",
+          "utility_type": "sense"
+        },
+        "name": "探息",
+        "description": "气息比眼睛老实，闭着眼也能知道那边有人。"
+      },
+      {
+        "id": "spell_teleport",
+        "kind": "spell",
+        "tier": 3,
+        "sp_cost": 8,
+        "ap_cost": 4,
+        "prereq": {
+          "level": 11,
+          "INT": 18
+        },
+        "effect_hint": "短距瞬移",
+        "mechanic": {
+          "category": "utility",
+          "kind": "spell",
+          "utility_type": "teleport"
+        },
+        "name": "挪形",
+        "description": "脚下这一步跨出去，落点不在原处。"
+      },
+      {
+        "id": "spell_rot_1",
+        "kind": "spell",
+        "tier": 1,
+        "sp_cost": 3,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 3,
+          "INT": 12
+        },
+        "effect_hint": "持续伤害：每回合 3 点，持续 3 回合",
+        "mechanic": {
+          "category": "dot",
+          "kind": "spell",
+          "power": 4,
+          "dot_effect": "hp_drain",
+          "dot_amount": 3,
+          "dot_duration": 3
+        },
+        "name": "腐缠",
+        "description": "伤口不愈合，反倒在里头慢慢烂。",
+        "power": 4
+      },
+      {
+        "id": "spell_rot_2",
+        "kind": "spell",
+        "tier": 2,
+        "sp_cost": 5,
+        "ap_cost": 3,
+        "prereq": {
+          "level": 7,
+          "INT": 15
+        },
+        "effect_hint": "持续伤害：每回合 5 点，持续 4 回合",
+        "mechanic": {
+          "category": "dot",
+          "kind": "spell",
+          "power": 8,
+          "dot_effect": "hp_drain",
+          "dot_amount": 5,
+          "dot_duration": 4
+        },
+        "name": "溃烂咒",
+        "description": "先烂的是皮，后面是筋，拖得越久越难收。",
+        "power": 8
+      }
+    ]
+  },
+  "regions": {
+    "forest": {
+      "monster_type_pool": [
+        "low",
+        "small",
+        "beast"
+      ]
+    },
+    "plains": {
+      "monster_type_pool": [
+        "low",
+        "beast",
+        "mid"
+      ]
+    },
+    "mountain": {
+      "monster_type_pool": [
+        "mid",
+        "flying",
+        "beast"
+      ]
+    },
+    "dungeon": {
+      "monster_type_pool": [
+        "low",
+        "mid",
+        "high"
+      ]
+    },
+    "swamp": {
+      "monster_type_pool": [
+        "small",
+        "mid",
+        "beast"
+      ]
+    },
+    "ruins": {
+      "monster_type_pool": [
+        "mid",
+        "high"
+      ]
+    },
+    "cavern": {
+      "monster_type_pool": [
+        "small",
+        "low",
+        "mid"
+      ]
+    },
+    "town": {
+      "monster_type_pool": []
+    },
+    "corrupted_land": {
+      "monster_type_pool": [
+        "high",
+        "flying"
+      ]
+    },
+    "volcanic": {
+      "monster_type_pool": [
+        "mid",
+        "high"
+      ]
+    }
+  }
+}

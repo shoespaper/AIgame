@@ -1,0 +1,117 @@
+package com.gameneko.aigame.content;
+
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/** Validates only the portion of static world content needed by initialization. */
+@Component
+public final class ClasspathContentCatalog implements ContentCatalog {
+    private static final Map<String, String> WORLD_RESOURCES = Map.of(
+            "isekai_grey", "classpath:world/isekai_grey/world_lore.json");
+    private final ObjectMapper objectMapper;
+    private final ResourceLoader resources;
+    private final Map<String, WorldDefinition> cache = new ConcurrentHashMap<>();
+
+    public ClasspathContentCatalog(ObjectMapper objectMapper, ResourceLoader resources) {
+        this.objectMapper = objectMapper;
+        this.resources = resources;
+    }
+
+    @Override
+    public WorldDefinition world(String worldId) {
+        if (worldId == null || worldId.isBlank()) {
+            throw new WorldContentException("worldId must not be blank");
+        }
+        if (!WORLD_RESOURCES.containsKey(worldId)) {
+            throw new WorldContentException("Unsupported world: " + worldId);
+        }
+        return cache.computeIfAbsent(worldId, this::load);
+    }
+
+    private WorldDefinition load(String worldId) {
+        try (InputStream stream = resources.getResource(WORLD_RESOURCES.get(worldId)).getInputStream();
+             JsonParser parser = objectMapper.getFactory().createParser(stream)) {
+            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+            JsonNode root = objectMapper.readTree(parser);
+            if (root == null || !root.isObject() || parser.nextToken() != null) {
+                throw invalid(worldId, "definition must contain one JSON object");
+            }
+            JsonNode metadata = object(root, "_meta", worldId);
+            if (!worldId.equals(text(metadata, "world_name", worldId))) {
+                throw invalid(worldId, "_meta.world_name does not match requested world");
+            }
+            String version = text(metadata, "version", worldId);
+            if (!"1.0".equals(version)) {
+                throw invalid(worldId, "unsupported content version: " + version);
+            }
+            JsonNode setting = object(root, "world_setting", worldId);
+            JsonNode adventure = object(object(root, "difficulty_presets", worldId), "adventure", worldId);
+            JsonNode interval = adventure.get("threat_interval");
+            if (interval == null || !interval.isIntegralNumber() || !interval.canConvertToLong()
+                    || interval.longValue() <= 0) {
+                throw invalid(worldId, "adventure.threat_interval must be a positive integer");
+            }
+            JsonNode monsterTypes = object(root, "monster_types", worldId);
+            JsonNode regions = object(root, "regions", worldId);
+            if (regions.isEmpty()) {
+                throw invalid(worldId, "regions must not be empty");
+            }
+            Map<String, List<String>> pools = new HashMap<>();
+            var fields = regions.fields();
+            while (fields.hasNext()) {
+                var field = fields.next();
+                if (field.getKey().isBlank() || !field.getValue().isObject()) {
+                    throw invalid(worldId, "invalid region: " + field.getKey());
+                }
+                JsonNode pool = field.getValue().get("monster_type_pool");
+                if (pool == null || !pool.isArray()) {
+                    throw invalid(worldId, "region monster_type_pool must be an array: " + field.getKey());
+                }
+                List<String> types = new ArrayList<>();
+                for (JsonNode type : pool) {
+                    if (!type.isTextual() || !monsterTypes.path(type.asText()).isObject()) {
+                        throw invalid(worldId, "unknown monster type in region: " + field.getKey());
+                    }
+                    types.add(type.asText());
+                }
+                // An empty town pool is valid in the Python template.
+                pools.put(field.getKey(), types);
+            }
+            return new WorldDefinition(worldId, version, text(setting, "world_name_hint", worldId),
+                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools);
+        } catch (IOException exception) {
+            throw new WorldContentException("Unable to read world definition: " + worldId, exception);
+        }
+    }
+
+    private static JsonNode object(JsonNode parent, String field, String worldId) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isObject()) {
+            throw invalid(worldId, field + " must be an object");
+        }
+        return value;
+    }
+
+    private static String text(JsonNode parent, String field, String worldId) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            throw invalid(worldId, field + " must be non-blank text");
+        }
+        return value.asText();
+    }
+
+    private static WorldContentException invalid(String worldId, String reason) {
+        return new WorldContentException("Invalid world definition " + worldId + ": " + reason);
+    }
+}

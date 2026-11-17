@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Thin HTTP adapter for save/load of the current world state. */
+/** Thin HTTP adapter for save/load of server-owned game instances. */
 @RestController
 @RequestMapping("/api/games")
 public final class GameSaveController {
@@ -29,9 +29,10 @@ public final class GameSaveController {
     public GameInstanceResponse initialize(@PathVariable String gameId,
                                            @RequestBody InitializeWorldHttpRequest request) {
         if (request == null) throw new IllegalArgumentException("Request body is required");
-        InitializeWorldRequest applicationRequest = new InitializeWorldRequest(
-                request.worldId(), request.name(), request.description(), request.location(), request.region(),
-                request.weather(), request.season(), request.time(), request.mainQuest(), request.originScene());
+        InitializeWorldRequest applicationRequest = new InitializeWorldRequest(request.worldId(), request.name(), request.description(),
+                request.location(), request.region(), request.weather(), request.season(), request.time(),
+                request.mainQuest(), request.originScene(), request.characterName(), request.age(), request.gender(),
+                request.archetype(), request.difficulty());
         var instance = instanceService.initialize(gameId, applicationRequest);
         saveService.save(instance);
         return GameInstanceResponse.from(instance);
@@ -39,9 +40,9 @@ public final class GameSaveController {
 
     @PostMapping("/{gameId}/save")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void save(@PathVariable String gameId, @RequestBody SaveWorldRequest request) {
+    public void save(@PathVariable String gameId, @RequestBody SaveGameRequest request) {
         if (request == null) throw new IllegalArgumentException("Request body is required");
-        saveService.save(gameId, request.toState());
+        saveService.checkpoint(gameId, request.expectedRevision());
     }
 
     @GetMapping("/{gameId}/save")

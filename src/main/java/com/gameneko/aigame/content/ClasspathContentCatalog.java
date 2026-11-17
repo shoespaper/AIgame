@@ -63,6 +63,26 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 throw invalid(worldId, "adventure.threat_interval must be a positive integer");
             }
             JsonNode monsterTypes = object(root, "monster_types", worldId);
+            Map<String, WorldDefinition.DifficultyDefinition> difficulties = new HashMap<>();
+            var difficultyFields = object(root, "difficulty_presets", worldId).fields();
+            while (difficultyFields.hasNext()) {
+                var field = difficultyFields.next();
+                JsonNode value = field.getValue();
+                difficulties.put(field.getKey(), new WorldDefinition.DifficultyDefinition(
+                        positive(value, "threat_interval", worldId),
+                        nonNegative(value, "starting_copper", worldId),
+                        nonNegative(value, "starting_rations", worldId),
+                        nonNegative(value, "starting_potions", worldId),
+                        text(value, "label", worldId), text(value, "desc_hint", worldId)));
+            }
+            Map<String, WorldDefinition.TalentDefinition> talents = new HashMap<>();
+            JsonNode talentRoot = object(root, "talent_types", worldId);
+            var talentFields = talentRoot.fields();
+            while (talentFields.hasNext()) {
+                var field = talentFields.next();
+                talents.put(field.getKey(), new WorldDefinition.TalentDefinition(
+                        text(field.getValue(), "name", worldId), text(field.getValue(), "description", worldId)));
+            }
             JsonNode regions = object(root, "regions", worldId);
             if (regions.isEmpty()) {
                 throw invalid(worldId, "regions must not be empty");
@@ -89,7 +109,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 pools.put(field.getKey(), types);
             }
             return new WorldDefinition(worldId, version, text(setting, "world_name_hint", worldId),
-                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools);
+                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools, difficulties, talents);
         } catch (IOException exception) {
             throw new WorldContentException("Unable to read world definition: " + worldId, exception);
         }
@@ -109,6 +129,26 @@ public final class ClasspathContentCatalog implements ContentCatalog {
             throw invalid(worldId, field + " must be non-blank text");
         }
         return value.asText();
+    }
+
+    private static long positive(JsonNode parent, String field, String worldId) {
+        long value = integer(parent, field, worldId);
+        if (value <= 0) throw invalid(worldId, field + " must be positive");
+        return value;
+    }
+
+    private static long nonNegative(JsonNode parent, String field, String worldId) {
+        long value = integer(parent, field, worldId);
+        if (value < 0) throw invalid(worldId, field + " must not be negative");
+        return value;
+    }
+
+    private static long integer(JsonNode parent, String field, String worldId) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isIntegralNumber() || !value.canConvertToLong()) {
+            throw invalid(worldId, field + " must be an integer");
+        }
+        return value.longValue();
     }
 
     private static WorldContentException invalid(String worldId, String reason) {

@@ -34,14 +34,14 @@ class AIgameApplicationTests {
         mockMvc.perform(post("/api/worlds/initialize")
                         .contentType(APPLICATION_JSON)
                         .content("""
-                                {"worldId":"isekai_grey","name":"\u7070\u70ec\u754c",
-                                 "location":"\u767d\u680e\u9547","region":"forest","time":"\u9ec4\u660f"}
+                                {"worldId":"isekai_grey","name":"灰烬界",
+                                 "location":"白栎镇","region":"forest","time":"黄昏"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.worldId").value("isekai_grey"))
                 .andExpect(jsonPath("$.contentVersion").value("1.0"))
                 .andExpect(jsonPath("$.day").value(1))
-                .andExpect(jsonPath("$.time").value("\u9ec4\u660f"))
+                .andExpect(jsonPath("$.time").value("黄昏"))
                 .andExpect(jsonPath("$.currentRegion").value("forest"))
                 .andExpect(jsonPath("$.threatLevel").value("Dormant"));
     }
@@ -66,20 +66,50 @@ class AIgameApplicationTests {
 
     @Test
     void savesAndLoadsWorldStateThroughApi() throws Exception {
-        String body = """
-                {"worldId":"isekai_grey","contentVersion":"1.0","revision":0,
-                 "day":1,"time":"\u6e05\u6668","threatLevel":"Dormant","threatInterval":7,
-                 "flags":{},"threatHistory":[],"timedEvents":[],"incidentalEvents":[],
-                 "mainPlotStages":[],"priceModifiers":{},"originScene":""}
-                """;
+        mockMvc.perform(post("/api/games/api-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\",\"region\":\"forest\"}"))
+                .andExpect(status().isOk());
+
         mockMvc.perform(post("/api/games/api-test/save")
-                        .contentType(APPLICATION_JSON).content(body))
+                        .contentType(APPLICATION_JSON).content("{\"expectedRevision\":0}"))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/games/api-test/save"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.worldId").value("isekai_grey"))
                 .andExpect(jsonPath("$.day").value(1));
+    }
+
+    @Test
+    void saveEndpointDoesNotAcceptStatePatchFields() throws Exception {
+        mockMvc.perform(post("/api/games/protected/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/protected/save")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":0,\"worldId\":\"forged\"}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/games/protected/save"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.worldId").value("isekai_grey"));
+    }
+
+    @Test
+    void saveEndpointRejectsStaleRevision() throws Exception {
+        mockMvc.perform(post("/api/games/stale/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/stale/save")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Revision mismatch: expected 1, current 0"));
     }
 
     @Test
@@ -90,7 +120,7 @@ class AIgameApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.gameId").value("instance-test"))
                 .andExpect(jsonPath("$.rulesetId").value("ap"))
-                .andExpect(jsonPath("$.rulesetVersion").value("baseline"))
+                .andExpect(jsonPath("$.rulesetVersion").value("baseline-1"))
                 .andExpect(jsonPath("$.lifecycle").value("INITIALIZED"))
                 .andExpect(jsonPath("$.world.worldId").value("isekai_grey"));
 

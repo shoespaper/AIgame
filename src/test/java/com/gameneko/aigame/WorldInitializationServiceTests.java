@@ -27,7 +27,7 @@ class WorldInitializationServiceTests {
         assertEquals("1.0", state.contentVersion());
         assertEquals(0, state.revision());
         assertEquals(1, state.day());
-        assertEquals("\u6e05\u6668", state.time());
+        assertEquals("清晨", state.time());
         assertEquals("Dormant", state.threatLevel());
         assertEquals(7, state.threatInterval());
         assertEquals("", state.originScene());
@@ -52,7 +52,7 @@ class WorldInitializationServiceTests {
 
     @Test
     void preservesAnExplicitOriginScene() {
-        String origin = "  \u767d\u680e\u9547 ";
+        String origin = "  白栎镇 ";
         assertEquals(origin, service.initialize("isekai_grey", origin).originScene());
     }
 
@@ -64,23 +64,23 @@ class WorldInitializationServiceTests {
     @Test
     void appliesWorldOverridesWithoutInterpretingNarrativeTextAsEnums() {
         WorldState state = service.initialize(new InitializeWorldRequest("isekai_grey",
-                "\u7070\u70ec\u754c", "\u5927\u9646", "\u5e7d\u7bc1\u53e4\u9053", "forest",
-                "\u9634", "\u79cb", "\u8fb0\u65f6", "\u5bfb\u627e\u88c2\u9699", "\u672c\u5730\u730e\u6237"));
-        assertEquals("\u7070\u70ec\u754c", state.setting());
-        assertEquals("\u5927\u9646", state.settingDescription());
-        assertEquals("\u5e7d\u7bc1\u53e4\u9053", state.location());
+                "灰烬界", "大陆", "幽篁古道", "forest",
+                "阴", "秋", "辰时", "寻找裂隙", "本地猎户"));
+        assertEquals("灰烬界", state.setting());
+        assertEquals("大陆", state.settingDescription());
+        assertEquals("幽篁古道", state.location());
         assertEquals("forest", state.currentRegion());
-        assertEquals("\u9634", state.weather());
-        assertEquals("\u79cb", state.season());
-        assertEquals("\u8fb0\u65f6", state.time());
-        assertEquals("\u5bfb\u627e\u88c2\u9699", state.mainQuest());
-        assertEquals("\u672c\u5730\u730e\u6237", state.originScene());
+        assertEquals("阴", state.weather());
+        assertEquals("秋", state.season());
+        assertEquals("辰时", state.time());
+        assertEquals("寻找裂隙", state.mainQuest());
+        assertEquals("本地猎户", state.originScene());
         assertNull(service.initialize("isekai_grey").location());
     }
 
     @Test
     void rejectsUnknownRegionsInsteadOfAcceptingPlaceNamesAsRegionIds() {
         assertThrows(IllegalArgumentException.class, () -> service.initialize(new InitializeWorldRequest(
-                "isekai_grey", null, null, null, "\u5e7d\u7bc1\u53e4\u9053", null, null, null, null, null)));
+                "isekai_grey", null, null, null, "幽篁古道", null, null, null, null, null)));
     }
 }

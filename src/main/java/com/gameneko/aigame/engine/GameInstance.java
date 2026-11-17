@@ -28,7 +28,14 @@ public record GameInstance<S extends GameState>(
 
     public static GameInstance<GameState> initialized(String gameId, WorldState worldState) {
         return new GameInstance<>(gameId, worldState.worldId(), worldState.contentVersion(),
-                "ap", "baseline", Lifecycle.INITIALIZED, worldState.revision(), worldState, null);
+                "ap", "baseline-1", Lifecycle.INITIALIZED, worldState.revision(), worldState, null);
+    }
+
+    public static <S extends GameState> GameInstance<S> initialized(String gameId, WorldState worldState,
+                                                                     String rulesetId, String rulesetVersion,
+                                                                     S rulesetState) {
+        return new GameInstance<>(gameId, worldState.worldId(), worldState.contentVersion(), rulesetId,
+                rulesetVersion, Lifecycle.INITIALIZED, worldState.revision(), worldState, rulesetState);
     }
 
     private static void requireText(String value, String field) {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
+import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -43,8 +44,14 @@ public final class FileGameRepository implements GameRepository {
         try {
             JsonNode envelope = objectMapper.readTree(Files.readString(path));
             validateEnvelope(envelope, gameId);
-            return Optional.of(objectMapper.treeToValue(envelope.get("state"),
-                    objectMapper.getTypeFactory().constructParametricType(GameInstance.class, WorldState.class)));
+            JsonNode state = envelope.get("state");
+            String rulesetId = state.path("rulesetId").asText();
+            Class<?> rulesetStateType = switch (rulesetId) {
+                case "ap" -> ApRulesetRuntime.ApState.class;
+                default -> throw new GamePersistenceException("Unsupported ruleset in save: " + rulesetId);
+            };
+            return Optional.of(objectMapper.treeToValue(state,
+                    objectMapper.getTypeFactory().constructParametricType(GameInstance.class, rulesetStateType)));
         } catch (IOException | RuntimeException exception) {
             if (exception instanceof GamePersistenceException persistenceException) throw persistenceException;
             throw new GamePersistenceException("Unable to read save: " + gameId, exception);

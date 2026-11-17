@@ -24,7 +24,7 @@ public final class WorldInitializationService {
 
     public WorldState initialize(String worldId, String originScene) {
         return initialize(new InitializeWorldRequest(worldId, null, null, null, null,
-                null, null, null, null, originScene));
+                null, null, null, null, originScene, "旅人", 16, "未定", "swordsman", "adventure"));
     }
 
     public WorldState initialize(InitializeWorldRequest request) {
@@ -35,7 +35,7 @@ public final class WorldInitializationService {
         }
         return new WorldState(definition.worldId(), definition.contentVersion(), 0,
                 request.name(), request.description(), request.location(), request.region(), request.mainQuest(),
-                1, request.time() == null ? "\u6e05\u6668" : request.time(), request.season(), request.weather(), Map.of(),
+                1, request.time() == null ? "清晨" : request.time(), request.season(), request.weather(), Map.of(),
                 "Dormant", 0, definition.defaultThreatInterval(), List.of(), List.of(), List.of(),
                 0, false, 0, List.of(), Map.of(), request.originScene() == null ? "" : request.originScene());
     }

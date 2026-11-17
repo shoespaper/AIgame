@@ -2,7 +2,6 @@ package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.engine.GameInstance;
-import com.gameneko.aigame.engine.WorldState;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -12,11 +11,16 @@ import java.util.Objects;
 public final class GameSaveService {
     private final GameRepository repository;
     public GameSaveService(GameRepository repository) { this.repository = repository; }
-    public void save(String gameId, WorldState state) {
-        repository.save(GameInstance.initialized(gameId, Objects.requireNonNull(state, "state")));
-    }
     public void save(GameInstance<?> instance) {
         repository.save(Objects.requireNonNull(instance, "instance"));
+    }
+    public void checkpoint(String gameId, long expectedRevision) {
+        GameInstance<?> instance = load(gameId);
+        if (expectedRevision != instance.revision()) {
+            throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision
+                    + ", current " + instance.revision());
+        }
+        repository.save(instance);
     }
     public GameInstance<?> load(String gameId) {
         return repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));

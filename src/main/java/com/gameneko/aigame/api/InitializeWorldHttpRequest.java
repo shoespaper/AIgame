@@ -11,6 +11,11 @@ public record InitializeWorldHttpRequest(
         String season,
         String time,
         String mainQuest,
-        String originScene
+        String originScene,
+        String characterName,
+        Integer age,
+        String gender,
+        String archetype,
+        String difficulty
 ) {
 }

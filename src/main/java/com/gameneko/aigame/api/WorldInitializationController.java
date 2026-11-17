@@ -27,7 +27,8 @@ public final class WorldInitializationController {
         }
         InitializeWorldRequest applicationRequest = new InitializeWorldRequest(
                 request.worldId(), request.name(), request.description(), request.location(), request.region(),
-                request.weather(), request.season(), request.time(), request.mainQuest(), request.originScene());
+                request.weather(), request.season(), request.time(), request.mainQuest(), request.originScene(),
+                request.characterName(), request.age(), request.gender(), request.archetype(), request.difficulty());
         return WorldInitializationResponse.from(initializationService.initialize(applicationRequest));
     }
 }

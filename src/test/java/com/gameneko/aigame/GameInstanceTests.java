@@ -8,22 +8,24 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class GameInstanceTests {
     @Test
     void createsInitializedGameEnvelope() {
-        var worldService = new WorldInitializationService(
-                new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader()));
-        var instance = new GameInstanceService(worldService).initialize(
+        var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
+        var worldService = new WorldInitializationService(catalog);
+        var instance = new GameInstanceService(worldService, catalog).initialize(
                 "demo", com.gameneko.aigame.application.InitializeWorldRequest.defaults("isekai_grey"));
 
         assertEquals("demo", instance.gameId());
         assertEquals("isekai_grey", instance.worldId());
         assertEquals("ap", instance.rulesetId());
-        assertEquals("baseline", instance.rulesetVersion());
+        assertEquals("baseline-1", instance.rulesetVersion());
         assertEquals(com.gameneko.aigame.engine.GameInstance.Lifecycle.INITIALIZED, instance.lifecycle());
         assertEquals(0, instance.revision());
-        assertNull(instance.rulesetState());
+        assertNotNull(instance.rulesetState());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                instance.rulesetState() instanceof com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ApState);
     }
 }

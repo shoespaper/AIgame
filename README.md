@@ -11,6 +11,7 @@ AIgame 是一个面向单人 AI 角色扮演游戏的模块化单体项目。应
 - [系统架构](docs/ARCHITECTURE.md)
 - [迁移决策](docs/MIGRATION_DECISIONS.md)
 - [世界初始化需求](docs/WORLD_INITIALIZATION_REQUIREMENTS.md)
+- [AP 规则集迁移设计](docs/AP_MIGRATION_REQUIREMENTS.md)
 
 ## 技术与边界
 
@@ -83,5 +84,6 @@ D:\diceframe
 - [x] 增加存档格式版本、损坏存档错误处理和显式存档目录配置。
 - [x] 增加当前世界状态的保存/读取应用服务与 API，并测试 round-trip 和非法存档。
 - [x] 建立 `GameInstance` 存档外壳，包含游戏、世界、规则集版本和生命周期字段。
+- [x] 收紧保存入口：公开保存 API 只接受 `expectedRevision`，服务端从已有实例创建 checkpoint。
 - [ ] 将 `GameInstance` 扩展为包含角色状态和 AP 规则集状态。
 - [ ] 在存档读档稳定后，再评估是否需要规则计算复核或更完整的调试回放能力。

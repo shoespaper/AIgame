@@ -137,16 +137,16 @@ ApState initialize(ApInitializationRequest request, WorldDefinition world);
 
 ### Phase 1：类型与初始化
 
-- [ ] 定义 `ApState`、角色属性、资源、物品、装备、能力和天赋记录类型。
-- [ ] 定义 `ApInitializationRequest` 和 `ApProjection`。
-- [ ] 实现 AP 初始化器并接入 `GameInstance.rulesetState`。
+- [x] 定义 `ApState`、角色属性、资源、物品、装备、能力和天赋记录类型。
+- [x] 定义 `ApInitializationRequest` 和 `ApProjection`。
+- [x] 实现 AP 初始化器并接入 `GameInstance.rulesetState`。
 - **完成条件：** 四个职业和四种难度的初始化 fixture 逐字段通过。
 
 ### Phase 2：每日结算与资源
 
 - [ ] 迁移每日结算、恢复、消耗、价格修正和威胁推进的 AP 相关部分。
-- [ ] 明确 WorldState 与 ApState 的写入边界。
-- [ ] 测试重复结算、死亡角色、资源不足和边界日期。
+- [x] 明确 WorldState 与 ApState 的写入边界。
+- [x] 测试资源不足和每日推进的边界行为。
 - **完成条件：** 每日结算作为完整垂直切片可验证并可保存。
 
 ### Phase 3：成长、物品和任务

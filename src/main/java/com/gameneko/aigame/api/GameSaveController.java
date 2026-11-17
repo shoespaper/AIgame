@@ -1,6 +1,7 @@
 package com.gameneko.aigame.api;
 
 import com.gameneko.aigame.application.GameSaveService;
+import com.gameneko.aigame.application.GameActionService;
 import com.gameneko.aigame.application.GameInstanceService;
 import com.gameneko.aigame.application.InitializeWorldRequest;
 import com.gameneko.aigame.engine.GameInstance;
@@ -19,10 +20,13 @@ import org.springframework.web.bind.annotation.RestController;
 public final class GameSaveController {
     private final GameSaveService saveService;
     private final GameInstanceService instanceService;
+    private final GameActionService actionService;
 
-    public GameSaveController(GameSaveService saveService, GameInstanceService instanceService) {
+    public GameSaveController(GameSaveService saveService, GameInstanceService instanceService,
+                              GameActionService actionService) {
         this.saveService = saveService;
         this.instanceService = instanceService;
+        this.actionService = actionService;
     }
 
     @PostMapping("/{gameId}/initialize")
@@ -43,6 +47,19 @@ public final class GameSaveController {
     public void save(@PathVariable String gameId, @RequestBody SaveGameRequest request) {
         if (request == null) throw new IllegalArgumentException("Request body is required");
         saveService.checkpoint(gameId, request.expectedRevision());
+    }
+
+    @PostMapping("/{gameId}/actions")
+    public GameInstanceResponse action(@PathVariable String gameId, @RequestBody GameActionRequest request) {
+        if (request == null || request.type() == null) throw new IllegalArgumentException("Action type is required");
+        var action = switch (request.type().trim().toLowerCase()) {
+            case "rest" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.Rest();
+            case "consume_ration" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ConsumeRation();
+            case "use_potion" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.UsePotion();
+            case "advance_day" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.AdvanceDay();
+            default -> throw new IllegalArgumentException("Unsupported AP action: " + request.type());
+        };
+        return GameInstanceResponse.from(actionService.apply(gameId, request.expectedRevision(), action));
     }
 
     @GetMapping("/{gameId}/save")

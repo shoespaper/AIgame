@@ -82,4 +82,21 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.day").value(1));
     }
 
+    @Test
+    void initializesAndPersistsCompleteGameInstance() throws Exception {
+        mockMvc.perform(post("/api/games/instance-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\",\"region\":\"forest\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gameId").value("instance-test"))
+                .andExpect(jsonPath("$.rulesetId").value("ap"))
+                .andExpect(jsonPath("$.rulesetVersion").value("baseline"))
+                .andExpect(jsonPath("$.lifecycle").value("INITIALIZED"))
+                .andExpect(jsonPath("$.world.worldId").value("isekai_grey"));
+
+        mockMvc.perform(get("/api/games/instance-test/save"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.worldId").value("isekai_grey"));
+    }
+
 }

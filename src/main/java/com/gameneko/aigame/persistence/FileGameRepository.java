@@ -3,7 +3,7 @@ package com.gameneko.aigame.persistence;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.application.port.GameRepository;
-import com.gameneko.aigame.engine.GameState;
+import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,13 +37,14 @@ public final class FileGameRepository implements GameRepository {
     }
 
     @Override
-    public Optional<GameState> load(String gameId) {
+    public Optional<GameInstance<?>> load(String gameId) {
         Path path = savePath(gameId);
         if (!Files.exists(path)) return Optional.empty();
         try {
             JsonNode envelope = objectMapper.readTree(Files.readString(path));
             validateEnvelope(envelope, gameId);
-            return Optional.of(objectMapper.treeToValue(envelope.get("state"), WorldState.class));
+            return Optional.of(objectMapper.treeToValue(envelope.get("state"),
+                    objectMapper.getTypeFactory().constructParametricType(GameInstance.class, WorldState.class)));
         } catch (IOException | RuntimeException exception) {
             if (exception instanceof GamePersistenceException persistenceException) throw persistenceException;
             throw new GamePersistenceException("Unable to read save: " + gameId, exception);
@@ -51,19 +52,16 @@ public final class FileGameRepository implements GameRepository {
     }
 
     @Override
-    public void save(String gameId, GameState state) {
-        if (!(state instanceof WorldState worldState)) {
-            throw new GamePersistenceException("Unsupported game state type: "
-                    + (state == null ? "null" : state.getClass().getName()));
-        }
-        Path path = savePath(gameId);
+    public void save(GameInstance<?> instance) {
+        if (instance == null) throw new IllegalArgumentException("game instance must not be null");
+        Path path = savePath(instance.gameId());
         try {
             Files.createDirectories(saveRoot);
-            Path temporary = Files.createTempFile(saveRoot, "." + gameId + ".", ".tmp");
+            Path temporary = Files.createTempFile(saveRoot, "." + instance.gameId() + ".", ".tmp");
             var envelope = objectMapper.createObjectNode();
             envelope.put("schemaVersion", SCHEMA_VERSION);
-            envelope.put("gameId", gameId);
-            envelope.set("state", objectMapper.valueToTree(worldState));
+            envelope.put("gameId", instance.gameId());
+            envelope.set("state", objectMapper.valueToTree(instance));
             Files.writeString(temporary, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(envelope),
                     StandardOpenOption.TRUNCATE_EXISTING);
             try {
@@ -72,7 +70,7 @@ public final class FileGameRepository implements GameRepository {
                 Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to write save: " + gameId, exception);
+            throw new GamePersistenceException("Unable to write save: " + instance.gameId(), exception);
         }
     }
 

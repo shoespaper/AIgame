@@ -1,6 +1,7 @@
 package com.gameneko.aigame;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
 import com.gameneko.aigame.persistence.FileGameRepository;
 import com.gameneko.aigame.persistence.GamePersistenceException;
@@ -20,13 +21,19 @@ class FileGameRepositoryTests {
     Path saveRoot;
 
     @Test
-    void savesAndLoadsWorldState() {
+    void savesAndLoadsGameInstance() {
         FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot);
         WorldState state = state();
+        GameInstance<?> instance = GameInstance.initialized("demo", state);
 
-        repository.save("demo", state);
+        repository.save(instance);
 
-        assertEquals(state, repository.load("demo").orElseThrow());
+        GameInstance<?> loaded = repository.load("demo").orElseThrow();
+        assertEquals(instance.gameId(), loaded.gameId());
+        assertEquals(instance.worldId(), loaded.worldId());
+        assertEquals(instance.rulesetId(), loaded.rulesetId());
+        assertEquals(instance.lifecycle(), loaded.lifecycle());
+        assertEquals(state, loaded.worldState());
         assertTrue(Files.exists(saveRoot.resolve("demo.json")));
     }
 
@@ -47,9 +54,9 @@ class FileGameRepositoryTests {
     }
 
     private static WorldState state() {
-        return new WorldState("isekai_grey", "1.0", 0, "灰烬界", null, "白栎镇", "forest",
-                null, 1, "清晨", null, null, Map.of(), "Dormant", 0, 7,
-                java.util.List.of(), java.util.List.of(), java.util.List.of(), 0, false, 0,
-                java.util.List.of(), Map.of(), "");
+        return new WorldState("isekai_grey", "1.0", 0, "\u7070\u70ec\u754c", null,
+                "\u767d\u680e\u9547", "forest", null, 1, "\u6e05\u6668", null, null,
+                Map.of(), "Dormant", 0, 7, java.util.List.of(), java.util.List.of(),
+                java.util.List.of(), 0, false, 0, java.util.List.of(), Map.of(), "");
     }
 }

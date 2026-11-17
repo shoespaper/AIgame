@@ -12,7 +12,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = "aigame.persistence.root=${java.io.tmpdir}/aigame-tests")
 @AutoConfigureMockMvc
 class AIgameApplicationTests {
     @Autowired
@@ -62,6 +62,24 @@ class AIgameApplicationTests {
                         .content("{bad-json"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Request body must be valid JSON"));
+    }
+
+    @Test
+    void savesAndLoadsWorldStateThroughApi() throws Exception {
+        String body = """
+                {"worldId":"isekai_grey","contentVersion":"1.0","revision":0,
+                 "day":1,"time":"\u6e05\u6668","threatLevel":"Dormant","threatInterval":7,
+                 "flags":{},"threatHistory":[],"timedEvents":[],"incidentalEvents":[],
+                 "mainPlotStages":[],"priceModifiers":{},"originScene":""}
+                """;
+        mockMvc.perform(post("/api/games/api-test/save")
+                        .contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/games/api-test/save"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.worldId").value("isekai_grey"))
+                .andExpect(jsonPath("$.day").value(1));
     }
 
 }

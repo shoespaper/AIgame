@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import com.gameneko.aigame.persistence.GamePersistenceException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -22,6 +23,12 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleUnreadableMessage() {
         return new ErrorResponse("Request body must be valid JSON");
+    }
+
+    @ExceptionHandler(GamePersistenceException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public ErrorResponse handlePersistenceError(GamePersistenceException exception) {
+        return new ErrorResponse(exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

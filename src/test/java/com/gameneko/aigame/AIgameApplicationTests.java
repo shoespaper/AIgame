@@ -157,4 +157,42 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.rulesetState.resources.rations").value(2));
     }
 
+    @Test
+    void experienceActionEndpointPersistsLevelUp() throws Exception {
+        mockMvc.perform(post("/api/games/xp-api-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/xp-api-test/actions")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":0,\"type\":\"grant_experience\",\"amount\":100}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1))
+                .andExpect(jsonPath("$.rulesetState.level").value(2))
+                .andExpect(jsonPath("$.rulesetState.xp").value(0))
+                .andExpect(jsonPath("$.rulesetState.xpToNext").value(200));
+    }
+
+    @Test
+    void phaseThreeActionsUseTypedPayloads() throws Exception {
+        mockMvc.perform(post("/api/games/phase3-api-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/phase3-api-test/actions")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":0,\"type\":\"learn_ability\",\"abilityId\":\"skill_offense\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rulesetState.skills[0].id").value("skill_offense"));
+
+        mockMvc.perform(post("/api/games/phase3-api-test/actions")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":1,\"type\":\"claim_quest_reward\",\"questId\":\"q1\",\"xp\":20,\"copper\":5,\"rations\":1,\"potions\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(2))
+                .andExpect(jsonPath("$.rulesetState.resources.copper").value(20));
+    }
+
 }

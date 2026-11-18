@@ -84,6 +84,34 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 talents.put(field.getKey(), new WorldDefinition.TalentDefinition(
                         text(field.getValue(), "name", worldId), text(field.getValue(), "description", worldId)));
             }
+            Map<String, WorldDefinition.AbilityDefinition> abilities = new HashMap<>();
+            JsonNode abilitySlots = object(root, "ability_slots", worldId);
+            var abilityKinds = abilitySlots.fields();
+            while (abilityKinds.hasNext()) {
+                var kindEntry = abilityKinds.next();
+                if (!kindEntry.getValue().isArray()) continue;
+                for (JsonNode ability : kindEntry.getValue()) {
+                    if (!ability.isObject() || !ability.hasNonNull("id") || !ability.hasNonNull("name")) continue;
+                    Map<String, Integer> prerequisites = new HashMap<>();
+                    JsonNode prereq = ability.get("prereq");
+                    if (prereq != null && prereq.isObject()) {
+                        var prereqFields = prereq.fields();
+                        while (prereqFields.hasNext()) {
+                            var entry = prereqFields.next();
+                            if (!entry.getValue().isIntegralNumber()) {
+                                throw invalid(worldId, "ability prerequisite must be an integer: " + entry.getKey());
+                            }
+                            prerequisites.put(entry.getKey(), entry.getValue().intValue());
+                        }
+                    }
+                    String kind = textOr(ability, "kind", kindEntry.getKey());
+                    abilities.put(ability.get("id").asText(), new WorldDefinition.AbilityDefinition(
+                            ability.get("id").asText(), kind, intOr(ability, "tier", 1),
+                            intOr(ability, "ap_cost", 0), intOr(ability, "sp_cost", 0),
+                            intOr(ability, "power", 0), prerequisites, ability.get("name").asText(),
+                            textOr(ability, "effect_hint", ""), textOr(ability, "description", "")));
+                }
+            }
             JsonNode regions = object(root, "regions", worldId);
             if (regions.isEmpty()) {
                 throw invalid(worldId, "regions must not be empty");
@@ -110,7 +138,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 pools.put(field.getKey(), types);
             }
             return new WorldDefinition(worldId, version, text(setting, "world_name_hint", worldId),
-                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools, difficulties, talents);
+                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools, difficulties, talents, abilities);
         } catch (IOException exception) {
             throw new WorldContentException("Unable to read world definition: " + worldId, exception);
         }
@@ -130,6 +158,16 @@ public final class ClasspathContentCatalog implements ContentCatalog {
             throw invalid(worldId, field + " must be non-blank text");
         }
         return value.asText();
+    }
+
+    private static String textOr(JsonNode parent, String field, String fallback) {
+        JsonNode value = parent.get(field);
+        return value != null && value.isTextual() ? value.asText() : fallback;
+    }
+
+    private static int intOr(JsonNode parent, String field, int fallback) {
+        JsonNode value = parent.get(field);
+        return value != null && value.isIntegralNumber() ? value.intValue() : fallback;
     }
 
     private static long positive(JsonNode parent, String field, String worldId) {

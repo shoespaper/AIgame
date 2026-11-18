@@ -36,13 +36,13 @@ public final class GameActionService {
                 || !"ap".equals(loaded.rulesetId())) {
             throw new IllegalArgumentException("Game does not contain AP state");
         }
-        ActionValidation validation = apRuntime.validate(state, action);
-        if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
         var definition = contentCatalog.world(loaded.worldId());
+        ActionValidation validation = apRuntime.validate(state, action, definition);
+        if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
         var difficulty = definition.difficulties().get(state.difficulty());
         if (difficulty == null) throw new IllegalArgumentException("Unknown difficulty: " + state.difficulty());
         var resolution = apRuntime.resolve(state, action, action instanceof ApRulesetRuntime.AdvanceDay
-                ? difficulty.hpRecoveryBonus() : 0);
+                ? difficulty.hpRecoveryBonus() : 0, definition);
         long nextRevision = loaded.revision() + 1;
         WorldState nextWorld = advanceWorld(loaded.worldState(), nextRevision, action);
         GameInstance<ApRulesetRuntime.ApState> next = new GameInstance<>(loaded.gameId(), loaded.worldId(),

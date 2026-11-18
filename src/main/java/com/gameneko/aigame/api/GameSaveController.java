@@ -57,10 +57,19 @@ public final class GameSaveController {
             case "consume_ration" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ConsumeRation();
             case "use_potion" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.UsePotion();
             case "advance_day" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.AdvanceDay();
+            case "grant_experience" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.GrantExperience(
+                    request.amount() == null ? 0 : request.amount());
+            case "learn_ability" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.LearnAbility(request.abilityId());
+            case "equip_item" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.EquipItem(request.itemName(), request.slot());
+            case "use_item" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.UseItem(request.itemName());
+            case "claim_quest_reward" -> new com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ClaimQuestReward(
+                    request.questId(), value(request.xp()), value(request.copper()), value(request.rations()), value(request.potions()));
             default -> throw new IllegalArgumentException("Unsupported AP action: " + request.type());
         };
         return GameInstanceResponse.from(actionService.apply(gameId, request.expectedRevision(), action));
     }
+
+    private static long value(Long value) { return value == null ? 0 : value; }
 
     /** Full read-only game projection used when the client resumes a saved game. */
     @GetMapping("/{gameId}")

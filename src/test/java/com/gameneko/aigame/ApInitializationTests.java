@@ -43,4 +43,13 @@ class ApInitializationTests {
         assertEquals(2, state.resources().rations());
         assertEquals(1, state.resources().potions());
     }
+
+    @Test
+    void worldCatalogExposesNamedAbilityDefinitionsForServerValidation() {
+        var world = catalog.world("isekai_grey");
+
+        assertEquals("skill", world.abilities().get("skill_offense").kind());
+        assertEquals(12, world.abilities().get("skill_offense").prerequisites().get("STR"));
+        assertEquals("spell", world.abilities().get("spell_light").kind());
+    }
 }

@@ -11,11 +11,12 @@ public record GameInstanceResponse(
         String rulesetVersion,
         GameInstance.Lifecycle lifecycle,
         long revision,
-        WorldInitializationResponse world
+        WorldInitializationResponse world,
+        Object rulesetState
 ) {
     public static GameInstanceResponse from(GameInstance<?> instance) {
         return new GameInstanceResponse(instance.gameId(), instance.worldId(), instance.contentVersion(),
                 instance.rulesetId(), instance.rulesetVersion(), instance.lifecycle(), instance.revision(),
-                WorldInitializationResponse.from(instance.worldState()));
+                WorldInitializationResponse.from(instance.worldState()), instance.rulesetState());
     }
 }

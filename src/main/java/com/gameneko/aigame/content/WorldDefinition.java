@@ -18,7 +18,12 @@ public record WorldDefinition(String worldId, String contentVersion, String name
     }
 
     public record DifficultyDefinition(long threatInterval, long startingCopper, long startingRations,
-                                       long startingPotions, String label, String description) {}
+                                       long startingPotions, int hpRecoveryBonus, String label, String description) {
+        public DifficultyDefinition(long threatInterval, long startingCopper, long startingRations,
+                                    long startingPotions, String label, String description) {
+            this(threatInterval, startingCopper, startingRations, startingPotions, 0, label, description);
+        }
+    }
 
     public record TalentDefinition(String name, String description) {}
 }

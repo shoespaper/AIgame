@@ -47,10 +47,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         if (state == null || action == null) return ActionValidation.reject("State and action are required");
         if (state.hpCurrent() <= 0) return ActionValidation.reject("Character is not alive");
         if (action instanceof Rest) return ActionValidation.accept();
-        if (action instanceof AdvanceDay) {
-            return state.resources().rations() > 0
-                    ? ActionValidation.accept() : ActionValidation.reject("Not enough rations");
-        }
+        if (action instanceof AdvanceDay) return ActionValidation.accept();
         if (action instanceof ConsumeRation) {
             return state.resources().rations() > 0
                     ? ActionValidation.accept() : ActionValidation.reject("Not enough rations");
@@ -65,6 +62,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
 
     @Override
     public RulesetResolution<ApState, ApEvent> resolve(ApState state, ApAction action) {
+        return resolve(state, action, 0);
+    }
+
+    public RulesetResolution<ApState, ApEvent> resolve(ApState state, ApAction action, int hpRecoveryBonus) {
         ActionValidation validation = validate(state, action);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
         if (action instanceof Rest) {
@@ -84,14 +85,25 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         }
         if (action instanceof AdvanceDay) {
             long rations = state.resources().rations();
-            if (rations <= 0) throw new IllegalArgumentException("Not enough rations");
-            int hp = Math.min(state.hpMax(), state.hpCurrent() + 4);
-            int sp = Math.min(state.spMax(), state.spCurrent() + 4);
-            return result(state.withVitality(hp, sp)
-                            .withResources(state.resources().withRations(rations - 1)),
-                    new ApEvent("advance_day", 1));
+            int hpRecovery = Math.max(0, state.hpMax() / 4 + hpRecoveryBonus);
+            int spRecovery = state.spMax() / 2;
+            int hp = Math.min(state.hpMax(), state.hpCurrent() + hpRecovery);
+            int sp = Math.min(state.spMax(), state.spCurrent() + spRecovery);
+            ApState next = state.withVitality(hp, sp);
+            next = next.withStatusEffects(tickStatusEffects(state.statusEffects()));
+            if (rations > 0) {
+                next = next.withResources(next.resources().withRations(rations - 1));
+                return result(next, new ApEvent("advance_day", 1));
+            }
+            return result(next.withStatusEffect(new StatusEffect("饥饿", 1, "所有判定 -2")),
+                    new ApEvent("advance_day_hunger", 1));
         }
         throw new IllegalArgumentException("Unsupported AP action");
+    }
+
+    private List<StatusEffect> tickStatusEffects(List<StatusEffect> effects) {
+        return effects.stream().filter(effect -> effect.duration() > 1)
+                .map(effect -> new StatusEffect(effect.name(), effect.duration() - 1, effect.penalty())).toList();
     }
 
     private RulesetResolution<ApState, ApEvent> result(ApState state, ApEvent event) {
@@ -105,20 +117,47 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     public record ApState(String characterName, int age, String gender, String archetype, String difficulty,
                           int level, long xp, long xpToNext, int strength, int dexterity, int constitution,
                           int intelligence, int wisdom, int charisma, int hpCurrent, int hpMax, int spCurrent,
-                          int spMax, List<Item> inventory, Equipment equipment, Resources resources, Talent uniqueTalent)
+                          int spMax, List<Item> inventory, Equipment equipment, Resources resources, Talent uniqueTalent,
+                          List<StatusEffect> statusEffects)
             implements GameState {
-        public ApState { inventory = List.copyOf(inventory); }
+        public ApState {
+            inventory = inventory == null ? List.of() : List.copyOf(inventory);
+            statusEffects = statusEffects == null ? List.of() : List.copyOf(statusEffects);
+        }
+
+        public ApState(String characterName, int age, String gender, String archetype, String difficulty,
+                       int level, long xp, long xpToNext, int strength, int dexterity, int constitution,
+                       int intelligence, int wisdom, int charisma, int hpCurrent, int hpMax, int spCurrent,
+                       int spMax, List<Item> inventory, Equipment equipment, Resources resources, Talent uniqueTalent) {
+            this(characterName, age, gender, archetype, difficulty, level, xp, xpToNext, strength, dexterity,
+                    constitution, intelligence, wisdom, charisma, hpCurrent, hpMax, spCurrent, spMax,
+                    inventory, equipment, resources, uniqueTalent, List.of());
+        }
 
         public ApState withVitality(int hp, int sp) {
             return new ApState(characterName, age, gender, archetype, difficulty, level, xp, xpToNext,
                     strength, dexterity, constitution, intelligence, wisdom, charisma,
-                    hp, hpMax, sp, spMax, inventory, equipment, resources, uniqueTalent);
+                    hp, hpMax, sp, spMax, inventory, equipment, resources, uniqueTalent, statusEffects);
         }
 
         public ApState withResources(Resources nextResources) {
             return new ApState(characterName, age, gender, archetype, difficulty, level, xp, xpToNext,
                     strength, dexterity, constitution, intelligence, wisdom, charisma,
-                    hpCurrent, hpMax, spCurrent, spMax, inventory, equipment, nextResources, uniqueTalent);
+                    hpCurrent, hpMax, spCurrent, spMax, inventory, equipment, nextResources, uniqueTalent, statusEffects);
+        }
+
+        public ApState withStatusEffect(StatusEffect effect) {
+            List<StatusEffect> next = new java.util.ArrayList<>(statusEffects);
+            next.add(effect);
+            return new ApState(characterName, age, gender, archetype, difficulty, level, xp, xpToNext,
+                    strength, dexterity, constitution, intelligence, wisdom, charisma, hpCurrent, hpMax,
+                    spCurrent, spMax, inventory, equipment, resources, uniqueTalent, next);
+        }
+
+        public ApState withStatusEffects(List<StatusEffect> effects) {
+            return new ApState(characterName, age, gender, archetype, difficulty, level, xp, xpToNext,
+                    strength, dexterity, constitution, intelligence, wisdom, charisma, hpCurrent, hpMax,
+                    spCurrent, spMax, inventory, equipment, resources, uniqueTalent, effects);
         }
     }
     public record Item(String name, String type, String damage, int quantity) {}
@@ -131,6 +170,11 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         public Resources withPotions(long value) { return new Resources(copper, rations, value); }
     }
     public record Talent(String type, String name, String description, boolean awakened) {}
+    public record StatusEffect(String name, int duration, String penalty) {
+        public StatusEffect {
+            if (duration <= 0) throw new IllegalArgumentException("Status duration must be positive");
+        }
+    }
     public sealed interface ApAction permits Rest, ConsumeRation, UsePotion, AdvanceDay {
         String type();
     }

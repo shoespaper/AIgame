@@ -127,6 +127,34 @@ class AIgameApplicationTests {
         mockMvc.perform(get("/api/games/instance-test/save"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.worldId").value("isekai_grey"));
+
+        mockMvc.perform(get("/api/games/instance-test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gameId").value("instance-test"))
+                .andExpect(jsonPath("$.rulesetState.characterName").exists())
+                .andExpect(jsonPath("$.rulesetState.resources.rations").value(3));
+    }
+
+    @Test
+    void actionEndpointPersistsUpdatedRulesetStateForResume() throws Exception {
+        mockMvc.perform(post("/api/games/action-api-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\",\"characterName\":\"Traveler\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/action-api-test/actions")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":0,\"type\":\"advance_day\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1))
+                .andExpect(jsonPath("$.world.day").value(2))
+                .andExpect(jsonPath("$.rulesetState.resources.rations").value(2));
+
+        mockMvc.perform(get("/api/games/action-api-test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1))
+                .andExpect(jsonPath("$.rulesetState.characterName").value("Traveler"))
+                .andExpect(jsonPath("$.rulesetState.resources.rations").value(2));
     }
 
 }

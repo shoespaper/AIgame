@@ -62,6 +62,12 @@ public final class GameSaveController {
         return GameInstanceResponse.from(actionService.apply(gameId, request.expectedRevision(), action));
     }
 
+    /** Full read-only game projection used when the client resumes a saved game. */
+    @GetMapping("/{gameId}")
+    public GameInstanceResponse get(@PathVariable String gameId) {
+        return GameInstanceResponse.from(saveService.load(gameId));
+    }
+
     @GetMapping("/{gameId}/save")
     public WorldInitializationResponse load(@PathVariable String gameId) {
         GameInstance<?> instance = saveService.load(gameId);

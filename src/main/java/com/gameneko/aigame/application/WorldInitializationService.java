@@ -33,10 +33,13 @@ public final class WorldInitializationService {
         if (request.region() != null && !definition.regionMonsterTypes().containsKey(request.region())) {
             throw new IllegalArgumentException("Unknown region: " + request.region());
         }
+        String difficulty = request.difficulty() == null ? "adventure" : request.difficulty().toLowerCase().trim();
+        var difficultyDefinition = definition.difficulties().get(difficulty);
+        if (difficultyDefinition == null) throw new IllegalArgumentException("Unknown difficulty: " + difficulty);
         return new WorldState(definition.worldId(), definition.contentVersion(), 0,
                 request.name(), request.description(), request.location(), request.region(), request.mainQuest(),
                 1, request.time() == null ? "清晨" : request.time(), request.season(), request.weather(), Map.of(),
-                "Dormant", 0, definition.defaultThreatInterval(), List.of(), List.of(), List.of(),
+                "Dormant", 0, difficultyDefinition.threatInterval(), List.of(), List.of(), List.of(),
                 0, false, 0, List.of(), Map.of(), request.originScene() == null ? "" : request.originScene());
     }
 }

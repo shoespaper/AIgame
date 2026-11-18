@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import com.gameneko.aigame.persistence.GamePersistenceException;
+import com.gameneko.aigame.content.WorldContentException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -17,6 +18,12 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleIllegalArgument(IllegalArgumentException exception) {
         return new ErrorResponse(exception.getMessage() == null ? "Invalid request" : exception.getMessage());
+    }
+
+    @ExceptionHandler(WorldContentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleWorldContent(WorldContentException exception) {
+        return new ErrorResponse(exception.getMessage() == null ? "Invalid world content" : exception.getMessage());
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

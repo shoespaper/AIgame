@@ -73,6 +73,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                         nonNegative(value, "starting_copper", worldId),
                         nonNegative(value, "starting_rations", worldId),
                         nonNegative(value, "starting_potions", worldId),
+                        Math.toIntExact(integer(value, "hp_recover_bonus", worldId)),
                         text(value, "label", worldId), text(value, "desc_hint", worldId)));
             }
             Map<String, WorldDefinition.TalentDefinition> talents = new HashMap<>();

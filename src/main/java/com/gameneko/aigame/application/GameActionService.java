@@ -1,6 +1,7 @@
 package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.application.port.GameRepository;
+import com.gameneko.aigame.content.ContentCatalog;
 import com.gameneko.aigame.engine.ActionValidation;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
@@ -14,10 +15,12 @@ import java.util.Objects;
 public final class GameActionService {
     private final GameRepository repository;
     private final ApRulesetRuntime apRuntime;
+    private final ContentCatalog contentCatalog;
 
-    public GameActionService(GameRepository repository) {
+    public GameActionService(GameRepository repository, ContentCatalog contentCatalog) {
         this.repository = repository;
         this.apRuntime = new ApRulesetRuntime();
+        this.contentCatalog = contentCatalog;
     }
 
     public GameInstance<ApRulesetRuntime.ApState> apply(String gameId, long expectedRevision,
@@ -35,7 +38,11 @@ public final class GameActionService {
         }
         ActionValidation validation = apRuntime.validate(state, action);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
-        var resolution = apRuntime.resolve(state, action);
+        var definition = contentCatalog.world(loaded.worldId());
+        var difficulty = definition.difficulties().get(state.difficulty());
+        if (difficulty == null) throw new IllegalArgumentException("Unknown difficulty: " + state.difficulty());
+        var resolution = apRuntime.resolve(state, action, action instanceof ApRulesetRuntime.AdvanceDay
+                ? difficulty.hpRecoveryBonus() : 0);
         long nextRevision = loaded.revision() + 1;
         WorldState nextWorld = advanceWorld(loaded.worldState(), nextRevision, action);
         GameInstance<ApRulesetRuntime.ApState> next = new GameInstance<>(loaded.gameId(), loaded.worldId(),
@@ -49,11 +56,35 @@ public final class GameActionService {
         boolean advanceDay = action instanceof ApRulesetRuntime.AdvanceDay;
         long day = advanceDay ? world.day() + 1 : world.day();
         long lastTickDay = advanceDay ? day : world.lastTickDay();
+        long threatCounter = world.threatCounter();
+        String threatLevel = world.threatLevel();
+        var threatHistory = new java.util.ArrayList<>(world.threatHistory());
+        boolean crisisTriggered = world.crisisTriggered();
+        if (advanceDay) {
+            threatCounter++;
+            int index = threatIndex(threatLevel);
+            long interval = Math.max(1, world.threatInterval());
+            if (threatCounter >= interval) {
+                threatCounter = 0;
+                if (index < THREAT_LEVELS.length - 1 && world.mainPlotStage() <= index) {
+                    threatLevel = THREAT_LEVELS[index + 1];
+                    threatHistory.add("第" + day + "天：威胁升级至 " + threatLevel);
+                }
+            }
+            if ("Crisis".equals(threatLevel)) crisisTriggered = true;
+        }
         return new WorldState(world.worldId(), world.contentVersion(), revision, world.setting(),
                 world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(), day,
-                world.time(), world.season(), world.weather(), world.flags(), world.threatLevel(),
-                world.threatCounter(), world.threatInterval(), world.threatHistory(), world.timedEvents(),
-                world.incidentalEvents(), lastTickDay, world.crisisTriggered(), world.mainPlotStage(),
+                world.time(), world.season(), world.weather(), world.flags(), threatLevel,
+                threatCounter, world.threatInterval(), threatHistory, world.timedEvents(),
+                world.incidentalEvents(), lastTickDay, crisisTriggered, world.mainPlotStage(),
                 world.mainPlotStages(), world.priceModifiers(), world.originScene());
+    }
+
+    private static final String[] THREAT_LEVELS = {"Dormant", "Low", "Moderate", "High", "Severe", "Crisis"};
+
+    private int threatIndex(String level) {
+        for (int i = 0; i < THREAT_LEVELS.length; i++) if (THREAT_LEVELS[i].equals(level)) return i;
+        return 0;
     }
 }

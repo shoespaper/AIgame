@@ -32,6 +32,14 @@ mvn spring-boot:run
 
 健康检查：`/api/health` 和 `/actuator/health`。
 
+叙事默认使用本地确定性 provider，不需要外部服务。启用 OpenAI Chat Completions 兼容 provider 时，设置 `AI_GAME_NARRATIVE_ENABLED=true`、`AI_GAME_NARRATIVE_API_KEY`，可选设置 `AI_GAME_NARRATIVE_BASE_URL` 和 `AI_GAME_NARRATIVE_MODEL`。
+
+- `POST /api/games/{gameId}/actions/narrate`：执行一个 AP 动作，再按服务端确认的事件生成叙事，并返回待确认提案及预览。
+- `POST /api/games/{gameId}/narration`：只基于当前存档生成叙事和提案候选。
+- `POST /api/games/{gameId}/narration/proposals`：提交一个提案候选，服务端重新转换并校验后应用。请求需携带当前 `expectedRevision`、`proposalIndex` 和响应中的 `proposal`。
+
+允许的提案类型为 `gain_experience`、`acquire_item`、`offer_quest` 和 `schedule_event`。AI 返回的提案不会随叙事响应自动改变存档。
+
 ## 迁移参考
 
 以下是本机外部参考项目，不属于本仓库，也不会随仓库克隆。路径用于后续迁移工作重新定位原始行为；若更换开发环境，需要更新为可访问路径或将经过审查的必要 fixture 纳入本仓库。

@@ -33,6 +33,10 @@ public final class GameActionService {
     }
 
     public GameInstance<ApRulesetRuntime.ApState> apply(String gameId, long expectedRevision, ApRulesetRuntime.ApAction action) {
+        return applyDetailed(gameId, expectedRevision, action).instance();
+    }
+
+    public AppliedAction applyDetailed(String gameId, long expectedRevision, ApRulesetRuntime.ApAction action) {
         Objects.requireNonNull(action, "action");
         GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
         if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
@@ -53,7 +57,14 @@ public final class GameActionService {
         }
         GameInstance<ApRulesetRuntime.ApState> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(), loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, nextRevision, nextWorld, nextState);
         repository.save(next);
-        return next;
+        List<WorldEvent> newEvents = nextWorld.worldEvents().subList(loaded.worldState().worldEvents().size(), nextWorld.worldEvents().size());
+        return new AppliedAction(next, resolution.events(), newEvents);
+    }
+
+    public record AppliedAction(GameInstance<ApRulesetRuntime.ApState> instance,
+                                List<ApRulesetRuntime.ApEvent> events,
+                                List<WorldEvent> worldEvents) {
+        public AppliedAction { events = List.copyOf(events); worldEvents = List.copyOf(worldEvents); }
     }
 
     public GameInstance<?> scheduleEvent(String gameId, long expectedRevision, TimedEvent event) {

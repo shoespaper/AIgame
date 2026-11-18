@@ -195,4 +195,54 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.rulesetState.resources.copper").value(20));
     }
 
+    @Test
+    void narratedActionUsesConfirmedEventsAndReturnsPendingProposals() throws Exception {
+        mockMvc.perform(post("/api/games/narrative-api-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\",\"region\":\"forest\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/narrative-api-test/actions/narrate")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"action":{"expectedRevision":0,"type":"advance_day"},
+                                 "playerInput":"Move toward the trail","locale":"en-US"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.game.revision").value(1))
+                .andExpect(jsonPath("$.narration").isNotEmpty())
+                .andExpect(jsonPath("$.confirmedEvents[0].type").value("advance_day"));
+    }
+
+    @Test
+    void proposalMustPassConversionAndRulesetBeforeItChangesTheSave() throws Exception {
+        mockMvc.perform(post("/api/games/narrative-proposal-test/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"isekai_grey\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/games/narrative-proposal-test/narration/proposals")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"expectedRevision":0,"proposalIndex":0,
+                                 "proposal":{"type":"gain_experience","amount":45}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1))
+                .andExpect(jsonPath("$.rulesetState.xp").value(45));
+
+        mockMvc.perform(post("/api/games/narrative-proposal-test/narration/proposals")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"expectedRevision":1,"proposalIndex":1,
+                                 "proposal":{"type":"gain_experience","amount":100000}}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/games/narrative-proposal-test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1))
+                .andExpect(jsonPath("$.rulesetState.xp").value(45));
+    }
+
 }

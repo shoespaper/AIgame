@@ -1,5 +1,6 @@
 package com.gameneko.aigame.narrative;
 
-/** Narration consumes confirmed projections and never owns authoritative state. */
+/** Builds narration from server-owned snapshots and confirmed events. */
 public interface NarrationService {
+    NarrativeResponse narrate(NarrativeRequest request);
 }

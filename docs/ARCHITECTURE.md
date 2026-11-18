@@ -30,7 +30,7 @@ Avoid a universal game-state map or a rules DSL. Keep shared runtime contracts s
 
 ## Narrative and Media Boundary
 
-The narration service may produce text and optional scene/image-generation requests from confirmed outcomes and an explicitly scoped projection. It may also return constrained effect proposals such as `grant_item` or `spend_currency`. A proposal is not a game fact: the application passes it to the selected ruleset for validation and resolution, and only the resulting ruleset result may update authoritative state. The AI must not submit arbitrary state patches. Store generated media as assets referenced by narrative records, not as rule state.
+The narration service may produce text and optional scene/image-generation requests from confirmed outcomes and an explicitly scoped projection. It may also return constrained effect proposals such as `gain_experience`, `acquire_item`, `offer_quest`, or `schedule_event`. A proposal is not a game fact: the application converts it to a closed typed action, validates and resolves it through the selected ruleset or world action service, and only a separately submitted proposal at the current revision may update authoritative state. The AI must not submit arbitrary state patches. Store generated media as assets referenced by narrative records, not as rule state.
 
 ## Persistence and Runtime
 
@@ -43,5 +43,5 @@ Hide storage behind repositories so local development and deployment storage can
 3. Migrate one complete vertical slice, beginning with daily settlement, with focused tests.
 4. Build Python golden fixtures and compare migrated AP behavior field by field before broad rules migration.
 5. Migrate combat and remaining AP systems in small, verified slices.
-6. Add narration and image generation behind provider interfaces after authoritative action processing is stable.
+6. Add narration and image generation behind provider interfaces after authoritative action processing is stable. Narration receives an allow-listed snapshot and confirmed event batch. External providers are optional and require explicit configuration. The local provider keeps development and tests independent of network services.
 

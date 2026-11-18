@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import com.gameneko.aigame.engine.PriceModifier;
+import com.gameneko.aigame.engine.WorldEffects;
 
 /** Validates only the portion of static world content needed by initialization. */
 @Component
@@ -63,6 +65,8 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 throw invalid(worldId, "adventure.threat_interval must be a positive integer");
             }
             JsonNode monsterTypes = object(root, "monster_types", worldId);
+            Map<String, WorldDefinition.MonsterDefinition> monsters = parseMonsters(monsterTypes, worldId);
+            Map<String, WorldDefinition.ItemTemplate> itemTemplates = parseItemTemplates(root.get("loot_types"), worldId);
             Map<String, WorldDefinition.DifficultyDefinition> difficulties = new HashMap<>();
             var difficultyFields = object(root, "difficulty_presets", worldId).fields();
             while (difficultyFields.hasNext()) {
@@ -74,7 +78,10 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                         nonNegative(value, "starting_rations", worldId),
                         nonNegative(value, "starting_potions", worldId),
                         Math.toIntExact(integer(value, "hp_recover_bonus", worldId)),
-                        text(value, "label", worldId), text(value, "desc_hint", worldId)));
+                        text(value, "label", worldId), text(value, "desc_hint", worldId),
+                        percent(value, "enemy_hp_mult"), percent(value, "enemy_power_mult"),
+                        percent(value, "enemy_ap_mult"), percent(value, "enemy_mit_mult"),
+                        percent(value, "xp_mult"), percent(value, "gold_mult"), intOr(value, "loot_lucky_bonus", 0)));
             }
             Map<String, WorldDefinition.TalentDefinition> talents = new HashMap<>();
             JsonNode talentRoot = object(root, "talent_types", worldId);
@@ -109,9 +116,12 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                             ability.get("id").asText(), kind, intOr(ability, "tier", 1),
                             intOr(ability, "ap_cost", 0), intOr(ability, "sp_cost", 0),
                             intOr(ability, "power", 0), prerequisites, ability.get("name").asText(),
-                            textOr(ability, "effect_hint", ""), textOr(ability, "description", "")));
+                            textOr(ability, "effect_hint", ""), textOr(ability, "description", ""),
+                            parseAbilityMechanic(ability.get("mechanic"))));
                 }
             }
+            Map<String, WorldDefinition.NpcTemplate> npcTypes = parseNpcTypes(root.get("npc_types"));
+            WorldDefinition.EventTemplates eventTemplates = parseEvents(root.get("event_templates"));
             JsonNode regions = object(root, "regions", worldId);
             if (regions.isEmpty()) {
                 throw invalid(worldId, "regions must not be empty");
@@ -138,7 +148,8 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 pools.put(field.getKey(), types);
             }
             return new WorldDefinition(worldId, version, text(setting, "world_name_hint", worldId),
-                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools, difficulties, talents, abilities);
+                    text(setting, "world_desc_hint", worldId), interval.longValue(), pools, difficulties, talents,
+                    abilities, monsters, npcTypes, eventTemplates, itemTemplates);
         } catch (IOException exception) {
             throw new WorldContentException("Unable to read world definition: " + worldId, exception);
         }
@@ -161,11 +172,13 @@ public final class ClasspathContentCatalog implements ContentCatalog {
     }
 
     private static String textOr(JsonNode parent, String field, String fallback) {
+        if (parent == null) return fallback;
         JsonNode value = parent.get(field);
         return value != null && value.isTextual() ? value.asText() : fallback;
     }
 
     private static int intOr(JsonNode parent, String field, int fallback) {
+        if (parent == null) return fallback;
         JsonNode value = parent.get(field);
         return value != null && value.isIntegralNumber() ? value.intValue() : fallback;
     }
@@ -192,5 +205,157 @@ public final class ClasspathContentCatalog implements ContentCatalog {
 
     private static WorldContentException invalid(String worldId, String reason) {
         return new WorldContentException("Invalid world definition " + worldId + ": " + reason);
+    }
+
+    private static Map<String, WorldDefinition.MonsterDefinition> parseMonsters(JsonNode root, String worldId) {
+        Map<String, WorldDefinition.MonsterDefinition> result = new HashMap<>();
+        var fields = root.fields();
+        while (fields.hasNext()) {
+            var entry = fields.next();
+            JsonNode value = entry.getValue();
+            result.put(entry.getKey(), new WorldDefinition.MonsterDefinition(entry.getKey(),
+                    range(value, "cr_range", worldId), range(value, "hp_range", worldId),
+                    range(value, "power_range", worldId), range(value, "mit_range", worldId),
+                    range(value, "speed_range", worldId), integer(value, "ap", worldId) > Integer.MAX_VALUE
+                            ? Integer.MAX_VALUE : Math.toIntExact(integer(value, "ap", worldId)),
+                    range(value, "xp_range", worldId), range(value, "loot_gold_range", worldId),
+                    textOr(value, "behavior", "aggressive"), textArray(value, "ability_pool"),
+                    value.path("speed_mult").isNumber() ? value.path("speed_mult").doubleValue() : 1.0));
+        }
+        return result;
+    }
+
+    private static WorldDefinition.IntRange range(JsonNode parent, String field, String worldId) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isArray() || value.size() != 2
+                || !value.get(0).isIntegralNumber() || !value.get(1).isIntegralNumber()) {
+            throw invalid(worldId, field + " must contain two integers");
+        }
+        return new WorldDefinition.IntRange(Math.toIntExact(value.get(0).longValue()),
+                Math.toIntExact(value.get(1).longValue()));
+    }
+
+    private static List<String> textArray(JsonNode parent, String field) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isArray()) return List.of();
+        List<String> result = new ArrayList<>();
+        for (JsonNode item : value) if (item.isTextual()) result.add(item.asText());
+        return result;
+    }
+
+    private static Map<String, WorldDefinition.NpcTemplate> parseNpcTypes(JsonNode root) {
+        if (root == null || !root.isObject()) return Map.of();
+        Map<String, WorldDefinition.NpcTemplate> result = new HashMap<>();
+        var fields = root.fields();
+        while (fields.hasNext()) {
+            var entry = fields.next();
+            JsonNode value = entry.getValue();
+            result.put(entry.getKey(), new WorldDefinition.NpcTemplate(entry.getKey(),
+                    textArray(value, "personality_pool"), textOr(value, "schedule_template", "self_directed"),
+                    intOr(value, "relationship_base", 0), value.path("can_train").asBoolean(false),
+                    value.path("can_combat").asBoolean(false), value.path("sells_items").asBoolean(false),
+                    value.path("gives_quests").asBoolean(false), value.path("is_enemy").asBoolean(false)));
+        }
+        return result;
+    }
+
+    private static WorldDefinition.EventTemplates parseEvents(JsonNode root) {
+        if (root == null || !root.isObject()) return WorldDefinition.EventTemplates.empty();
+        return new WorldDefinition.EventTemplates(parseEventList(root.get("timed")),
+                parseEventList(root.get("incidental")));
+    }
+
+    private static List<WorldDefinition.EventTemplate> parseEventList(JsonNode root) {
+        if (root == null || !root.isArray()) return List.of();
+        List<WorldDefinition.EventTemplate> result = new ArrayList<>();
+        for (JsonNode value : root) {
+            if (!value.isObject()) continue;
+            result.add(new WorldDefinition.EventTemplate(textOr(value, "type", "other"),
+                    textOr(value, "type", "other"), textOr(value, "category", "other"),
+                    intOr(value, "weight", 1), value.path("trigger").path("repeating").asBoolean(false), intOr(value, "level", 0),
+                    parseEffects(value.get("effects")), textOr(value, "desc_hint", "")));
+        }
+        return result;
+    }
+
+    private static WorldEffects parseEffects(JsonNode node) {
+        if (node == null || !node.isObject()) return WorldEffects.none();
+        List<PriceModifier> prices = new ArrayList<>();
+        JsonNode price = node.get("price_mod");
+        if (price != null && price.isObject()) {
+            price.fields().forEachRemaining(entry -> {
+                if (entry.getValue().isNumber()) {
+                    prices.add(new PriceModifier(PriceModifier.category(entry.getKey()),
+                            Math.toIntExact(Math.round(entry.getValue().doubleValue() * 100))));
+                }
+            });
+        }
+        int mood = node.path("npc_mood_shift").isIntegralNumber() ? node.path("npc_mood_shift").intValue() : 0;
+        int rations = node.path("rations_bonus").isIntegralNumber() ? node.path("rations_bonus").intValue() : 0;
+        int questChance = node.path("quest_hook_chance").isNumber()
+                ? Math.toIntExact(Math.round(node.path("quest_hook_chance").doubleValue() * 100)) : 0;
+        int rumorChance = node.path("rumor_chance").isNumber()
+                ? Math.toIntExact(Math.round(node.path("rumor_chance").doubleValue() * 100)) : 0;
+        JsonNode outdoor = node.get("outdoor_combat_mod");
+        int speed = outdoor == null ? 0 : outdoor.path("speed").asInt(0);
+        List<String> additions = new ArrayList<>();
+        if (node.path("npc_pool_add").isTextual()) additions.add(node.path("npc_pool_add").asText());
+        return new WorldEffects(prices, node.path("threat_counter").asInt(0), mood,
+                node.path("travel_penalty").asBoolean(false), speed, additions,
+                node.path("shop_refresh").asBoolean(false), node.path("spawn_threat").asBoolean(false),
+                rations, questChance, rumorChance, node.path("game_over_risk").asBoolean(false),
+                node.path("custom").asBoolean(false));
+    }
+
+    private static Map<String, WorldDefinition.ItemTemplate> parseItemTemplates(JsonNode root, String worldId) {
+        if (root == null || !root.isObject()) return Map.of();
+        Map<String, WorldDefinition.ItemTemplate> result = new HashMap<>();
+        var categories = root.fields();
+        while (categories.hasNext()) {
+            var category = categories.next();
+            if (!category.getValue().isObject()) continue;
+            var tiers = category.getValue().fields();
+            while (tiers.hasNext()) {
+                var tier = tiers.next();
+                JsonNode value = tier.getValue();
+                JsonNode effect = value.path("effect");
+                result.put(category.getKey() + ":" + tier.getKey(), new WorldDefinition.ItemTemplate(
+                        category.getKey(), tier.getKey(), range(value, "value_range", worldId),
+                        Math.max(0, effect.path("heal").asInt(0)), Math.max(0, effect.path("sp_restore").asInt(0)),
+                        effect.path("clear_statuses").asBoolean(false), Math.max(0, effect.path("damage_bonus").asInt(0)),
+                        Math.max(0, effect.path("mitigation_bonus").asInt(0))));
+            }
+        }
+        return result;
+    }
+
+    private static int percent(JsonNode parent, String field) {
+        if (parent == null) return 100;
+        JsonNode value = parent.get(field);
+        return value != null && value.isNumber()
+                ? Math.toIntExact(Math.round(value.doubleValue() * 100)) : 100;
+    }
+
+    private static WorldDefinition.AbilityMechanic parseAbilityMechanic(JsonNode node) {
+        if (node == null || !node.isObject()) return WorldDefinition.AbilityMechanic.none();
+        WorldDefinition.AbilityMechanic.Category category;
+        try {
+            category = WorldDefinition.AbilityMechanic.Category.valueOf(
+                    textOr(node, "category", "none").toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            category = WorldDefinition.AbilityMechanic.Category.NONE;
+        }
+        JsonNode debuff = node.get("debuff");
+        return new WorldDefinition.AbilityMechanic(category,
+                textOr(node, "effect", textOr(node, "dot_effect", textOr(debuff, "effect", ""))),
+                intOr(node, "amount", intOr(node, "dot_amount", intOr(debuff, "amount", 0))),
+                intOr(node, "duration", intOr(debuff, "duration", intOr(node, "dot_duration", 0))),
+                intOr(node, "power", 0), percent(node, "power_mult"),
+                intOr(node, "heal_amount", 0), textOr(node, "buff_stat", ""),
+                intOr(node, "buff_amount", 0), Math.max(0, intOr(node, "targets", 0)),
+                intOr(node, "extra_per_turn", 0), intOr(node, "cost_penalty", 0),
+                percent(node, "counter_power_mult"),
+                node.path("once_per_combat").asBoolean(false),
+                node.path("clear_statuses").asBoolean(false), textOr(node, "kind", ""));
     }
 }

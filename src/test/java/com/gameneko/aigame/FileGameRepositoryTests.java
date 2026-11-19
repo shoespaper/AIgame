@@ -24,7 +24,7 @@ class FileGameRepositoryTests {
     void savesAndLoadsGameInstance() {
         FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot);
         WorldState state = state();
-        GameInstance<?> instance = GameInstance.initialized("demo", state);
+        GameInstance<?> instance = GameInstance.narrativeOnly("demo", state);
 
         repository.save(instance);
 

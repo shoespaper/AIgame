@@ -19,16 +19,25 @@ public record GameInstance<S extends GameState>(
         requireText(gameId, "gameId");
         requireText(worldId, "worldId");
         requireText(contentVersion, "contentVersion");
-        requireText(rulesetId, "rulesetId");
-        requireText(rulesetVersion, "rulesetVersion");
+        if (rulesetState != null) {
+            requireText(rulesetId, "rulesetId");
+            requireText(rulesetVersion, "rulesetVersion");
+        } else if (rulesetId != null || rulesetVersion != null) {
+            throw new IllegalArgumentException("An engine id and version require engine state");
+        }
         Objects.requireNonNull(lifecycle, "lifecycle");
         Objects.requireNonNull(worldState, "worldState");
         if (revision < 0) throw new IllegalArgumentException("revision must not be negative");
     }
 
     public static GameInstance<GameState> initialized(String gameId, WorldState worldState) {
+        return narrativeOnly(gameId, worldState);
+    }
+
+    /** Creates a game with a world book but no selected game engine. */
+    public static GameInstance<GameState> narrativeOnly(String gameId, WorldState worldState) {
         return new GameInstance<>(gameId, worldState.worldId(), worldState.contentVersion(),
-                "ap", "baseline-1", Lifecycle.INITIALIZED, worldState.revision(), worldState, null);
+                null, null, Lifecycle.INITIALIZED, worldState.revision(), worldState, null);
     }
 
     public static <S extends GameState> GameInstance<S> initialized(String gameId, WorldState worldState,

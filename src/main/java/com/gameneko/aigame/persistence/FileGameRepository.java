@@ -45,7 +45,11 @@ public final class FileGameRepository implements GameRepository {
             JsonNode envelope = objectMapper.readTree(Files.readString(path));
             validateEnvelope(envelope, gameId);
             JsonNode state = envelope.get("state");
-            String rulesetId = state.path("rulesetId").asText();
+            String rulesetId = state.path("rulesetId").asText("");
+            if (rulesetId.isBlank()) {
+                return Optional.of(objectMapper.treeToValue(state,
+                        objectMapper.getTypeFactory().constructParametricType(GameInstance.class, WorldState.class)));
+            }
             Class<?> rulesetStateType = switch (rulesetId) {
                 case "ap" -> ApRulesetRuntime.ApState.class;
                 default -> throw new GamePersistenceException("Unsupported ruleset in save: " + rulesetId);

@@ -5,7 +5,15 @@ import com.gameneko.aigame.engine.GameSelection;
 import com.gameneko.aigame.engine.InitializationField;
 import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
+import com.gameneko.aigame.engine.ActionIntent;
+import com.gameneko.aigame.engine.NarrativeEffectPolicy;
+import com.gameneko.aigame.engine.ProtocolVersion;
 import com.gameneko.aigame.engine.WorldState;
+import com.gameneko.aigame.narrative.NarrativeContext;
+import com.gameneko.aigame.narrative.NarrativeInitializationQuestion;
+import com.gameneko.aigame.narrative.NarrativeOption;
+import com.gameneko.aigame.narrative.NarrativeParseCandidate;
+import com.gameneko.aigame.narrative.NarrativeResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -43,5 +51,24 @@ class StageAProtocolTests {
         assertNull(instance.rulesetId());
         assertNull(instance.rulesetVersion());
         assertNull(instance.rulesetState());
+    }
+
+    @Test
+    void protocolCarriesQuestionsFreeTextCandidatesAndVersion() {
+        var response = new NarrativeResponse("开始", List.of(), List.of(), List.of(
+                new NarrativeOption("look", "观察", new ActionIntent("observe", "", List.of()))),
+                List.of(new NarrativeInitializationQuestion("name", "名字？", List.of())),
+                List.of(new NarrativeParseCandidate("name", new InitializationValue.Text("小明"), 0.95)),
+                ProtocolVersion.current());
+        assertEquals(1, response.initializationQuestions().size());
+        assertEquals(0.95, response.parseCandidates().get(0).confidence());
+        assertEquals(1, response.protocolVersion().major());
+    }
+
+    @Test
+    void storyOnlyContextCannotCarryEngineProjection() {
+        assertThrows(IllegalArgumentException.class, () -> new NarrativeContext(
+                ProtocolVersion.current(), "world", "1", null, null,
+                NarrativeEffectPolicy.STORY_ONLY, new Object(), List.of()));
     }
 }

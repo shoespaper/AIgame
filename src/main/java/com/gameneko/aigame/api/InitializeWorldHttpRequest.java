@@ -3,6 +3,7 @@ package com.gameneko.aigame.api;
 /** HTTP DTO for the in-memory world initialization endpoint. */
 public record InitializeWorldHttpRequest(
         String worldId,
+        String engineId,
         String name,
         String description,
         String location,

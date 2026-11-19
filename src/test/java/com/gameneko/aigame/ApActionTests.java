@@ -152,7 +152,7 @@ class ApActionTests {
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        var initial = instanceService.initialize("demo", InitializeWorldRequest.defaults("isekai_grey"));
+        var initial = instanceService.initialize("demo", InitializeWorldRequest.defaults("isekai_grey"), "ap");
         repository.save(initial);
 
         var updated = new GameActionService(repository, catalog).apply("demo", 0, new ApRulesetRuntime.AdvanceDay());
@@ -172,7 +172,7 @@ class ApActionTests {
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        var initial = instanceService.initialize("threat", InitializeWorldRequest.defaults("isekai_grey"));
+        var initial = instanceService.initialize("threat", InitializeWorldRequest.defaults("isekai_grey"), "ap");
         var world = new com.gameneko.aigame.engine.WorldState(initial.worldState().worldId(), initial.worldState().contentVersion(),
                 0, initial.worldState().setting(), initial.worldState().settingDescription(), initial.worldState().location(),
                 initial.worldState().currentRegion(), initial.worldState().mainQuest(), initial.worldState().day(),
@@ -199,7 +199,7 @@ class ApActionTests {
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        repository.save(instanceService.initialize("xp", InitializeWorldRequest.defaults("isekai_grey")));
+        repository.save(instanceService.initialize("xp", InitializeWorldRequest.defaults("isekai_grey"), "ap"));
 
         var updated = new GameActionService(repository, catalog).apply(
                 "xp", 0, new ApRulesetRuntime.GrantExperience(100));

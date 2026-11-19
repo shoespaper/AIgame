@@ -43,7 +43,7 @@ public final class GameSaveController {
                 request.description(), request.location(), request.region(), request.weather(), request.season(),
                 request.time(), request.mainQuest(), request.originScene(), request.characterName(), request.age(),
                 request.gender(), request.archetype(), request.difficulty());
-        var instance = instanceService.initialize(gameId, applicationRequest);
+        var instance = instanceService.initialize(gameId, applicationRequest, request.engineId());
         saveService.save(instance);
         return GameInstanceResponse.from(instance);
     }

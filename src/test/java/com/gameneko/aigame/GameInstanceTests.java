@@ -16,7 +16,7 @@ class GameInstanceTests {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
         var worldService = new WorldInitializationService(catalog);
         var instance = new GameInstanceService(worldService, catalog).initialize(
-                "demo", com.gameneko.aigame.application.InitializeWorldRequest.defaults("isekai_grey"));
+                "demo", com.gameneko.aigame.application.InitializeWorldRequest.defaults("isekai_grey"), "ap");
 
         assertEquals("demo", instance.gameId());
         assertEquals("isekai_grey", instance.worldId());

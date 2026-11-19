@@ -1,6 +1,8 @@
 package com.gameneko.aigame.content;
 
 import com.gameneko.aigame.engine.WorldEffects;
+import com.gameneko.aigame.engine.InitializationField;
+import com.gameneko.aigame.engine.InitializationSchema;
 
 import java.util.List;
 import java.util.Map;
@@ -27,6 +29,19 @@ public record WorldDefinition(String worldId, String contentVersion, String name
         npcTypes = Map.copyOf(npcTypes);
         eventTemplates = eventTemplates == null ? EventTemplates.empty() : eventTemplates;
         itemTemplates = itemTemplates == null ? Map.of() : Map.copyOf(itemTemplates);
+    }
+
+    /** Initial fields declared by the world book; engine-specific fields are composed separately. */
+    public InitializationSchema initializationSchema() {
+        return new InitializationSchema(List.of(
+                new InitializationField("characterName", "角色名字", InitializationField.ValueType.TEXT,
+                        true, List.of(), null, null, "请输入主角名字"),
+                new InitializationField("age", "年龄", InitializationField.ValueType.INTEGER,
+                        true, List.of(), 1L, 120L, "请输入主角年龄"),
+                // Gender is a common character field. "Undecided" remains valid for players
+                // who do not want to specify it during setup.
+                new InitializationField("gender", "性别", InitializationField.ValueType.TEXT,
+                        false, List.of("未定"), null, null, "可选")));
     }
 
     public WorldDefinition(String worldId, String contentVersion, String nameHint,

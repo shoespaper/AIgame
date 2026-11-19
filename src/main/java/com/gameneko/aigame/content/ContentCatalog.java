@@ -1,6 +1,12 @@
 package com.gameneko.aigame.content;
 
 /** Read-only access to validated static content definitions. */
-public interface ContentCatalog {
+public interface ContentCatalog extends WorldBookCatalog {
     WorldDefinition world(String worldId);
+
+    @Override
+    default WorldBook worldBook(String worldId) {
+        WorldDefinition definition = world(worldId);
+        return new WorldBook(definition, definition.initializationSchema());
+    }
 }

@@ -41,7 +41,7 @@ public record WorldDefinition(String worldId, String contentVersion, String name
                 // Gender is a common character field. "Undecided" remains valid for players
                 // who do not want to specify it during setup.
                 new InitializationField("gender", "性别", InitializationField.ValueType.TEXT,
-                        false, List.of("未定"), null, null, "可选")));
+                        false, List.of(), null, null, "可选")));
     }
 
     public WorldDefinition(String worldId, String contentVersion, String nameHint,

@@ -3,13 +3,13 @@ package com.gameneko.aigame.application;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.content.ContentCatalog;
 import com.gameneko.aigame.engine.InitializationValue;
+import com.gameneko.aigame.engine.InitializationField;
+import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /** Creates a complete game envelope around the current initialization result. */
 @Service
@@ -57,14 +57,22 @@ public final class GameInstanceService {
                                       Map<String, InitializationValue> answers) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(answers, "answers");
-        var worldState = worldInitializationService.initialize(request);
         var definition = contentCatalog.world(request.worldId());
-        if (engineId == null || engineId.isBlank()) return GameInstance.narrativeOnly(gameId, worldState);
-        var runtime = gameEngineFactory.create(engineId, definition);
+        var worldSchema = definition.initializationSchema();
+        var runtime = engineId == null || engineId.isBlank() ? null : gameEngineFactory.create(engineId, definition);
+        var fields = new ArrayList<InitializationField>(worldSchema.fields());
+        if (runtime != null) fields.addAll(runtime.initializationSchema().fields());
+        var validation = new InitializationSchema(fields).validate(answers);
+        if (!validation.accepted()) throw new IllegalArgumentException("Invalid initialization answers: " + validation.errors());
+        var worldState = worldInitializationService.initialize(request);
+        if (runtime == null) return GameInstance.narrativeOnly(gameId, worldState);
         var state = runtime.initialize(Map.copyOf(answers));
         return GameInstance.initialized(gameId, worldState, runtime.id(), runtime.version(), state);
     }
 
+    /**
+     * Legacy initialization answers for the pre-engine API. Should be deleted after the API is removed.
+     */
     private static Map<String, InitializationValue> legacyAnswers(InitializeWorldRequest request) {
         int age = request.age() == null ? 16 : request.age();
         var answers = new HashMap<String, InitializationValue>();

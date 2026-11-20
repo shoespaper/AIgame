@@ -575,6 +575,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     public record StatusEffect(String name, int duration, String penalty) { public StatusEffect { if (duration <= 0) throw new IllegalArgumentException("Status duration must be positive"); } }
     public record Ability(String id, String kind, int tier, int apCost, int spCost, int power, String name, String effectHint, String description, WorldDefinition.AbilityMechanic mechanic) { public Ability(String id, String kind, int tier, int apCost, int spCost, int power, String name, String effectHint, String description) { this(id, kind, tier, apCost, spCost, power, name, effectHint, description, WorldDefinition.AbilityMechanic.none()); } }
     public record QuestReference(String questId) {}
+    /**
+     * Internal AP command model. TODO(C): remove once the AP rules implementation
+     * is migrated behind a fully generic adapter; application/API code must use ActionIntent.
+     */
     public sealed interface ApAction permits Rest, ConsumeRation, UsePotion, AdvanceDay, GrantExperience, LearnAbility, EquipItem, UseItem, ClaimQuestReward, OfferQuest, AcceptQuest, ProgressQuest, CompleteQuest, FailQuest, RegisterNpc, InteractNpc, TickNpcs, RecordNpcLifeEvent, SetNpcStatus, AcquireItem, StartBattle, BattleAction, AdvanceBattleTurn, SettleBattle { String type(); }
     public record Rest() implements ApAction { public String type() { return "rest"; } }
     public record ConsumeRation() implements ApAction { public String type() { return "consume_ration"; } }

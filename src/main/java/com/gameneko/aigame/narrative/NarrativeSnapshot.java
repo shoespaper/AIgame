@@ -4,9 +4,12 @@ import java.util.List;
 
 /** Read-only facts supplied to a narrator after a ruleset resolution. */
 public record NarrativeSnapshot(WorldView world, CharacterView character,
-                                List<ConfirmedEvent> confirmedEvents) {
+                                List<ConfirmedEvent> confirmedEvents, Object engineProjection) {
+    public NarrativeSnapshot(WorldView world, CharacterView character, List<ConfirmedEvent> confirmedEvents) {
+        this(world, character, confirmedEvents, null);
+    }
     public NarrativeSnapshot {
-        if (world == null || character == null) throw new IllegalArgumentException("Narrative snapshot state is required");
+        if (world == null) throw new IllegalArgumentException("Narrative snapshot world is required");
         confirmedEvents = confirmedEvents == null ? List.of() : List.copyOf(confirmedEvents);
     }
 

@@ -9,6 +9,8 @@ import org.springframework.core.io.DefaultResourceLoader;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import com.gameneko.aigame.engine.InitializationValue;
+import java.util.Map;
 
 class GameInstanceTests {
     @Test
@@ -16,7 +18,12 @@ class GameInstanceTests {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
         var worldService = new WorldInitializationService(catalog);
         var instance = new GameInstanceService(worldService, catalog).initialize(
-                "demo", com.gameneko.aigame.application.InitializeWorldRequest.defaults("isekai_grey"), "ap");
+                "demo", com.gameneko.aigame.application.InitializeWorldRequest.defaults("isekai_grey"), "ap",
+                Map.of("characterName", new InitializationValue.Text("旅人"),
+                        "age", new InitializationValue.IntegerNumber(16),
+                        "gender", new InitializationValue.Text("未定"),
+                        "archetype", new InitializationValue.Text("swordsman"),
+                        "difficulty", new InitializationValue.Text("adventure")));
 
         assertEquals("demo", instance.gameId());
         assertEquals("isekai_grey", instance.worldId());

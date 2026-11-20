@@ -22,7 +22,7 @@ class FileGameRepositoryTests {
 
     @Test
     void savesAndLoadsGameInstance() {
-        FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot);
+        FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot, new com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver());
         WorldState state = state();
         GameInstance<?> instance = GameInstance.narrativeOnly("demo", state);
 
@@ -39,13 +39,13 @@ class FileGameRepositoryTests {
 
     @Test
     void returnsEmptyForMissingSave() {
-        FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot);
+        FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot, new com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver());
         assertTrue(repository.load("missing").isEmpty());
     }
 
     @Test
     void rejectsTraversalAndCorruptSave() throws Exception {
-        FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot);
+        FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot, new com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver());
         assertThrows(IllegalArgumentException.class, () -> repository.load("../outside"));
 
         Files.createDirectories(saveRoot);

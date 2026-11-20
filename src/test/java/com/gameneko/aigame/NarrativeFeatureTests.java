@@ -37,26 +37,32 @@ class NarrativeFeatureTests {
     }
 
     @Test
-    void conversionWhitelistsAndBoundsExperienceProposals() {
+    void engineOwnsProposalFieldAndValueValidation() {
         var world = catalog.world("isekai_grey");
-        var accepted = converter.convert(new NarrativeProposalCandidate("gain_experience", 40L, null, null, null, null, null, null, null, List.of(), null, null, null, null, null, null, null, null, null, null, null, null), "game", 0, 0, world);
+        var engine = new com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime(world);
+        var accepted = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "40")), "game", 0, 0, 0, world, engine);
         assertTrue(accepted.converted());
-        assertInstanceOf(ApRulesetRuntime.GrantExperience.class, accepted.action());
+        assertEquals("grant_experience", accepted.action().type());
 
-        var rejected = converter.convert(new NarrativeProposalCandidate("gain_experience", 100_000L, null, null, null, null, null, null, null, List.of(), null, null, null, null, null, null, null, null, null, null, null, null), "game", 0, 0, world);
-        assertFalse(rejected.converted());
-        assertEquals("experience_out_of_range", rejected.rejection());
+        var bounded = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "100000")), "game", 0, 0, 0, world, engine);
+        assertFalse(bounded.converted());
+        var extra = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "40", "energy", "99")), "game", 0, 0, 0, world, engine);
+        assertFalse(extra.converted());
     }
 
     @Test
     void itemAndTimedEventProposalsUseTypedServerOwnedDefinitions() {
         var world = catalog.world("isekai_grey");
-        var item = converter.convert(new NarrativeProposalCandidate("acquire_item", null, "healing", "healing", "common", null, null, null, null, List.of(), null, null, null, null, null, null, null, null, null, null, null, null), "game", 3, 0, world);
+        var engine = new com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime(world);
+        var item = converter.convert(new NarrativeProposalCandidate("acquire_item", java.util.Map.of("itemName", "healing", "itemCategory", "healing", "itemTier", "common")), "game", 3, 0, 0, world, engine);
         assertTrue(item.converted());
-        assertInstanceOf(ApRulesetRuntime.AcquireItem.class, item.action());
+        assertEquals("acquire_item", item.action().type());
 
-        var event = converter.convert(new NarrativeProposalCandidate("schedule_event", null, null, null, null, null, null, null, null, List.of(), null, null, null, null, 5L, "thread-1", "A sealed door hums", "seal", "breach", null, null, null), "game", 3, 0, 2, world);
+        var event = converter.convert(new NarrativeProposalCandidate("schedule_event", java.util.Map.of("deadlineDays", "5", "eventId", "thread-1", "eventDescription", "A sealed door hums", "eventAnswer", "seal", "eventConsequence", "breach")), "game", 3, 0, 2, world);
         assertTrue(event.converted());
         assertTrue(event.worldAction() instanceof com.gameneko.aigame.engine.WorldAction.ScheduleEvent);
+
+        var noEngine = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "40")), "game", 3, 0, 0, world, null);
+        assertFalse(noEngine.converted());
     }
 }

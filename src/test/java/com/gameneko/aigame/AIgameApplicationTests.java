@@ -225,7 +225,7 @@ class AIgameApplicationTests {
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {"expectedRevision":0,"proposalIndex":0,
-                                 "proposal":{"type":"gain_experience","amount":45}}
+                                 "proposal":{"type":"gain_experience","fields":{"amount":"45"}}}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(1))
@@ -235,7 +235,7 @@ class AIgameApplicationTests {
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {"expectedRevision":1,"proposalIndex":1,
-                                 "proposal":{"type":"gain_experience","amount":100000}}
+                                 "proposal":{"type":"gain_experience","fields":{"amount":"100000"}}}
                                 """))
                 .andExpect(status().isBadRequest());
 

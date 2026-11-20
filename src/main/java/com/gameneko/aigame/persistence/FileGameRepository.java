@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
-import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime;
+import com.gameneko.aigame.engine.GameStateTypeResolver;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -25,16 +25,19 @@ public final class FileGameRepository implements GameRepository {
     private static final Pattern SAFE_GAME_ID = Pattern.compile("[A-Za-z0-9_-]{1,80}");
     private final ObjectMapper objectMapper;
     private final Path saveRoot;
+    private final GameStateTypeResolver stateTypes;
 
     @Autowired
     public FileGameRepository(ObjectMapper objectMapper,
-                              @Value("${aigame.persistence.root:${user.home}/.aigame/saves}") String saveRoot) {
-        this(objectMapper, Path.of(saveRoot));
+                              @Value("${aigame.persistence.root:${user.home}/.aigame/saves}") String saveRoot,
+                              GameStateTypeResolver stateTypes) {
+        this(objectMapper, Path.of(saveRoot), stateTypes);
     }
 
-    public FileGameRepository(ObjectMapper objectMapper, Path saveRoot) {
+    public FileGameRepository(ObjectMapper objectMapper, Path saveRoot, GameStateTypeResolver stateTypes) {
         this.objectMapper = objectMapper;
         this.saveRoot = saveRoot.toAbsolutePath().normalize();
+        this.stateTypes = stateTypes;
     }
 
     @Override
@@ -50,10 +53,7 @@ public final class FileGameRepository implements GameRepository {
                 return Optional.of(objectMapper.treeToValue(state,
                         objectMapper.getTypeFactory().constructParametricType(GameInstance.class, WorldState.class)));
             }
-            Class<?> rulesetStateType = switch (rulesetId) {
-                case "ap" -> ApRulesetRuntime.ApState.class;
-                default -> throw new GamePersistenceException("Unsupported ruleset in save: " + rulesetId);
-            };
+            Class<?> rulesetStateType = stateTypes.stateType(rulesetId);
             return Optional.of(objectMapper.treeToValue(state,
                     objectMapper.getTypeFactory().constructParametricType(GameInstance.class, rulesetStateType)));
         } catch (IOException | RuntimeException exception) {

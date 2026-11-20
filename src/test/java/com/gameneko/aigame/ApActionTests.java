@@ -152,10 +152,10 @@ class ApActionTests {
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        var initial = instanceService.initialize("demo", InitializeWorldRequest.defaults("isekai_grey"), "ap");
+        var initial = instanceService.initialize("demo", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers());
         repository.save(initial);
 
-        var updated = new GameActionService(repository, catalog).apply("demo", 0, new ApRulesetRuntime.AdvanceDay());
+        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog).applyIntent("demo", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
 
         assertEquals(1, updated.revision());
         assertEquals(2, updated.worldState().day());
@@ -172,7 +172,7 @@ class ApActionTests {
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        var initial = instanceService.initialize("threat", InitializeWorldRequest.defaults("isekai_grey"), "ap");
+        var initial = instanceService.initialize("threat", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers());
         var world = new com.gameneko.aigame.engine.WorldState(initial.worldState().worldId(), initial.worldState().contentVersion(),
                 0, initial.worldState().setting(), initial.worldState().settingDescription(), initial.worldState().location(),
                 initial.worldState().currentRegion(), initial.worldState().mainQuest(), initial.worldState().day(),
@@ -184,7 +184,7 @@ class ApActionTests {
                 initial.rulesetVersion(), initial.lifecycle(), 0, world, initial.rulesetState());
         repository.save(prepared);
 
-        var updated = new GameActionService(repository, catalog).apply("threat", 0, new ApRulesetRuntime.AdvanceDay());
+        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog).applyIntent("threat", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
 
         assertEquals("Low", updated.worldState().threatLevel());
         assertEquals(0, updated.worldState().threatCounter());
@@ -199,14 +199,24 @@ class ApActionTests {
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        repository.save(instanceService.initialize("xp", InitializeWorldRequest.defaults("isekai_grey"), "ap"));
+        repository.save(instanceService.initialize("xp", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers()));
 
-        var updated = new GameActionService(repository, catalog).apply(
-                "xp", 0, new ApRulesetRuntime.GrantExperience(100));
+        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog).applyIntent("xp", 0,
+                new com.gameneko.aigame.engine.ActionIntent("grant_experience", "", java.util.List.of(
+                        new com.gameneko.aigame.engine.ActionIntent.Argument("amount", new com.gameneko.aigame.engine.InitializationValue.IntegerNumber(100))))).instance();
 
         assertEquals(1, updated.revision());
         assertEquals(2, updated.rulesetState().level());
         assertEquals(0, updated.rulesetState().xp());
         assertEquals(200, updated.rulesetState().xpToNext());
+    }
+
+    /** 构造 AP 初始化所需的显式测试答案。 */
+    private static java.util.Map<String, com.gameneko.aigame.engine.InitializationValue> apAnswers() {
+        return java.util.Map.of("characterName", new com.gameneko.aigame.engine.InitializationValue.Text("旅人"),
+                "age", new com.gameneko.aigame.engine.InitializationValue.IntegerNumber(16),
+                "gender", new com.gameneko.aigame.engine.InitializationValue.Text("未定"),
+                "archetype", new com.gameneko.aigame.engine.InitializationValue.Text("swordsman"),
+                "difficulty", new com.gameneko.aigame.engine.InitializationValue.Text("adventure"));
     }
 }

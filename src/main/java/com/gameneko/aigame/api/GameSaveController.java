@@ -15,6 +15,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
+import java.util.Map;
+import com.gameneko.aigame.engine.InitializationValue;
+
 /** Thin HTTP adapter for save/load and typed game commands. */
 @RestController
 @RequestMapping("/api/games")
@@ -43,7 +47,7 @@ public final class GameSaveController {
                 request.description(), request.location(), request.region(), request.weather(), request.season(),
                 request.time(), request.mainQuest(), request.originScene(), request.characterName(), request.age(),
                 request.gender(), request.archetype(), request.difficulty());
-        var instance = instanceService.initialize(gameId, applicationRequest, request.engineId());
+        var instance = instanceService.initialize(gameId, applicationRequest, request.engineId(), initializationAnswers(request));
         saveService.save(instance);
         return GameInstanceResponse.from(instance);
     }
@@ -58,9 +62,7 @@ public final class GameSaveController {
     @PostMapping("/{gameId}/actions")
     public GameInstanceResponse action(@PathVariable String gameId, @RequestBody GameActionRequest request) {
         MappedGameAction mapped = actionMapper.map(gameId, request);
-        if (mapped.apAction() != null) {
-            return GameInstanceResponse.from(actionService.apply(gameId, request.expectedRevision(), mapped.apAction()));
-        }
+        if (mapped.intent() != null) return GameInstanceResponse.from(actionService.applyIntent(gameId, request.expectedRevision(), mapped.intent()).instance());
         return GameInstanceResponse.from(actionService.applyWorldAction(gameId, request.expectedRevision(), mapped.worldAction()));
     }
 
@@ -68,9 +70,10 @@ public final class GameSaveController {
     public NarratedActionResponse narrateAction(@PathVariable String gameId,
                                                 @RequestBody NarratedActionRequest request) {
         if (request == null || request.action() == null) throw new IllegalArgumentException("Action is required");
-        var action = actionMapper.mapApAction(gameId, request.action());
+        var mapped = actionMapper.map(gameId, request.action());
+        if (mapped.intent() == null) throw new IllegalArgumentException("World actions cannot be narrated as engine intents");
         return NarratedActionResponse.from(narrativeService.narrateAction(gameId,
-                request.action().expectedRevision(), action, request.playerInput(), request.locale()));
+                request.action().expectedRevision(), mapped.intent(), request.playerInput(), request.locale()));
     }
 
     @GetMapping("/{gameId}")
@@ -82,5 +85,16 @@ public final class GameSaveController {
     public WorldInitializationResponse load(@PathVariable String gameId) {
         GameInstance<?> instance = saveService.load(gameId);
         return WorldInitializationResponse.from(instance.worldState());
+    }
+
+    /** 将 HTTP 初始化字段转换为服务层使用的类型化答案。 */
+    private static Map<String, InitializationValue> initializationAnswers(InitializeWorldHttpRequest request) {
+        var answers = new HashMap<String, InitializationValue>();
+        if (request.characterName() != null) answers.put("characterName", new InitializationValue.Text(request.characterName()));
+        if (request.age() != null) answers.put("age", new InitializationValue.IntegerNumber(request.age()));
+        if (request.gender() != null) answers.put("gender", new InitializationValue.Text(request.gender()));
+        if (request.archetype() != null) answers.put("archetype", new InitializationValue.Text(request.archetype()));
+        if (request.difficulty() != null) answers.put("difficulty", new InitializationValue.Text(request.difficulty()));
+        return Map.copyOf(answers);
     }
 }

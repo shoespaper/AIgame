@@ -13,7 +13,8 @@ public final class LocalNarrativeProvider implements NarrativeProvider {
                         .collect(java.util.stream.Collectors.joining("、"));
         String location = prompt.snapshot().world().location() == null
                 ? "旅途" : prompt.snapshot().world().location();
-        String narration = state.name() + "来到第" + prompt.snapshot().world().day() +
+        String name = state == null || state.name() == null ? "旅人" : state.name();
+        String narration = name + "来到第" + prompt.snapshot().world().day() +
                 "天的" + location + "。" + eventText;
         return new NarrativeResponse(narration, java.util.List.of(), java.util.List.of());
     }

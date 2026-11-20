@@ -3,15 +3,9 @@ package com.gameneko.aigame.application;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.content.ContentCatalog;
 import com.gameneko.aigame.content.WorldDefinition;
-import com.gameneko.aigame.engine.ActionValidation;
-import com.gameneko.aigame.engine.GameInstance;
-import com.gameneko.aigame.engine.PriceModifier;
-import com.gameneko.aigame.engine.TimedEvent;
-import com.gameneko.aigame.engine.WorldEvent;
-import com.gameneko.aigame.engine.WorldAction;
-import com.gameneko.aigame.engine.WorldState;
-import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime;
+import com.gameneko.aigame.engine.*;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,51 +13,90 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.random.RandomGenerator;
 
-/** Loads, resolves, versions, and persists one authoritative AP action. */
+/** Loads, resolves, versions, and persists one authoritative action. */
 @Service
 public final class GameActionService {
     private final GameRepository repository;
-    private final ApRulesetRuntime apRuntime;
     private final ContentCatalog contentCatalog;
+    private final GameEngineFactory gameEngineFactory;
 
     public GameActionService(GameRepository repository, ContentCatalog contentCatalog) {
+        this(repository, contentCatalog, GameEngineFactory.unsupported());
+    }
+
+    @Autowired
+    public GameActionService(GameRepository repository, ContentCatalog contentCatalog, GameEngineFactory gameEngineFactory) {
         this.repository = repository;
-        this.apRuntime = new ApRulesetRuntime();
         this.contentCatalog = contentCatalog;
+        this.gameEngineFactory = gameEngineFactory;
     }
 
-    public GameInstance<ApRulesetRuntime.ApState> apply(String gameId, long expectedRevision, ApRulesetRuntime.ApAction action) {
-        return applyDetailed(gameId, expectedRevision, action).instance();
+    public ActionValidation validateIntent(String gameId, long expectedRevision, ActionIntent intent) {
+        GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
+        if (loaded.rulesetId() == null) return ActionValidation.reject("engine_required");
+        return validateRuntime(gameEngineFactory.create(loaded.rulesetId(), contentCatalog.world(loaded.worldId())), loaded, intent);
     }
 
-    public AppliedAction applyDetailed(String gameId, long expectedRevision, ApRulesetRuntime.ApAction action) {
-        Objects.requireNonNull(action, "action");
-        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
-        if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
-        if (!(loaded.rulesetState() instanceof ApRulesetRuntime.ApState state) || !"ap".equals(loaded.rulesetId())) throw new IllegalArgumentException("Game does not contain AP state");
-        WorldDefinition definition = contentCatalog.world(loaded.worldId());
-        ActionValidation validation = apRuntime.validate(state, action, definition);
-        if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
-        var difficulty = definition.difficulties().get(state.difficulty());
-        if (difficulty == null) throw new IllegalArgumentException("Unknown difficulty: " + state.difficulty());
-        var resolution = apRuntime.resolve(state, action, action instanceof ApRulesetRuntime.AdvanceDay ? difficulty.hpRecoveryBonus() : 0, definition);
+    /** Validates and resolves an intent without writing the save. */
+    public EngineResolution<?> resolveIntent(String gameId, long expectedRevision, ActionIntent intent) {
+        GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
+        return resolveRuntime(runtimeFor(loaded, contentCatalog.world(loaded.worldId())), loaded, intent);
+    }
+
+    public AppliedAction applyIntent(String gameId, long expectedRevision, ActionIntent intent) {
+        GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
+        var definition = contentCatalog.world(loaded.worldId());
+        var runtime = runtimeFor(loaded, definition);
+        var resolution = resolveRuntime(runtime, loaded, intent);
         long nextRevision = loaded.revision() + 1;
-        WorldState nextWorld = advanceWorld(loaded.worldState(), nextRevision, action, definition);
-        ApRulesetRuntime.ApState nextState = resolution.nextState();
-        if (action instanceof ApRulesetRuntime.AdvanceDay) {
-            nextState = apRuntime.resolve(nextState, new ApRulesetRuntime.TickNpcs(loaded.gameId().hashCode() ^ nextRevision, nextWorld.day()), 0, definition).nextState();
-            List<WorldEvent> newEvents = nextWorld.worldEvents().subList(loaded.worldState().worldEvents().size(), nextWorld.worldEvents().size());
-            nextState = applyWorldEffects(nextState, newEvents);
-        }
-        GameInstance<ApRulesetRuntime.ApState> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(), loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, nextRevision, nextWorld, nextState);
+        var world = loaded.worldState();
+        var nextWorld = resolution.advancesDay()
+                ? advanceWorld(world, nextRevision, definition) : world.withRevision(nextRevision);
+        var newEvents = nextWorld.worldEvents().subList(world.worldEvents().size(), nextWorld.worldEvents().size());
+        GameState nextState = resolution.advancesDay()
+                ? afterWorldAdvance(runtime, resolution.nextState(), nextWorld.day(), gameId.hashCode() ^ nextRevision, newEvents)
+                : resolution.nextState();
+        var next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
+                loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, nextRevision, nextWorld, nextState);
         repository.save(next);
-        List<WorldEvent> newEvents = nextWorld.worldEvents().subList(loaded.worldState().worldEvents().size(), nextWorld.worldEvents().size());
         return new AppliedAction(next, resolution.events(), newEvents);
     }
 
-    public record AppliedAction(GameInstance<ApRulesetRuntime.ApState> instance,
-                                List<ApRulesetRuntime.ApEvent> events,
-                                List<WorldEvent> worldEvents) {
+    private GameEngineRuntime<?, ?> runtimeFor(GameInstance<?> instance, WorldDefinition definition) {
+        if (instance.rulesetId() == null) throw new IllegalArgumentException("engine_required");
+        return gameEngineFactory.create(instance.rulesetId(), definition);
+    }
+
+    /** Read-only runtime access for narrative projection; no state mutation occurs here. */
+    public GameEngineRuntime<?, ?> runtimeForNarration(GameInstance<?> instance, WorldDefinition definition) {
+        return runtimeFor(instance, definition);
+    }
+
+    private GameInstance<?> checkedLoad(String gameId, long expectedRevision) {
+        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
+        if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
+        return loaded;
+    }
+
+    // The engine factory selects the runtime for the state stored with this engine ID.
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static ActionValidation validateRuntime(GameEngineRuntime runtime, GameInstance<?> instance, ActionIntent intent) {
+        return runtime.validate(instance.rulesetState(), intent, instance.worldState().day());
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static EngineResolution<?> resolveRuntime(GameEngineRuntime runtime, GameInstance<?> instance, ActionIntent intent) {
+        var validation = validateRuntime(runtime, instance, intent);
+        if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
+        return runtime.resolve(instance.rulesetState(), intent, instance.worldState().day());
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static GameState afterWorldAdvance(GameEngineRuntime runtime, GameState state, long day, long seed, List<WorldEvent> events) {
+        return runtime.afterWorldAdvance(state, day, seed, events);
+    }
+
+    public record AppliedAction(GameInstance<?> instance, List<ConfirmedEvent> events, List<WorldEvent> worldEvents) {
         public AppliedAction { events = List.copyOf(events); worldEvents = List.copyOf(worldEvents); }
     }
 
@@ -120,8 +153,7 @@ public final class GameActionService {
         return next;
     }
 
-    private WorldState advanceWorld(WorldState world, long revision, ApRulesetRuntime.ApAction action, WorldDefinition definition) {
-        if (!(action instanceof ApRulesetRuntime.AdvanceDay)) return copyWorld(world, revision, world.day(), world.threatCounter(), world.threatLevel(), world.threatHistory(), world.timedEvents(), world.incidentalEvents(), world.lastTickDay(), world.crisisTriggered(), world.activePriceModifiers(), world.activeEffects(), world.deadlineEvents(), world.worldEvents());
+    private WorldState advanceWorld(WorldState world, long revision, WorldDefinition definition) {
         long day = world.day() + 1;
         long counter = world.threatCounter() + 1;
         String level = world.threatLevel();
@@ -169,7 +201,7 @@ public final class GameActionService {
     private WorldState copyWorld(WorldState world, long revision, long day, long counter, String level,
                                  List<String> history, List<String> timed, List<String> incidental,
                                  long lastTick, boolean crisis, Map<PriceModifier.Category, PriceModifier> activePrices,
-                                 com.gameneko.aigame.engine.WorldEffects activeEffects,
+                                 WorldEffects activeEffects,
                                  List<TimedEvent> deadlines, List<WorldEvent> events) {
         return new WorldState(world.worldId(), world.contentVersion(), revision, world.setting(), world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(), day, world.time(), world.season(), world.weather(), world.flags(), level, counter, world.threatInterval(), history, timed, incidental, lastTick, crisis, world.mainPlotStage(), world.mainPlotStages(), world.priceModifiers(), world.originScene(), deadlines, events, activePrices, activeEffects);
     }
@@ -185,24 +217,11 @@ public final class GameActionService {
         return templates.getLast();
     }
 
-    private ApRulesetRuntime.ApState applyWorldEffects(ApRulesetRuntime.ApState state, List<WorldEvent> events) {
-        ApRulesetRuntime.ApState next = state;
-        for (WorldEvent event : events) {
-            var effects = event.effects();
-            if (effects.rationsBonus() != 0) next = next.withResources(next.resources().add(0, effects.rationsBonus(), 0));
-            if (effects.npcMoodShift() != 0) {
-                var npcs = next.systems().npcs().stream().map(npc -> npc.shiftMood(effects.npcMoodShift())).toList();
-                next = next.withSystems(next.systems().withNpcs(npcs));
-            }
-        }
-        return next;
-    }
-
-    private com.gameneko.aigame.engine.WorldEffects merge(com.gameneko.aigame.engine.WorldEffects current,
-                                                           com.gameneko.aigame.engine.WorldEffects addition) {
+    private WorldEffects merge(WorldEffects current,
+                                                           WorldEffects addition) {
         var prices = new java.util.ArrayList<>(current.priceModifiers()); prices.addAll(addition.priceModifiers());
         var npcPool = new java.util.ArrayList<>(current.npcPoolAdditions()); npcPool.addAll(addition.npcPoolAdditions());
-        return new com.gameneko.aigame.engine.WorldEffects(prices,
+        return new WorldEffects(prices,
                 Math.addExact(current.threatCounterDelta(), addition.threatCounterDelta()),
                 Math.addExact(current.npcMoodShift(), addition.npcMoodShift()),
                 current.travelPenalty() || addition.travelPenalty(),

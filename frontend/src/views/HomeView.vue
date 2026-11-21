@@ -1,26 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useGameStore } from '../stores/game'
-
-const router = useRouter(); const game = useGameStore(); const gameId = ref(game.currentGameId); const error = ref(''); const busy = ref(false)
-const resumeId = computed(() => game.game?.gameId || game.currentGameId)
-async function resume() {
-  const id = gameId.value.trim()
-  if (!id) { error.value = '请输入游戏 ID。'; return }
-  busy.value = true; error.value = ''
-  try { await game.load(id); await router.push(`/play/${encodeURIComponent(id)}`) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '无法读取这个存档。' }
-  finally { busy.value = false }
-}
+import { listGames } from '../api/client'
+const router = useRouter(); const error = ref(''); const busy = ref(false)
+async function openSaves() { busy.value = true; error.value = ''; try { const saves = await listGames(); if (saves.length === 1) await router.push(`/game/${encodeURIComponent(saves[0].gameId)}`); else await router.push({ name: 'game', query: { phase: 'saves' } }) } catch (cause) { error.value = cause instanceof Error ? cause.message : '无法读取存档列表。' } finally { busy.value = false } }
 </script>
-
-<template>
-  <section class="home-page page-content">
-    <div class="home-intro"><p class="eyebrow">ISEKAI GREY · WORLD 1.0</p><h1>灰境远征</h1><p class="lede">两个王国已经陷落。边境仍在集结冒险者，寻找下一道防线。</p><div class="intro-actions"><button class="primary-button" type="button" @click="router.push('/create')">创建角色 <span>→</span></button></div></div>
-    <section class="home-grid" aria-label="游戏入口">
-      <article class="entry-panel create-panel"><div class="panel-kicker">NEW EXPEDITION</div><h2>从边境启程</h2><p>为旅人选择职业与出身，决定故事开始时的地点和处境。</p><button class="secondary-button" type="button" @click="router.push('/create')">开始创建 <span>↗</span></button></article>
-      <article class="entry-panel load-panel"><div class="panel-kicker">CONTINUE</div><h2>继续远征</h2><label class="field-label" for="resume-id">存档 ID</label><div class="inline-form"><input id="resume-id" v-model="gameId" placeholder="输入存档 ID" autocomplete="off" @keyup.enter="resume" /><button class="secondary-button compact" type="button" :disabled="busy" @click="resume">{{ busy ? '读取中' : '读取' }}</button></div><p v-if="resumeId" class="saved-hint">最近使用：<strong>{{ resumeId }}</strong></p><p v-if="error" class="form-error" role="alert">{{ error }}</p></article>
-    </section>
-  </section>
-</template>
+<template><section class="home-screen" aria-labelledby="home-title"><div class="home-symbol" aria-hidden="true">✦</div><p class="eyebrow">AI GAME / STORY ENGINE</p><h1 id="home-title">AIgame</h1><p class="home-subtitle">从一个世界开始，和 GM 一起决定接下来会发生什么。</p><div class="home-actions"><button class="home-action primary-button" type="button" @click="router.push('/game')"><strong>开始游戏</strong><span>选择世界与规则，建立新故事</span></button><button class="home-action secondary-button" type="button" :disabled="busy" @click="openSaves"><strong>{{ busy ? '读取中…' : '加载存档' }}</strong><span>继续一局已经开始的冒险</span></button><button class="home-action quiet-button" type="button" @click="router.push('/settings')"><strong>设置</strong><span>配置外部模型 API key</span></button></div><p v-if="error" class="form-error" role="alert">{{ error }}</p></section></template>

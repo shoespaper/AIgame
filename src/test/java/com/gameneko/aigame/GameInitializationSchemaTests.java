@@ -23,8 +23,12 @@ class GameInitializationSchemaTests {
                 java.util.Map.of("town", List.of()), java.util.Map.of(), java.util.Map.of());
         var engineField = new InitializationField("dicePool", "Dice pool", InitializationField.ValueType.INTEGER,
                 true, List.of(), 1L, 20L, "");
-        WorldBookCatalog worlds = id -> new WorldBook(definition, new InitializationSchema(List.of(
+        WorldBook book = new WorldBook(definition, new InitializationSchema(List.of(
                 new InitializationField("name", "Name", InitializationField.ValueType.TEXT, true, List.of(), null, null, ""))));
+        WorldBookCatalog worlds = new WorldBookCatalog() {
+            @Override public List<WorldBook> available() { return List.of(book); }
+            @Override public WorldBook worldBook(String worldId) { return book; }
+        };
         GameEngineCatalog engines = new GameEngineCatalog() {
             private final GameEngineDescriptor descriptor = new GameEngineDescriptor("dice", "1", "Dice", new InitializationSchema(List.of(engineField)));
             @Override public List<GameEngineDescriptor> available() { return List.of(descriptor); }
@@ -36,9 +40,13 @@ class GameInitializationSchemaTests {
 
     @Test
     void duplicateWorldAndEngineFieldIsRejected() {
-        WorldBookCatalog worlds = id -> new WorldBook(new WorldDefinition("world", "1", "name", "desc", 1,
+        WorldBook book = new WorldBook(new WorldDefinition("world", "1", "name", "desc", 1,
                 java.util.Map.of("town", List.of()), java.util.Map.of(), java.util.Map.of()),
                 new InitializationSchema(List.of(new InitializationField("name", "Name", InitializationField.ValueType.TEXT, true, List.of(), null, null, ""))));
+        WorldBookCatalog worlds = new WorldBookCatalog() {
+            @Override public List<WorldBook> available() { return List.of(book); }
+            @Override public WorldBook worldBook(String worldId) { return book; }
+        };
         GameEngineCatalog engines = new GameEngineCatalog() {
             @Override public List<GameEngineDescriptor> available() { return List.of(); }
             @Override public GameEngineDescriptor engine(String id) { return new GameEngineDescriptor(id, "1", id,

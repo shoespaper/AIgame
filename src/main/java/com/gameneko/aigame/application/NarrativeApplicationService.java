@@ -66,8 +66,27 @@ public final class NarrativeApplicationService {
             previews.add(new ProposalPreview(candidate.type(), conversion.converted(), conversion.rejection()));
         }
         return new NarratedAction(applied.instance(), response.narration(), response.mediaRequests(),
-                response.proposals(), previews, NarrativeSnapshotFactory.fromConfirmed(applied.instance(),
+                response.proposals(), previews, response.options(), response.initializationQuestions(), response.parseCandidates(), NarrativeSnapshotFactory.fromConfirmed(applied.instance(),
                 applied.events(), applied.worldEvents(), projection(applied.instance())).confirmedEvents());
+    }
+
+    /** 校验并结算玩家选中的 GM 意图，再仅依据确认事件和最新快照生成叙事。 */
+    /** @param gameId 当前游戏标识 */
+    /** @param expectedRevision 客户端观察到的存档版本 */
+    /** @param option 玩家选择的结构化 GM 选项；其意图仍是不可信候选 */
+    /** @param playerInput 玩家补充的自由文本 */
+    /** @param locale 叙事语言标识 */
+    public NarratedAction applyOption(String gameId, long expectedRevision,
+                                      com.gameneko.aigame.narrative.NarrativeOption option,
+                                      String playerInput, String locale) {
+        if (option == null || option.intent() == null) throw new IllegalArgumentException("option_intent_required");
+        var applied = gameActionService.applyIntent(gameId, expectedRevision, option.intent());
+        NarrativeResponse response = narrateAfter(applied, playerInput, locale);
+        var confirmed = NarrativeSnapshotFactory.fromConfirmed(applied.instance(), applied.events(),
+                applied.worldEvents(), projection(applied.instance())).confirmedEvents();
+        return new NarratedAction(applied.instance(), response.narration(), response.mediaRequests(),
+                response.proposals(), List.of(), response.options(), response.initializationQuestions(),
+                response.parseCandidates(), confirmed);
     }
 
     public GameInstance<?> applyProposal(String gameId, long expectedRevision,
@@ -83,15 +102,31 @@ public final class NarrativeApplicationService {
     }
 
     public record ProposalPreview(String type, boolean convertible, String reason) {}
+    /** 冒险操作及其已确认结果和后续 GM 候选。 */
+    /** @param instance 操作结算后的权威游戏实例 */
+    /** @param narration 基于确认状态生成的叙事文本 */
+    /** @param mediaRequests 展示层可选媒体请求 */
+    /** @param proposals 尚未应用的规则或世界提案 */
+    /** @param proposalPreviews 提案的服务端校验结果 */
+    /** @param options 后续可供玩家选择的通用行动 */
+    /** @param initializationQuestions 仍需展示的初始化问题 */
+    /** @param parseCandidates 自由输入的结构化解析候选 */
+    /** @param confirmedEvents 本次引擎与世界层确认事件 */
     public record NarratedAction(GameInstance<?> instance, String narration,
                                  List<NarrativeMediaRequest> mediaRequests,
                                  List<NarrativeProposalCandidate> proposals,
                                  List<ProposalPreview> proposalPreviews,
+                                 List<com.gameneko.aigame.narrative.NarrativeOption> options,
+                                 List<com.gameneko.aigame.narrative.NarrativeInitializationQuestion> initializationQuestions,
+                                 List<com.gameneko.aigame.narrative.NarrativeParseCandidate> parseCandidates,
                                  List<com.gameneko.aigame.narrative.NarrativeSnapshot.ConfirmedEvent> confirmedEvents) {
         public NarratedAction {
             mediaRequests = List.copyOf(mediaRequests);
             proposals = List.copyOf(proposals);
             proposalPreviews = List.copyOf(proposalPreviews);
+            options = List.copyOf(options);
+            initializationQuestions = List.copyOf(initializationQuestions);
+            parseCandidates = List.copyOf(parseCandidates);
             confirmedEvents = List.copyOf(confirmedEvents);
         }
     }

@@ -16,12 +16,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Optional;
+import java.util.List;
+import java.util.stream.Stream;
 import java.util.regex.Pattern;
 
 /** JSON file adapter for the current in-memory world state. */
 @Component
 public final class FileGameRepository implements GameRepository {
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
     private static final Pattern SAFE_GAME_ID = Pattern.compile("[A-Za-z0-9_-]{1,80}");
     private final ObjectMapper objectMapper;
     private final Path saveRoot;
@@ -72,6 +74,15 @@ public final class FileGameRepository implements GameRepository {
             var envelope = objectMapper.createObjectNode();
             envelope.put("schemaVersion", SCHEMA_VERSION);
             envelope.put("gameId", instance.gameId());
+            envelope.put("worldId", instance.worldId());
+            envelope.put("worldVersion", instance.contentVersion());
+            if (instance.rulesetId() != null) {
+                envelope.put("engineId", instance.rulesetId());
+                envelope.put("engineVersion", instance.rulesetVersion());
+            } else {
+                envelope.putNull("engineId");
+                envelope.putNull("engineVersion");
+            }
             envelope.set("state", objectMapper.valueToTree(instance));
             Files.writeString(temporary, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(envelope),
                     StandardOpenOption.TRUNCATE_EXISTING);
@@ -85,6 +96,21 @@ public final class FileGameRepository implements GameRepository {
         }
     }
 
+    /** 读取保存目录中的全部有效游戏实例，供存档列表接口使用。 */
+    @Override
+    public List<GameInstance<?>> list() {
+        if (!Files.isDirectory(saveRoot)) return List.of();
+        try (Stream<Path> files = Files.list(saveRoot)) {
+            return files.filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .map(path -> path.getFileName().toString().replaceFirst("\\.json$", ""))
+                    .map(this::load)
+                    .flatMap(Optional::stream)
+                    .toList();
+        } catch (IOException exception) {
+            throw new GamePersistenceException("Unable to list saves", exception);
+        }
+    }
+
     private Path savePath(String gameId) {
         if (gameId == null || !SAFE_GAME_ID.matcher(gameId).matches()) {
             throw new IllegalArgumentException("gameId must contain only letters, digits, '_' or '-'");
@@ -92,12 +118,28 @@ public final class FileGameRepository implements GameRepository {
         return saveRoot.resolve(gameId + ".json").normalize();
     }
 
+    /**
+     * 校验存档信封的格式与身份一致性。
+     *
+     * @param envelope JSON 存档信封，须为含 schemaVersion、gameId、state 的对象
+     * @param gameId   请求加载的游戏标识，须与信封中的 gameId 一致
+     */
     private static void validateEnvelope(JsonNode envelope, String gameId) {
-        if (envelope == null || !envelope.isObject()
-                || envelope.path("schemaVersion").asInt(-1) != SCHEMA_VERSION
-                || !gameId.equals(envelope.path("gameId").asText())
-                || !envelope.path("state").isObject()) {
+        int version = envelope == null ? -1 : envelope.path("schemaVersion").asInt(-1);
+        if (envelope == null || !envelope.isObject() || version != SCHEMA_VERSION
+                || !gameId.equals(envelope.path("gameId").asText()) || !envelope.path("state").isObject()) {
             throw new GamePersistenceException("Invalid save format: " + gameId);
         }
+        JsonNode state = envelope.path("state");
+        if (!envelope.path("worldId").asText().equals(state.path("worldId").asText())
+                || !envelope.path("worldVersion").asText().equals(state.path("contentVersion").asText())) {
+            throw new GamePersistenceException("Save identity does not match state: " + gameId);
+        }
+        String engine = envelope.path("engineId").isNull() ? null : envelope.path("engineId").asText(null);
+        String stateEngine = state.path("rulesetId").isNull() ? null : state.path("rulesetId").asText(null);
+        if (!java.util.Objects.equals(engine, stateEngine)) throw new GamePersistenceException("Save engine identity does not match state: " + gameId);
+        String engineVersion = envelope.path("engineVersion").isNull() ? null : envelope.path("engineVersion").asText(null);
+        String stateVersion = state.path("rulesetVersion").isNull() ? null : state.path("rulesetVersion").asText(null);
+        if (!java.util.Objects.equals(engineVersion, stateVersion)) throw new GamePersistenceException("Save engine version does not match state: " + gameId);
     }
 }

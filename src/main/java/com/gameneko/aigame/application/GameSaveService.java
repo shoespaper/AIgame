@@ -5,6 +5,7 @@ import com.gameneko.aigame.engine.GameInstance;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
+import java.util.List;
 
 /** Application boundary for saving and loading the current game state. */
 @Service
@@ -25,4 +26,7 @@ public final class GameSaveService {
     public GameInstance<?> load(String gameId) {
         return repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
     }
+
+    /** 返回存档实例列表，供客户端展示可恢复的游戏元数据。 */
+    public List<GameInstance<?>> list() { return repository.list(); }
 }

@@ -38,6 +38,21 @@ class FileGameRepositoryTests {
     }
 
     @Test
+    void rejectsVersionOneEnvelope() throws Exception {
+        var mapper = new ObjectMapper();
+        FileGameRepository repository = new FileGameRepository(mapper, saveRoot, new com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver());
+        GameInstance<?> instance = GameInstance.narrativeOnly("legacy", state());
+        var outdated = mapper.createObjectNode();
+        outdated.put("schemaVersion", 1);
+        outdated.put("gameId", "legacy");
+        outdated.set("state", mapper.valueToTree(instance));
+        Files.createDirectories(saveRoot);
+        Files.writeString(saveRoot.resolve("legacy.json"), mapper.writeValueAsString(outdated));
+
+        assertThrows(GamePersistenceException.class, () -> repository.load("legacy"));
+    }
+
+    @Test
     void returnsEmptyForMissingSave() {
         FileGameRepository repository = new FileGameRepository(new ObjectMapper(), saveRoot, new com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver());
         assertTrue(repository.load("missing").isEmpty());

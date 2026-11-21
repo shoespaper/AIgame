@@ -31,6 +31,12 @@ public final class ClasspathContentCatalog implements ContentCatalog {
     }
 
     @Override
+    /** 返回当前 classpath 中已注册的世界书。 */
+    public List<WorldBook> available() {
+        return WORLD_RESOURCES.keySet().stream().sorted().map(this::worldBook).toList();
+    }
+
+    @Override
     public WorldDefinition world(String worldId) {
         if (worldId == null || worldId.isBlank()) {
             throw new WorldContentException("worldId must not be blank");

@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import com.gameneko.aigame.persistence.GamePersistenceException;
 import com.gameneko.aigame.content.WorldContentException;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -36,6 +37,13 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
     public ErrorResponse handlePersistenceError(GamePersistenceException exception) {
         return new ErrorResponse(exception.getMessage());
+    }
+
+    @ExceptionHandler(NarrativeProviderException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorResponse handleNarrativeProvider(NarrativeProviderException exception) {
+        log.error("Narrative provider failure", exception);
+        return new ErrorResponse(exception.getMessage() == null ? "叙事模型调用失败" : exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

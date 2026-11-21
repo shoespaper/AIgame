@@ -41,6 +41,21 @@ public final class NarrativeController {
         return GameInstanceResponse.from(narrativeService.applyProposal(gameId, request.expectedRevision(), request.proposal(), request.proposalIndex()));
     }
 
+    /** 将玩家选择的 GM 选项送入统一引擎校验与结算链路。 */
+    /** @param gameId 当前游戏标识 */
+    /** @param request 包含 revision、选项意图及可选自由文本的请求 */
+    @PostMapping("/{gameId}/narration/options")
+    public NarratedActionResponse applyOption(@PathVariable String gameId,
+                                              @RequestBody NarrativeOptionRequest request) {
+        if (request == null || request.option() == null) throw new IllegalArgumentException("Option is required");
+        return NarratedActionResponse.from(narrativeService.applyOption(gameId, request.expectedRevision(),
+                request.option(), request.playerInput(), request.locale()));
+    }
+
     public record NarrativeProposalRequest(long expectedRevision, int proposalIndex,
                                            NarrativeProposalCandidate proposal) {}
+    /** 玩家选择结构化选项的 HTTP 请求。 */
+    public record NarrativeOptionRequest(long expectedRevision,
+                                         com.gameneko.aigame.narrative.NarrativeOption option,
+                                         String playerInput, String locale) {}
 }

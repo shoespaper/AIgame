@@ -3,7 +3,6 @@ package com.gameneko.aigame.api;
 import com.gameneko.aigame.application.GameActionService;
 import com.gameneko.aigame.application.GameInstanceService;
 import com.gameneko.aigame.application.GameSaveService;
-import com.gameneko.aigame.application.InitializeWorldRequest;
 import com.gameneko.aigame.application.NarrativeApplicationService;
 import com.gameneko.aigame.engine.GameInstance;
 import org.springframework.http.HttpStatus;
@@ -15,8 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import com.gameneko.aigame.engine.InitializationValue;
 
 /** Thin HTTP adapter for save/load and typed game commands. */
@@ -37,19 +36,6 @@ public final class GameSaveController {
         this.actionService = actionService;
         this.narrativeService = narrativeService;
         this.actionMapper = actionMapper;
-    }
-
-    @PostMapping("/{gameId}/initialize")
-    public GameInstanceResponse initialize(@PathVariable String gameId,
-                                           @RequestBody InitializeWorldHttpRequest request) {
-        if (request == null) throw new IllegalArgumentException("Request body is required");
-        InitializeWorldRequest applicationRequest = new InitializeWorldRequest(request.worldId(), request.name(),
-                request.description(), request.location(), request.region(), request.weather(), request.season(),
-                request.time(), request.mainQuest(), request.originScene(), request.characterName(), request.age(),
-                request.gender(), request.archetype(), request.difficulty());
-        var instance = instanceService.initialize(gameId, applicationRequest, request.engineId(), initializationAnswers(request));
-        saveService.save(instance);
-        return GameInstanceResponse.from(instance);
     }
 
     @PostMapping("/{gameId}/save")
@@ -81,20 +67,19 @@ public final class GameSaveController {
         return GameInstanceResponse.from(saveService.load(gameId));
     }
 
+    /** 返回全部存档的轻量元数据，避免列表页加载完整引擎状态。 */
+    @GetMapping
+    public List<SaveMetadata> list() {
+        return saveService.list().stream().map(instance -> new SaveMetadata(instance.gameId(), instance.worldId(),
+                instance.rulesetId(), instance.worldState().day(), instance.revision(), "")).toList();
+    }
+
     @GetMapping("/{gameId}/save")
     public WorldInitializationResponse load(@PathVariable String gameId) {
         GameInstance<?> instance = saveService.load(gameId);
         return WorldInitializationResponse.from(instance.worldState());
     }
 
-    /** 将 HTTP 初始化字段转换为服务层使用的类型化答案。 */
-    private static Map<String, InitializationValue> initializationAnswers(InitializeWorldHttpRequest request) {
-        var answers = new HashMap<String, InitializationValue>();
-        if (request.characterName() != null) answers.put("characterName", new InitializationValue.Text(request.characterName()));
-        if (request.age() != null) answers.put("age", new InitializationValue.IntegerNumber(request.age()));
-        if (request.gender() != null) answers.put("gender", new InitializationValue.Text(request.gender()));
-        if (request.archetype() != null) answers.put("archetype", new InitializationValue.Text(request.archetype()));
-        if (request.difficulty() != null) answers.put("difficulty", new InitializationValue.Text(request.difficulty()));
-        return Map.copyOf(answers);
-    }
+    /** 存档列表所需的稳定元数据。 */
+    public record SaveMetadata(String gameId, String worldId, String engineId, long day, long revision, String updatedAt) {}
 }

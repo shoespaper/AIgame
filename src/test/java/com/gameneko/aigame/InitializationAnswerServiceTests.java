@@ -19,7 +19,7 @@ class InitializationAnswerServiceTests {
     @Test
     void parsesTypedAnswersAndReportsUnknownFields() {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var service = new InitializationAnswerService(catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineCatalog());
+        var service = new InitializationAnswerService(catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
         var result = service.parseAndValidate(new GameSelection("isekai_grey", null),
                 "characterName=小明,age=20,energy=10");
         assertFalse(result.accepted());

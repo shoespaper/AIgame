@@ -1,0 +1,120 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "worldbook_id": "cinder_continent",
+    "world_name": "cinder_continent",
+    "template_id": "isekai",
+    "type": "isekai"
+  },
+  "world_setting": {
+    "world_name_hint": "残烬大陆",
+    "world_desc_hint": "一片被深渊裂隙撕裂的大陆。东方的裂口涌出魔军，已经吞掉了两个王国。人类牵头组建的联盟勉强守住阵线。冒险者公会是最后一道防线——所有能打的人都要登记。这是职责，不是荣耀。",
+    "tone": "balanced",
+    "template_id": "isekai",
+    "type": "isekai",
+    "adventurer_guild": {
+      "ranks": [
+        {
+          "rank": "F",
+          "title_hint": "见习",
+          "min_level": 1,
+          "desc_hint": "新手。公会配发基础装备。",
+          "title": "见习"
+        },
+        {
+          "rank": "E",
+          "title_hint": "已证",
+          "min_level": 3,
+          "desc_hint": "可以独自下 E 级地窟。",
+          "title": "已证"
+        },
+        {
+          "rank": "D",
+          "title_hint": "稳妥",
+          "min_level": 5,
+          "desc_hint": "D 级以上任务建议结队。",
+          "title": "稳妥"
+        },
+        {
+          "rank": "C",
+          "title_hint": "老手",
+          "min_level": 8,
+          "desc_hint": "能带队。",
+          "title": "老手"
+        },
+        {
+          "rank": "B",
+          "title_hint": "精锐",
+          "min_level": 12,
+          "desc_hint": "可清剿首领级地窟。",
+          "title": "精锐"
+        },
+        {
+          "rank": "A",
+          "title_hint": "闻名",
+          "min_level": 16,
+          "desc_hint": "国家级威胁。",
+          "title": "闻名"
+        },
+        {
+          "rank": "S",
+          "title_hint": "传说",
+          "min_level": 20,
+          "desc_hint": "关乎世界命运的任务。",
+          "title": "传说"
+        }
+      ],
+      "quest_rank_to_cr": {
+        "F": 1,
+        "E": 2,
+        "D": 3,
+        "C": 4,
+        "B": 5,
+        "A": 6,
+        "S": 7
+      }
+    },
+    "factions": [
+      {
+        "type": "human_kingdom",
+        "desc_hint": "最大的人类国家。公会总部设在此处。"
+      },
+      {
+        "type": "elf_federation",
+        "desc_hint": "古老的森林守望者。不信任人类，但仍与人类共抗外敌。"
+      },
+      {
+        "type": "dwarf_clans",
+        "desc_hint": "山中锻造世家。正在被兽群围困。"
+      },
+      {
+        "type": "beast_nomads",
+        "desc_hint": "草原上的战士。有人以雇佣兵身份受雇。"
+      },
+      {
+        "type": "mage_academy",
+        "desc_hint": "首屈一指的魔法学府。政治上中立，财政拮据。"
+      },
+      {
+        "type": "demon_legion",
+        "desc_hint": "所有生灵的敌人。正在变强。已灭两国。"
+      }
+    ],
+    "origin_contexts": [
+      "出身由 GM 定：父亲是铁匠，母亲在兽潮中失踪。由一位退隐的冒险者带大。十六岁，必须去公会登记。",
+      "出身由 GM 定：猎户之子，父母被野兽所伤落下残疾。还有弟妹要养。十六岁，除了登记没有别的选择。",
+      "出身由 GM 定：在修道院长大的孤儿。十六岁生日那天，老院长给了一封信和一把剑。",
+      "出身由 GM 定：三代渔家。他不肯认这个命。攒钱买了把二手剑，天亮前就走了。"
+    ],
+    "world_tropes": [
+      "魂印铁牌——天生的凭证。公会登记时触碰水晶，牌中信息只有本人与公会鉴定师能看见。",
+      "冒险者等级从 F 到 S。所有人都从 F 起步。没有捷径。",
+      "D 级以上的任务独行等于送死。公会鼓励结队，但找到可信的同伴比杀怪还难。",
+      "这个世界有「成长」——突破。足够的战斗与濒死经历会带来肉体与精神的质变。这是常识，不是秘密。",
+      "怪物会留下材料——皮毛、晶核，偶尔还有装备。公会收购材料。这叫「取料」。",
+      "地窟是散落在大陆各处的亚空间结构。清空之后会缓慢再生。越深，战利品越好，死亡率越高。",
+      "每个倒下的冒险者名字都刻在公会纪念墙上。每个分会的墙都比你想的要长。",
+      "魔王不是传说。四位将军——每一位都是灾厄级的威胁——率军从深渊裂隙涌出。两个国家已经陷落。这场战争不会结束，只会加剧。"
+    ]
+  }
+}

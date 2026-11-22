@@ -31,18 +31,6 @@ public final class GameActionService {
         this.gameEngineFactory = gameEngineFactory;
     }
 
-    public ActionValidation validateIntent(String gameId, long expectedRevision, ActionIntent intent) {
-        GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
-        if (loaded.rulesetId() == null) return ActionValidation.reject("engine_required");
-        return validateRuntime(gameEngineFactory.create(loaded.rulesetId(), contentCatalog.world(loaded.worldId())), loaded, intent);
-    }
-
-    /** Validates and resolves an intent without writing the save. */
-    public EngineResolution<?> resolveIntent(String gameId, long expectedRevision, ActionIntent intent) {
-        GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
-        return resolveRuntime(runtimeFor(loaded, contentCatalog.world(loaded.worldId())), loaded, intent);
-    }
-
     public AppliedAction applyIntent(String gameId, long expectedRevision, ActionIntent intent) {
         GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
         var definition = contentCatalog.world(loaded.worldId());

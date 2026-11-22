@@ -8,7 +8,7 @@ import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.InitializationField;
 import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
-import com.gameneko.aigame.engine.ProposalIntentConversion;
+import com.gameneko.aigame.engine.SupportedAction;
 
 import java.util.List;
 import java.util.Map;
@@ -18,8 +18,12 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     private final WorldDefinition world;
     private final ApRulesetRuntime runtime = new ApRulesetRuntime();
 
+    /** 创建绑定模板内容的 AP 运行时，并明确拒绝缺少机制定义的空白模板。
+     * @param world 世界书与模板合并后的内容
+     */
     public ApGameEngineRuntime(WorldDefinition world) {
         if (world == null) throw new IllegalArgumentException("AP requires a world definition");
+        if (world.difficulties().isEmpty()) throw new IllegalArgumentException("该世界模板尚无 AP 规则，请选择纯叙事或使用包含规则的模板。");
         this.world = world;
     }
 
@@ -61,60 +65,48 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     }
 
     @Override
-    public ProposalIntentConversion convertProposal(String type, Map<String, String> fields, long seed) {
-        if (fields == null || fields.size() > 16) return ProposalIntentConversion.reject("proposal_field_count_invalid");
-        try {
-            return switch (type) {
-                case "gain_experience" -> {
-                    requireFields(fields, List.of("amount"));
-                    long amount = requiredLong(fields, "amount", 1, 250);
-                    yield ProposalIntentConversion.accept(intent("grant_experience", number("amount", amount)));
-                }
-                case "acquire_item" -> {
-                    requireFields(fields, List.of("itemName", "itemCategory", "itemTier"));
-                    String category = requiredText(fields, "itemCategory", 40);
-                    String tier = requiredText(fields, "itemTier", 40);
-                    if (!world.itemTemplates().containsKey(category + ":" + tier)) {
-                        yield ProposalIntentConversion.reject("unknown_item_template");
-                    }
-                    yield ProposalIntentConversion.accept(intent("acquire_item", text("itemName", requiredText(fields, "itemName", 80)),
-                            text("itemCategory", category), text("itemTier", tier), number("proposalSeed", seed)));
-                }
-                default -> ProposalIntentConversion.reject("unsupported_ap_proposal");
-            };
-        } catch (IllegalArgumentException exception) {
-            return ProposalIntentConversion.reject(exception.getMessage());
-        }
+    public java.util.List<SupportedAction> supportedActions() {
+        return java.util.List.of(
+                new SupportedAction("rest", "就地休息，恢复生命与行动点。", java.util.List.of()),
+                new SupportedAction("consume_ration", "吃一份口粮恢复状态。", java.util.List.of()),
+                new SupportedAction("use_potion", "使用一瓶药水。", java.util.List.of()),
+                new SupportedAction("advance_day", "推进到下一天，触发世界推进。", java.util.List.of()),
+                new SupportedAction("grant_experience", "获得经验值。", java.util.List.of(
+                        new SupportedAction.Parameter("amount", "integer", "经验值数量", true))),
+                new SupportedAction("learn_ability", "学习一个能力。", java.util.List.of(
+                        new SupportedAction.Parameter("abilityId", "text", "能力标识", true))),
+                new SupportedAction("equip_item", "装备一件物品到指定槽位。", java.util.List.of(
+                        new SupportedAction.Parameter("itemName", "text", "物品名称", true),
+                        new SupportedAction.Parameter("slot", "text", "装备槽位", false))),
+                new SupportedAction("use_item", "使用一件物品。", java.util.List.of(
+                        new SupportedAction.Parameter("itemName", "text", "物品名称", true))),
+                new SupportedAction("accept_quest", "接受一个任务。", java.util.List.of(
+                        new SupportedAction.Parameter("questId", "text", "任务标识", true))),
+                new SupportedAction("complete_quest", "完成一个任务。", java.util.List.of(
+                        new SupportedAction.Parameter("questId", "text", "任务标识", true))),
+                new SupportedAction("fail_quest", "使一个任务失败。", java.util.List.of(
+                        new SupportedAction.Parameter("questId", "text", "任务标识", true),
+                        new SupportedAction.Parameter("reason", "text", "失败原因", false))),
+                new SupportedAction("claim_quest_reward", "领取任务奖励。", java.util.List.of(
+                        new SupportedAction.Parameter("questId", "text", "任务标识", true),
+                        new SupportedAction.Parameter("xp", "integer", "经验奖励", false),
+                        new SupportedAction.Parameter("copper", "integer", "铜币奖励", false),
+                        new SupportedAction.Parameter("rations", "integer", "口粮奖励", false),
+                        new SupportedAction.Parameter("potions", "integer", "药水奖励", false))),
+                new SupportedAction("acquire_item", "获得一件物品。", java.util.List.of(
+                        new SupportedAction.Parameter("itemName", "text", "物品名称", true),
+                        new SupportedAction.Parameter("itemCategory", "text", "物品类别", true),
+                        new SupportedAction.Parameter("itemTier", "text", "物品品质", true))),
+                new SupportedAction("offer_quest", "向玩家提供新任务。", java.util.List.of(
+                        new SupportedAction.Parameter("questId", "text", "任务标识", true),
+                        new SupportedAction.Parameter("questTitle", "text", "任务标题", true),
+                        new SupportedAction.Parameter("questDescription", "text", "任务描述", false),
+                        new SupportedAction.Parameter("questRegion", "text", "任务区域", false),
+                        new SupportedAction.Parameter("deadlineDays", "integer", "期限天数", false))));
     }
 
-    private static ActionIntent intent(String type, ActionIntent.Argument... arguments) {
-        return new ActionIntent(type, "", List.of(arguments));
-    }
-    private static ActionIntent.Argument text(String name, String value) {
-        return new ActionIntent.Argument(name, new InitializationValue.Text(value));
-    }
-    private static ActionIntent.Argument number(String name, long value) {
-        return new ActionIntent.Argument(name, new InitializationValue.IntegerNumber(value));
-    }
-    private static void requireFields(Map<String, String> fields, List<String> allowed) {
-        if (!fields.keySet().equals(new java.util.HashSet<>(allowed))) throw new IllegalArgumentException("proposal_fields_invalid");
-    }
-    private static String requiredText(Map<String, String> fields, String name, int maxLength) {
-        String value = fields.get(name);
-        if (value == null || value.isBlank() || value.length() > maxLength) throw new IllegalArgumentException("proposal_field_invalid:" + name);
-        return value.trim();
-    }
-    private static long requiredLong(Map<String, String> fields, String name, long min, long max) {
-        try {
-            long value = Long.parseLong(fields.get(name));
-            if (value < min || value > max) throw new IllegalArgumentException("proposal_field_out_of_range:" + name);
-            return value;
-        } catch (NumberFormatException | NullPointerException exception) {
-            throw new IllegalArgumentException("proposal_field_invalid:" + name);
-        }
-    }
-
-    @Override public EngineResolution<ApRulesetRuntime.ApState> resolve(ApRulesetRuntime.ApState state, ActionIntent intent) {
+    @Override
+    public EngineResolution<ApRulesetRuntime.ApState> resolve(ApRulesetRuntime.ApState state, ActionIntent intent) {
         var action = toAction(intent);
         var validation = runtime.validate(state, action, world);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());

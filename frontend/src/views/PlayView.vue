@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { JsonValue, NarrativeOption, NarrativeProposalCandidate } from '../api/types'
+import type { JsonValue } from '../api/types'
 import { useGameStore } from '../stores/game'
 import NarrativeTurn from '../components/NarrativeTurn.vue'
 
@@ -19,13 +19,9 @@ function formatState(value: JsonValue): string { return JSON.stringify(value, nu
 async function save() { try { await game.save() } catch { /* store exposes the user-facing error */ } }
 /** 将自由输入发送到 GM 叙事接口。 */
 async function speak() { try { await game.speak(playerInput.value); playerInput.value = '' } catch { /* store exposes the user-facing error */ } }
-/** 将所选结构化选项交给服务端验证和结算。 */
-/** @param option 当前叙事回合提供的选项 */
-async function choose(option: NarrativeOption) { try { await game.chooseOption(option, playerInput.value); playerInput.value = '' } catch { /* store exposes the user-facing error */ } }
-/** 请求应用已通过服务端预览的提案。 */
-/** @param proposal 当前叙事回合的候选提案 */
-/** @param index 提案在本回合数组中的索引 */
-async function applyProposal(proposal: NarrativeProposalCandidate, index: number) { try { await game.applyProposal(proposal, index) } catch { /* store exposes the user-facing error */ } }
+/** 点选候选行动：当作玩家输入发送。 */
+/** @param label 候选行动的文本 */
+async function choose(label: string) { try { await game.speak(label); playerInput.value = '' } catch { /* store exposes the user-facing error */ } }
 watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void load() })
 </script>
 
@@ -39,7 +35,7 @@ watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void 
       <main class="story-column">
         <div class="story-heading"><div><span class="panel-kicker">CURRENT SESSION</span><h2>本次操作</h2></div><span class="revision-badge">第 {{ world.day }} 天 · {{ world.time || '未知时刻' }}</span></div>
         <div class="timeline" aria-live="polite"><article v-for="item in game.events" :key="item.id" class="timeline-item" :class="item.kind"><div class="timeline-marker" aria-hidden="true" /><div class="timeline-copy"><div class="timeline-meta"><strong>{{ item.title }}</strong><time>{{ item.time }}</time></div><p>{{ item.detail }}</p></div></article><div v-if="!game.events.length" class="empty-timeline">还没有行动记录。选择右侧的行动，开始这场远征。</div></div>
-        <div class="action-composer"><div class="composer-heading"><div><span class="panel-kicker">GM CONVERSATION</span><h2>你要怎么做？</h2></div><span v-if="game.acting" class="processing-label"><span class="loader small" />处理中</span></div><NarrativeTurn v-if="game.narration" :turn="game.narration" :acting="game.acting" @choose="choose" @apply-proposal="applyProposal" /><div class="free-input"><input v-model="playerInput" placeholder="自由输入行动或问题" @keyup.enter="speak" /><button class="primary-button" type="button" :disabled="game.acting || !playerInput.trim()" @click="speak">发送</button></div></div>
+        <div class="action-composer"><div class="composer-heading"><div><span class="panel-kicker">GM CONVERSATION</span><h2>你要怎么做？</h2></div><span v-if="game.acting" class="processing-label"><span class="loader small" />处理中</span></div><NarrativeTurn v-if="game.narration" :turn="game.narration" :acting="game.acting" @choose="choose" /><div class="free-input"><input v-model="playerInput" placeholder="自由输入行动或问题" @keyup.enter="speak" /><button class="primary-button" type="button" :disabled="game.acting || !playerInput.trim()" @click="speak">发送</button></div></div>
       </main>
       <aside class="status-column">
         <section v-if="state" class="status-panel character-panel"><div class="panel-heading compact-heading"><span class="panel-kicker">ENGINE STATE</span><h2>{{ game.game.rulesetId || '纯叙事' }}</h2><p>由所选引擎返回的只读状态。</p></div><pre class="engine-state">{{ formatState(state) }}</pre></section>

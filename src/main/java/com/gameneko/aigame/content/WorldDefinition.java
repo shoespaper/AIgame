@@ -41,7 +41,7 @@ public record WorldDefinition(String worldId, String contentVersion, String name
                 // Gender is a common character field. "Undecided" remains valid for players
                 // who do not want to specify it during setup.
                 new InitializationField("gender", "性别", InitializationField.ValueType.TEXT,
-                        false, List.of(), null, null, "可选")));
+                        false, List.of(), null, null, "你的角色是男性还是女性？不想指定可以说「跳过」")));
     }
 
     public WorldDefinition(String worldId, String contentVersion, String nameHint,
@@ -151,12 +151,45 @@ public record WorldDefinition(String worldId, String contentVersion, String name
         }
     }
 
-    public record NpcTemplate(String id, List<String> personalities, String scheduleTemplate,
-                              int relationshipBase, boolean canTrain, boolean canCombat,
+    public record NpcTemplate(String id, List<String> personalities, List<BondDefinition> bondPool,
+                              String scheduleTemplate, int relationshipBase, boolean canTrain, boolean canCombat,
                               boolean sellsItems, boolean givesQuests, boolean enemy) {
         public NpcTemplate {
             personalities = personalities == null ? List.of() : List.copyOf(personalities);
+            bondPool = bondPool == null ? List.of() : List.copyOf(bondPool);
             relationshipBase = Math.max(-100, Math.min(100, relationshipBase));
+        }
+
+        /** 兼容旧调用方的 NPC 模板构造器。
+         * @param id NPC 身份标识
+         * @param personalities 性格名称池
+         * @param scheduleTemplate 日程模板标识
+         * @param relationshipBase 默认关系值
+         * @param canTrain 是否可训练
+         * @param canCombat 是否可参与战斗
+         * @param sellsItems 是否出售物品
+         * @param givesQuests 是否发布任务
+         * @param enemy 是否为敌对身份
+         */
+        public NpcTemplate(String id, List<String> personalities, String scheduleTemplate,
+                           int relationshipBase, boolean canTrain, boolean canCombat,
+                           boolean sellsItems, boolean givesQuests, boolean enemy) {
+            this(id, personalities, List.of(), scheduleTemplate, relationshipBase, canTrain,
+                    canCombat, sellsItems, givesQuests, enemy);
+        }
+    }
+
+    /** NPC 关系档位及其叙事阈值。 */
+    public record BondDefinition(String label, int minimum, String description) {
+        /** 规范化关系档位。
+         * @param label 档位名称
+         * @param minimum 触发该档位的最低关系值
+         * @param description 档位叙事提示
+         */
+        public BondDefinition {
+            label = label == null ? "" : label;
+            description = description == null ? "" : description;
+            minimum = Math.max(-100, Math.min(100, minimum));
         }
     }
 

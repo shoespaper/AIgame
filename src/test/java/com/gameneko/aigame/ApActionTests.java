@@ -151,11 +151,11 @@ class ApActionTests {
             @Override public Optional<GameInstance<?>> load(String gameId) { return Optional.ofNullable(saved.get()); }
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
-        var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
+        var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
         var initial = instanceService.initialize("demo", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers());
         repository.save(initial);
 
-        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog).applyIntent("demo", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
+        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory()).applyIntent("demo", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
 
         assertEquals(1, updated.revision());
         assertEquals(2, updated.worldState().day());
@@ -171,7 +171,7 @@ class ApActionTests {
             @Override public Optional<GameInstance<?>> load(String gameId) { return Optional.ofNullable(saved.get()); }
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
-        var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
+        var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
         var initial = instanceService.initialize("threat", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers());
         var world = new com.gameneko.aigame.engine.WorldState(initial.worldState().worldId(), initial.worldState().contentVersion(),
                 0, initial.worldState().setting(), initial.worldState().settingDescription(), initial.worldState().location(),
@@ -184,7 +184,7 @@ class ApActionTests {
                 initial.rulesetVersion(), initial.lifecycle(), 0, world, initial.rulesetState());
         repository.save(prepared);
 
-        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog).applyIntent("threat", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
+        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory()).applyIntent("threat", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
 
         assertEquals("Low", updated.worldState().threatLevel());
         assertEquals(0, updated.worldState().threatCounter());
@@ -198,10 +198,10 @@ class ApActionTests {
             @Override public Optional<GameInstance<?>> load(String gameId) { return Optional.ofNullable(saved.get()); }
             @Override public void save(GameInstance<?> instance) { saved.set(instance); }
         };
-        var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog);
+        var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
         repository.save(instanceService.initialize("xp", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers()));
 
-        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog).applyIntent("xp", 0,
+        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory()).applyIntent("xp", 0,
                 new com.gameneko.aigame.engine.ActionIntent("grant_experience", "", java.util.List.of(
                         new com.gameneko.aigame.engine.ActionIntent.Argument("amount", new com.gameneko.aigame.engine.InitializationValue.IntegerNumber(100))))).instance();
 

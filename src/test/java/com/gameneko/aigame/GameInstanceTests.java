@@ -17,7 +17,7 @@ class GameInstanceTests {
     void createsInitializedGameEnvelope() {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
         var worldService = new WorldInitializationService(catalog);
-        var instance = new GameInstanceService(worldService, catalog).initialize(
+        var instance = new GameInstanceService(worldService, catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory()).initialize(
                 "demo", com.gameneko.aigame.application.InitializeWorldRequest.defaults("isekai_grey"), "ap",
                 Map.of("characterName", new InitializationValue.Text("旅人"),
                         "age", new InitializationValue.IntegerNumber(16),

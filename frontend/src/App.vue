@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterView } from 'vue-router'
+import TopNav from './components/TopNav.vue'
 import { health } from './api/client'
 const serverState = ref<'checking' | 'online' | 'offline'>('checking')
 async function checkHealth() {
@@ -10,4 +11,4 @@ async function checkHealth() {
 onMounted(() => { void checkHealth() })
 </script>
 
-<template><div class="app-shell"><main class="page-shell"><RouterView /></main><div class="connection-pill" :class="serverState"><i aria-hidden="true" />{{ serverState === 'online' ? '服务在线' : serverState === 'offline' ? '服务离线' : '连接检查中' }}</div></div></template>
+<template><div class="app-shell"><main class="page-shell"><TopNav /><RouterView /></main><div class="connection-pill" :class="serverState"><i aria-hidden="true" />{{ serverState === 'online' ? '服务在线' : serverState === 'offline' ? '服务离线' : '连接检查中' }}</div></div></template>

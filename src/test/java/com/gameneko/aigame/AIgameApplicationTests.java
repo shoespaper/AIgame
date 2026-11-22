@@ -18,6 +18,17 @@ class AIgameApplicationTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    private com.gameneko.aigame.application.port.NarrativeProvider narrativeProvider;
+
+    /** 用确定性模型桩隔离 HTTP 集成测试，避免开发者本地 API 设置和外部模型影响回归。 */
+    @org.junit.jupiter.api.BeforeEach
+    void configureNarrativeProvider() {
+        org.mockito.Mockito.when(narrativeProvider.respond(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.gameneko.aigame.narrative.NarrativeResponse("确认后的行动已经发生。", null,
+                        java.util.List.of("继续前进", "就地休息", "查看背包")));
+    }
+
     @Test
     void contextLoads() {
     }
@@ -166,7 +177,7 @@ class AIgameApplicationTests {
 
         mockMvc.perform(post("/api/games/xp-api-test/actions")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"expectedRevision\":0,\"type\":\"grant_experience\",\"amount\":100}"))
+                        .content("{\"expectedRevision\":0,\"type\":\"grant_experience\",\"arguments\":[{\"name\":\"amount\",\"type\":\"integer\",\"integer\":100}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(1))
                 .andExpect(jsonPath("$.rulesetState.level").value(2))
@@ -183,66 +194,33 @@ class AIgameApplicationTests {
 
         mockMvc.perform(post("/api/games/phase3-api-test/actions")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"expectedRevision\":0,\"type\":\"learn_ability\",\"abilityId\":\"skill_offense\"}"))
+                        .content("{\"expectedRevision\":0,\"type\":\"learn_ability\",\"arguments\":[{\"name\":\"abilityId\",\"type\":\"text\",\"text\":\"skill_offense\"}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rulesetState.skills[0].id").value("skill_offense"));
 
         mockMvc.perform(post("/api/games/phase3-api-test/actions")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"expectedRevision\":1,\"type\":\"claim_quest_reward\",\"questId\":\"q1\",\"xp\":20,\"copper\":5,\"rations\":1,\"potions\":0}"))
+                        .content("{\"expectedRevision\":1,\"type\":\"claim_quest_reward\",\"arguments\":[{\"name\":\"questId\",\"type\":\"text\",\"text\":\"q1\"},{\"name\":\"xp\",\"type\":\"integer\",\"integer\":20},{\"name\":\"copper\",\"type\":\"integer\",\"integer\":5},{\"name\":\"rations\",\"type\":\"integer\",\"integer\":1},{\"name\":\"potions\",\"type\":\"integer\",\"integer\":0}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(2))
                 .andExpect(jsonPath("$.rulesetState.resources.copper").value(20));
     }
 
     @Test
-    void narratedActionUsesConfirmedEventsAndReturnsPendingProposals() throws Exception {
-        mockMvc.perform(post("/api/games/narrative-api-test/initialize")
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"worldId\":\"isekai_grey\",\"region\":\"forest\"}"))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(post("/api/games/narrative-api-test/actions/narrate")
-                        .contentType(APPLICATION_JSON)
-                        .content("""
-                                {"action":{"expectedRevision":0,"type":"advance_day"},
-                                 "playerInput":"Move toward the trail","locale":"en-US"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.game.revision").value(1))
-                .andExpect(jsonPath("$.narration").isNotEmpty())
-                .andExpect(jsonPath("$.confirmedEvents[0].type").value("advance_day"));
-    }
-
-    @Test
-    void proposalMustPassConversionAndRulesetBeforeItChangesTheSave() throws Exception {
-        mockMvc.perform(post("/api/games/narrative-proposal-test/initialize")
+    void narrationEndpointReturnsNarrationWithoutEngineAction() throws Exception {
+        mockMvc.perform(post("/api/games/narration-api-test/initialize")
                         .contentType(APPLICATION_JSON)
                         .content("{\"worldId\":\"isekai_grey\"}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/games/narrative-proposal-test/narration/proposals")
+        mockMvc.perform(post("/api/games/narration-api-test/narration")
                         .contentType(APPLICATION_JSON)
-                        .content("""
-                                {"expectedRevision":0,"proposalIndex":0,
-                                 "proposal":{"type":"gain_experience","fields":{"amount":"45"}}}
-                                """))
+                        .content("{\"expectedRevision\":0,\"playerInput\":\"观察四周\",\"locale\":\"zh-CN\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.revision").value(1))
-                .andExpect(jsonPath("$.rulesetState.xp").value(45));
-
-        mockMvc.perform(post("/api/games/narrative-proposal-test/narration/proposals")
-                        .contentType(APPLICATION_JSON)
-                        .content("""
-                                {"expectedRevision":1,"proposalIndex":1,
-                                 "proposal":{"type":"gain_experience","fields":{"amount":"100000"}}}
-                                """))
-                .andExpect(status().isBadRequest());
-
-        mockMvc.perform(get("/api/games/narrative-proposal-test"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.revision").value(1))
-                .andExpect(jsonPath("$.rulesetState.xp").value(45));
+                .andExpect(jsonPath("$.narration").value("确认后的行动已经发生。"))
+                .andExpect(jsonPath("$.options.length()").value(3))
+                .andExpect(jsonPath("$.game.revision").value(0))
+                .andExpect(jsonPath("$.confirmedEvents").isEmpty());
     }
 
 }

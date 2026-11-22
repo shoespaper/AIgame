@@ -1,6 +1,7 @@
 package com.gameneko.aigame.engine;
 
 import java.util.Map;
+import java.util.List;
 
 /** Minimal contract for an optional, typed game engine selected at game creation. */
 public interface GameEngineRuntime<S extends GameState, P> {
@@ -14,9 +15,9 @@ public interface GameEngineRuntime<S extends GameState, P> {
 
     ActionValidation validate(S state, ActionIntent intent);
 
-    /** Converts an untrusted engine-owned narrative proposal into a candidate intent. */
-    default ProposalIntentConversion convertProposal(String type, Map<String, String> fields, long seed) {
-        return ProposalIntentConversion.reject("unsupported_engine_proposal");
+    /** 返回当前引擎可执行的引擎中立动作清单，供叙事层拼接进提示词并按清单校验。 */
+    default List<SupportedAction> supportedActions() {
+        return List.of();
     }
 
     EngineResolution<S> resolve(S state, ActionIntent intent);

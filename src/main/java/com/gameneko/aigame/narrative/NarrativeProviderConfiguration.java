@@ -20,13 +20,18 @@ public class NarrativeProviderConfiguration {
 
     /** 期望模型输出的叙事 JSON 结构描述，供 json_object 模式下模型对齐字段。 */
     static final String SCHEMA_DESCRIPTION = """
-            Respond with a single JSON object containing exactly these six fields (all required; use [] when empty):
+            Respond with a single JSON object containing exactly these five fields (all required; use [] when empty):
             1. "narration": a string of narrative text.
-            2. "mediaRequests": an array of {"kind": string, "prompt": string, "assetId": string}.
-            3. "proposals": an array of {"type": string, "fields": [{"name": string, "value": string}]}.
-            4. "options": an array of {"id": string, "label": string, "intent": {"type": string, "target": string|null, "arguments": [{"name": string, "value": {"type": "text"|"integer"|"decimal"|"flag", "value": ...}}]} | null}.
-            5. "initializationQuestions": an array of {"fieldId": string, "prompt": string, "options": [string]}.
-            6. "parseCandidates": an array of {"fieldId": string, "value": {"type": "text"|"integer"|"decimal"|"flag", "value": ...}, "confidence": number}.
+            2. "action": null, or an object {"type": string, "target": string|null, "arguments": [{"name": string, "value": {"type": "text"|"integer"|"decimal"|"flag", "value": ...}}]} representing one engine call. Use null for pure narration.
+            3. "options": an array of short strings, each a suggested next action for the player (each at most 12 Chinese characters).
+            4. "initializationQuestions": an array of {"fieldId": string, "prompt": string, "options": [string]}.
+            5. "parseCandidates": an array of {"fieldId": string, "value": {"type": "text"|"integer"|"decimal"|"flag", "value": ...}, "confidence": number}.
+            Output size limits (the response is cut off when the total output exceeds the token budget, so stay well below these):
+            - narration: at most 220 Chinese characters for a normal turn, at most 320 for an opening scene.
+            - action: at most 3 arguments.
+            - options: at most 4 items.
+            - initializationQuestions: at most 1 item, each prompt at most 60 Chinese characters, at most 6 options.
+            - parseCandidates: at most 6 items.
             Output only the JSON object and nothing else.
             """;
 

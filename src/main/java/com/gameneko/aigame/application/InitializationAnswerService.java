@@ -1,7 +1,6 @@
 package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.content.WorldBookCatalog;
-import com.gameneko.aigame.engine.GameEngineCatalog;
 import com.gameneko.aigame.engine.GameSelection;
 import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
@@ -15,8 +14,8 @@ import java.util.Map;
 public final class InitializationAnswerService {
     private final GameInitializationSchemaService schemas;
 
-    public InitializationAnswerService(WorldBookCatalog worlds, GameEngineCatalog engines) {
-        this.schemas = new GameInitializationSchemaService(worlds, engines);
+    public InitializationAnswerService(WorldBookCatalog worlds, GameEngineFactory engineFactory) {
+        this.schemas = new GameInitializationSchemaService(worlds, engineFactory);
     }
 
     public InitializationSchema schema(GameSelection selection) { return schemas.schema(selection); }

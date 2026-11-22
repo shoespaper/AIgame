@@ -20,8 +20,11 @@ class GameEngineSelectionTests {
     @Test
     void noEngineCreatesNarrativeOnlyGame() {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog);
-        var game = service.initialize("story", InitializeWorldRequest.defaults("isekai_grey"));
+        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
+        var game = service.initialize("story", InitializeWorldRequest.defaults("isekai_grey"), null, Map.of(
+                "characterName", new InitializationValue.Text("旅人"),
+                "age", new InitializationValue.IntegerNumber(16),
+                "gender", new InitializationValue.Text("未定")));
         assertNull(game.rulesetId());
         assertNull(game.rulesetState());
     }
@@ -29,7 +32,7 @@ class GameEngineSelectionTests {
     @Test
     void apIsSelectedThroughEngineBoundary() {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog);
+        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
         var game = service.initialize("ap", InitializeWorldRequest.defaults("isekai_grey"), "ap", Map.of(
                 "characterName", new InitializationValue.Text("旅人"),
                 "age", new InitializationValue.IntegerNumber(16),

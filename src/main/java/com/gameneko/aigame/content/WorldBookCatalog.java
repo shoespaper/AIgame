@@ -10,4 +10,9 @@ public interface WorldBookCatalog {
     /** 按稳定标识读取一个世界书。 */
     /** @param worldId 世界书标识 */
     WorldBook worldBook(String worldId);
+
+    /** 使世界书的缓存投影失效，供内容修改后刷新；无缓存实现可空实现。
+     * @param worldId 世界书标识
+     */
+    default void invalidate(String worldId) { }
 }

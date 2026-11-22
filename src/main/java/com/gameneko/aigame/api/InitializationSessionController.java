@@ -4,6 +4,7 @@ import com.gameneko.aigame.application.GameInstanceService;
 import com.gameneko.aigame.application.GameSaveService;
 import com.gameneko.aigame.application.InitializeWorldRequest;
 import com.gameneko.aigame.application.InitializationNarrationService;
+import com.gameneko.aigame.application.NarrativeApplicationService;
 import com.gameneko.aigame.engine.GameSelection;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,19 +23,23 @@ public final class InitializationSessionController {
     private final InitializationNarrationService narration;
     private final GameInstanceService instances;
     private final GameSaveService saves;
+    private final NarrativeApplicationService narratives;
     private final Map<String, InitializationNarrationService.Session> sessions = new ConcurrentHashMap<>();
 
     /** 创建初始化会话控制器。
      * @param narration 负责模型问答和字段校验的初始化服务
      * @param instances 一次性创建正式游戏实例的服务
      * @param saves 保存 finalize 后游戏实例的服务
+     * @param narratives 生成开局首段叙事的叙事服务
      */
     public InitializationSessionController(InitializationNarrationService narration,
                                            GameInstanceService instances,
-                                           GameSaveService saves) {
+                                           GameSaveService saves,
+                                           NarrativeApplicationService narratives) {
         this.narration = narration;
         this.instances = instances;
         this.saves = saves;
+        this.narratives = narratives;
     }
 
     /** 创建会话并返回 GM 开场回合。
@@ -64,20 +69,19 @@ public final class InitializationSessionController {
         return new AnswerResponse(turn.done(), turn);
     }
 
-    /** 在玩家确认后一次性创建并保存正式游戏。
-     * @param id 已完成初始化的会话标识
-     * @return 新建游戏的稳定 API 响应
-     */
+    /** 在玩家确认后一次性创建并保存正式游戏，并附带开局背景与开场故事。 */
+    /** @param id 已完成初始化的会话标识 */
     @PostMapping("/{id}/finalize")
-    public GameInstanceResponse finalizeSession(@PathVariable String id) {
+    public FinalizeResponse finalizeSession(@PathVariable String id) {
         var session = require(id);
         if (!narration.ready(session)) throw new IllegalArgumentException("Initialization confirmation is required");
         String gameId = "game-" + UUID.randomUUID().toString().substring(0, 8);
         InitializeWorldRequest request = narration.request(session);
         var instance = instances.initialize(gameId, request, session.selection().engineId(), narration.answers(session));
         saves.save(instance);
+        var opening = narratives.opening(gameId, instance.revision(), "zh-CN");
         sessions.remove(id);
-        return GameInstanceResponse.from(instance);
+        return new FinalizeResponse(GameInstanceResponse.from(opening.instance()), NarrationHttpResponse.from(opening));
     }
 
     /** 按会话标识读取会话并在不存在时返回明确错误。
@@ -112,4 +116,10 @@ public final class InitializationSessionController {
      * @param turn GM 初始化回合
      */
     public record AnswerResponse(boolean done, InitializationNarrationService.Turn turn) {}
+
+    /** finalize 响应。
+     * @param game 新建的游戏实例
+     * @param opening 开局首段叙事与初始行动建议
+     */
+    public record FinalizeResponse(GameInstanceResponse game, NarrationHttpResponse opening) {}
 }

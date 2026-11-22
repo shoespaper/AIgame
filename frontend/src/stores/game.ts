@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { applyAction, applyNarrativeProposal, loadGame, saveGame, narrate, chooseNarrativeOption, ApiError, createInitializationSession, answerInitialization, finalizeInitialization } from '../api/client'
-import type { ActionIntent, ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeOption, NarrativeProposalCandidate, NarrativeResponse, InitializationTurn, InitializationQuestion, InitializationParseCandidate } from '../api/types'
+import { loadGame, saveGame, narrate, ApiError, createInitializationSession, answerInitialization, finalizeInitialization } from '../api/client'
+import type { ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeResponse, InitializationTurn, InitializationQuestion, InitializationParseCandidate } from '../api/types'
 
 export interface TimelineEvent {
   id: number
@@ -95,10 +95,14 @@ export const useGameStore = defineStore('game', {
       if (!this.initializationSessionId) return null
       this.initializationBusy = true; this.clearMessages()
       try {
-        const closingNarration = this.initializationTurn?.narration || ''
-        this.game = await finalizeInitialization(this.initializationSessionId)
+        const result = await finalizeInitialization(this.initializationSessionId)
+        this.game = result.game
         this.remember(this.game.gameId)
-        this.events = [event('system', '新的远征已建立', '世界状态和角色初始状态已由服务器确认。'), ...(closingNarration ? [event('result', 'GM', closingNarration)] : [])]
+        this.events = [event('system', '新的远征已建立', '世界状态和角色初始状态已由服务器确认。')]
+        if (result.opening) {
+          this.narration = result.opening
+          result.opening.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
+        }
         this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []
         return this.game
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '创建游戏失败'; throw cause
@@ -124,43 +128,20 @@ export const useGameStore = defineStore('game', {
       } catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(this.game.gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '保存失败'; throw cause
       } finally { this.saving = false }
     },
-    /** 将通用结构化意图交由当前引擎校验和结算。 */
-    /** @param intent 动作类型、可空目标和类型化参数 */
-    async act(intent: ActionIntent) {
-      if (!this.game) return
-      this.acting = true; this.clearMessages()
-      const before = this.game
-      try {
-        this.game = await applyAction(before.gameId, before.revision, intent)
-        return this.game
-      } catch (cause) {
-        if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(before.gameId); this.notice = '存档已更新，已刷新最新状态。'; return }
-        this.error = cause instanceof Error ? cause.message : '行动失败'; throw cause
-      } finally { this.acting = false }
-    },
+    /** 将自由输入交给 GM 叙事接口；服务端可能返回纯叙事或附带一次引擎结算。 */
+    /** @param input 玩家自由输入 */
     async speak(input: string) {
       if (!this.game) return
       this.acting = true; this.clearMessages()
       const gameId = this.game.gameId; const revision = this.game.revision
-      try { this.narration = await narrate(gameId, revision, input); return this.narration }
-      catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
-      finally { this.acting = false }
-    },
-    async chooseOption(option: NarrativeOption, input: string) {
-      if (!this.game) return
-      this.acting = true; this.clearMessages()
       try {
-        const result = await chooseNarrativeOption(this.game.gameId, this.game.revision, option, input)
+        const result = await narrate(gameId, revision, input)
         this.game = result.game
-        this.narration = { ...result, gameId: result.game.gameId, revision: result.game.revision }; result.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item))); return result
-      } catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(this.game.gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '行动被拒绝'; throw cause }
-      finally { this.acting = false }
-    },
-    async applyProposal(proposal: NarrativeProposalCandidate, index: number) {
-      if (!this.game) return
-      this.acting = true; this.clearMessages(); const gameId = this.game.gameId
-      try { this.game = await applyNarrativeProposal(gameId, this.game.revision, proposal, index); return this.game }
-      catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '提案未应用'; throw cause }
+        this.narration = result
+        result.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
+        return result
+      }
+      catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
       finally { this.acting = false }
     },
     reset() { this.game = null; this.events = []; this.narration = null; this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []; this.clearMessages() },

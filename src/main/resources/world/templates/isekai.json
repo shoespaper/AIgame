@@ -1,192 +1,13 @@
 {
   "_meta": {
     "version": "1.0",
-    "world_name": "isekai_grey",
-    "description": "抽象世界模板：只有分类与数值区间，不含任何具体名字。GM 在生成时给所有实体命名。脚本在 init 时读它、分发到存档，之后不再改动本文件。",
-    "opening_abilities_note": "一阶开局能力（skill_offense / skill_defense / skill_evasion / spell_damage_1 / spell_light）在 1 级即可学——其属性门槛才是各职业的差别所在。其余槽位保持 level>=2，让成长保持阶梯感。",
-    "regions_note": "regions: 区域表，键是地形（forest/mountain/ruins/town…），供脚本决定该地形能生成哪些怪物类型。monster_type_pool 指向 monster_types 的键，是硬约束：池外的类型不会在这些区域生成。物种自己的 regions 字段只是软提示（只调整候选顺序、不改变可行性）。空池（如 town）表示该区域没有原生怪物，但生成请求仍会成功，以免玩家在城镇里接不到任务。叙事地名不需要与这些键同名，用 world.json 的 current_region 指定地形即可。"
-  },
-  "world_setting": {
-    "world_name_hint": "世界名由 GM 命名",
-    "world_desc_hint": "一片被深渊裂隙撕裂的大陆。东方的裂口涌出魔军，已经吞掉了两个王国。人类牵头组建的联盟勉强守住阵线。冒险者公会是最后一道防线——所有能打的人都要登记。这是职责，不是荣耀。",
-    "adventurer_guild": {
-      "ranks": [
-        {
-          "rank": "F",
-          "title_hint": "见习",
-          "min_level": 1,
-          "desc_hint": "新手。公会配发基础装备。",
-          "title": "见习"
-        },
-        {
-          "rank": "E",
-          "title_hint": "已证",
-          "min_level": 3,
-          "desc_hint": "可以独自下 E 级地窟。",
-          "title": "已证"
-        },
-        {
-          "rank": "D",
-          "title_hint": "稳妥",
-          "min_level": 5,
-          "desc_hint": "D 级以上任务建议结队。",
-          "title": "稳妥"
-        },
-        {
-          "rank": "C",
-          "title_hint": "老手",
-          "min_level": 8,
-          "desc_hint": "能带队。",
-          "title": "老手"
-        },
-        {
-          "rank": "B",
-          "title_hint": "精锐",
-          "min_level": 12,
-          "desc_hint": "可清剿首领级地窟。",
-          "title": "精锐"
-        },
-        {
-          "rank": "A",
-          "title_hint": "闻名",
-          "min_level": 16,
-          "desc_hint": "国家级威胁。",
-          "title": "闻名"
-        },
-        {
-          "rank": "S",
-          "title_hint": "传说",
-          "min_level": 20,
-          "desc_hint": "关乎世界命运的任务。",
-          "title": "传说"
-        }
-      ],
-      "quest_rank_to_cr": {
-        "F": 1,
-        "E": 2,
-        "D": 3,
-        "C": 4,
-        "B": 5,
-        "A": 6,
-        "S": 7
-      }
-    },
-    "factions": [
-      {
-        "type": "human_kingdom",
-        "desc_hint": "最大的人类国家。公会总部设在此处。"
-      },
-      {
-        "type": "elf_federation",
-        "desc_hint": "古老的森林守望者。不信任人类，但仍与人类共抗外敌。"
-      },
-      {
-        "type": "dwarf_clans",
-        "desc_hint": "山中锻造世家。正在被兽群围困。"
-      },
-      {
-        "type": "beast_nomads",
-        "desc_hint": "草原上的战士。有人以雇佣兵身份受雇。"
-      },
-      {
-        "type": "mage_academy",
-        "desc_hint": "首屈一指的魔法学府。政治上中立，财政拮据。"
-      },
-      {
-        "type": "demon_legion",
-        "desc_hint": "所有生灵的敌人。正在变强。已灭两国。"
-      }
-    ],
-    "regions": {
-      "forest": {
-        "desc_hint": "密林",
-        "monster_type_pool": [
-          "low",
-          "small",
-          "beast"
-        ]
-      },
-      "plains": {
-        "desc_hint": "开阔草原",
-        "monster_type_pool": [
-          "low",
-          "beast",
-          "mid"
-        ]
-      },
-      "mountain": {
-        "desc_hint": "山岭地带",
-        "monster_type_pool": [
-          "mid",
-          "flying",
-          "beast"
-        ]
-      },
-      "dungeon": {
-        "desc_hint": "地窟",
-        "monster_type_pool": [
-          "low",
-          "mid",
-          "high"
-        ]
-      },
-      "swamp": {
-        "desc_hint": "沼泽",
-        "monster_type_pool": [
-          "small",
-          "mid",
-          "beast"
-        ]
-      },
-      "ruins": {
-        "desc_hint": "废墟",
-        "monster_type_pool": [
-          "mid",
-          "high"
-        ]
-      },
-      "cavern": {
-        "desc_hint": "洞穴群",
-        "monster_type_pool": [
-          "small",
-          "low",
-          "mid"
-        ]
-      },
-      "town": {
-        "desc_hint": "城镇",
-        "monster_type_pool": []
-      },
-      "corrupted_land": {
-        "desc_hint": "侵蚀之地",
-        "monster_type_pool": [
-          "high",
-          "flying"
-        ]
-      },
-      "volcanic": {
-        "desc_hint": "火山带",
-        "monster_type_pool": [
-          "mid",
-          "high"
-        ]
-      }
-    },
-    "origin_contexts": [
-      "出身由 GM 定：父亲是铁匠，母亲在兽潮中失踪。由一位退隐的冒险者带大。十六岁，必须去公会登记。",
-      "出身由 GM 定：猎户之子，父母被野兽所伤落下残疾。还有弟妹要养。十六岁，除了登记没有别的选择。",
-      "出身由 GM 定：在修道院长大的孤儿。十六岁生日那天，老院长给了一封信和一把剑。",
-      "出身由 GM 定：三代渔家。他不肯认这个命。攒钱买了把二手剑，天亮前就走了。"
-    ],
-    "world_tropes": [
-      "魂印铁牌——天生的凭证。公会登记时触碰水晶，牌中信息只有本人与公会鉴定师能看见。",
-      "冒险者等级从 F 到 S。所有人都从 F 起步。没有捷径。",
-      "D 级以上的任务独行等于送死。公会鼓励结队，但找到可信的同伴比杀怪还难。",
-      "这个世界有「成长」——突破。足够的战斗与濒死经历会带来肉体与精神的质变。这是常识，不是秘密。",
-      "怪物会留下材料——皮毛、晶核，偶尔还有装备。公会收购材料。这叫「取料」。",
-      "地窟是散落在大陆各处的亚空间结构。清空之后会缓慢再生。越深，战利品越好，死亡率越高。",
-      "每个倒下的冒险者名字都刻在公会纪念墙上。每个分会的墙都比你想的要长。",
-      "魔王不是传说。四位将军——每一位都是灾厄级的威胁——率军从深渊裂隙涌出。两个国家已经陷落。这场战争不会结束，只会加剧。"
+    "template_id": "isekai",
+    "type": "isekai",
+    "name": "异世界",
+    "tags": [
+      "fantasy",
+      "survival",
+      "guild"
     ]
   },
   "monster_types": {
@@ -506,7 +327,33 @@
       ],
       "schedule_template": "home_based",
       "relationship_base": 80,
-      "can_train": false
+      "can_train": false,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "can_combat": false,
+      "sells_items": false,
+      "gives_quests": false,
+      "is_enemy": false
     },
     "companion": {
       "personality_pool": [
@@ -519,7 +366,32 @@
       "schedule_template": "follow_player",
       "relationship_base": 50,
       "can_train": false,
-      "can_combat": true
+      "can_combat": true,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "sells_items": false,
+      "gives_quests": false,
+      "is_enemy": false
     },
     "merchant": {
       "personality_pool": [
@@ -531,7 +403,33 @@
       ],
       "schedule_template": "shop_hours",
       "relationship_base": 30,
-      "sells_items": true
+      "sells_items": true,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "can_train": false,
+      "can_combat": false,
+      "gives_quests": false,
+      "is_enemy": false
     },
     "instructor": {
       "personality_pool": [
@@ -543,7 +441,33 @@
       ],
       "schedule_template": "guild_hours",
       "relationship_base": 40,
-      "can_train": true
+      "can_train": true,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "can_combat": false,
+      "sells_items": false,
+      "gives_quests": false,
+      "is_enemy": false
     },
     "questgiver": {
       "personality_pool": [
@@ -555,7 +479,33 @@
       ],
       "schedule_template": "guild_board",
       "relationship_base": 20,
-      "gives_quests": true
+      "gives_quests": true,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "can_train": false,
+      "can_combat": false,
+      "sells_items": false,
+      "is_enemy": false
     },
     "antagonist": {
       "personality_pool": [
@@ -567,7 +517,33 @@
       ],
       "schedule_template": "self_directed",
       "relationship_base": -20,
-      "is_enemy": true
+      "is_enemy": true,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "can_train": false,
+      "can_combat": false,
+      "sells_items": false,
+      "gives_quests": false
     },
     "authority": {
       "personality_pool": [
@@ -578,7 +554,34 @@
         "慈和"
       ],
       "schedule_template": "office_hours",
-      "relationship_base": 10
+      "relationship_base": 10,
+      "bond_pool": [
+        {
+          "label": "亲昵",
+          "min": 70,
+          "desc": "无条件站在你这边"
+        },
+        {
+          "label": "信任",
+          "min": 30,
+          "desc": "愿意帮你一把"
+        },
+        {
+          "label": "疏远",
+          "min": -10,
+          "desc": "客套但不交心"
+        },
+        {
+          "label": "裂痕",
+          "min": -60,
+          "desc": "已有积怨"
+        }
+      ],
+      "can_train": false,
+      "can_combat": false,
+      "sells_items": false,
+      "gives_quests": false,
+      "is_enemy": false
     }
   },
   "skill_types": {
@@ -1632,448 +1635,6 @@
       }
     ]
   },
-  "npc_data": {
-    "_desc": "抽象 NPC 生成数据：只有名字池、性格与作息模板——具体的人是 GM 现编现命名的。",
-    "name_syllables": {
-      "_desc": "中文音节兜底池。仅当 name_pools 缺失时使用，正常情况不会触发。",
-      "start": [
-        "阿",
-        "布",
-        "科",
-        "德",
-        "埃",
-        "芬",
-        "盖",
-        "哈",
-        "伊",
-        "约",
-        "凯",
-        "罗",
-        "马",
-        "奈",
-        "奥",
-        "派",
-        "昆",
-        "罗",
-        "萨",
-        "托",
-        "乌",
-        "瓦",
-        "温",
-        "约",
-        "赞"
-      ],
-      "mid": [
-        "尔",
-        "恩",
-        "里",
-        "德",
-        "兰",
-        "姆",
-        "斯"
-      ],
-      "end": [
-        "文",
-        "丹",
-        "恩",
-        "拉斯",
-        "米尔",
-        "顿",
-        "德拉",
-        "维克",
-        "林",
-        "莎",
-        "加德",
-        "蒙德",
-        "利",
-        "尼克斯",
-        "沃"
-      ],
-      "family_start": [
-        "灰",
-        "黑",
-        "冷",
-        "晨",
-        "余",
-        "白",
-        "荆",
-        "铁",
-        "橡",
-        "月",
-        "北",
-        "乌",
-        "银",
-        "石",
-        "西",
-        "狼",
-        "风",
-        "格",
-        "夜",
-        "霜"
-      ],
-      "family_end": [
-        "石",
-        "木",
-        "泉",
-        "星",
-        "烬",
-        "桦",
-        "棘",
-        "砧",
-        "盾",
-        "谷",
-        "风",
-        "鸦",
-        "溪",
-        "楠",
-        "岭",
-        "耳",
-        "谷",
-        "林",
-        "原"
-      ]
-    },
-    "personalities": {
-      "粗犷": {
-        "warmth": -10,
-        "patience": 5,
-        "helpfulness": 0,
-        "desc": "直来直去，不容易热络。靠本事赢得尊重。"
-      },
-      "热络": {
-        "warmth": 20,
-        "patience": 15,
-        "helpfulness": 10,
-        "desc": "话多、热心、容易信任人，也可能天真。"
-      },
-      "谨慎": {
-        "warmth": 0,
-        "patience": 12,
-        "helpfulness": 5,
-        "desc": "先观察再行动，说话留三分。"
-      },
-      "沉默": {
-        "warmth": -5,
-        "patience": 10,
-        "helpfulness": -5,
-        "desc": "话极少，情绪藏得很深。"
-      },
-      "精明": {
-        "warmth": 5,
-        "patience": 8,
-        "helpfulness": 0,
-        "desc": "看重利害，交易时寸步不让。"
-      },
-      "忧郁": {
-        "warmth": 0,
-        "patience": 6,
-        "helpfulness": 0,
-        "desc": "常走神，像在惦记什么旧事。"
-      },
-      "严厉": {
-        "warmth": -15,
-        "patience": 3,
-        "helpfulness": 5,
-        "desc": "要求高，容不下敷衍。"
-      },
-      "天真": {
-        "warmth": 25,
-        "patience": 18,
-        "helpfulness": 15,
-        "desc": "相信世界比实际更善意。"
-      },
-      "骄傲": {
-        "warmth": -20,
-        "patience": 4,
-        "helpfulness": -5,
-        "desc": "自尊极高，被冒犯会记很久。"
-      },
-      "疲惫": {
-        "warmth": -5,
-        "patience": 2,
-        "helpfulness": -10,
-        "desc": "被生活磨得没什么余力。"
-      },
-      "慈和": {
-        "warmth": 22,
-        "patience": 20,
-        "helpfulness": 18,
-        "desc": "愿意听人说话，习惯照顾别人。"
-      },
-      "多疑": {
-        "warmth": -25,
-        "patience": 4,
-        "helpfulness": -5,
-        "desc": "对陌生人的每一句话都先打个折。"
-      }
-    },
-    "schedule_templates": {
-      "shop_hours": [
-        {
-          "time": "清晨",
-          "activity": "开店"
-        },
-        {
-          "time": "正午",
-          "activity": "招呼客人"
-        },
-        {
-          "time": "午后",
-          "activity": "招呼客人"
-        },
-        {
-          "time": "傍晚",
-          "activity": "清点当天的铜钱"
-        },
-        {
-          "time": "夜里",
-          "activity": "睡觉"
-        }
-      ],
-      "guild_hours": [
-        {
-          "time": "清晨",
-          "activity": "整理任务板"
-        },
-        {
-          "time": "正午",
-          "activity": "应付冒险者"
-        },
-        {
-          "time": "午后",
-          "activity": "应付冒险者"
-        },
-        {
-          "time": "傍晚",
-          "activity": "一个人喝酒"
-        },
-        {
-          "time": "夜里",
-          "activity": "睡觉"
-        }
-      ],
-      "home_based": [
-        {
-          "time": "清晨",
-          "activity": "做家务"
-        },
-        {
-          "time": "正午",
-          "activity": "待在家里"
-        },
-        {
-          "time": "午后",
-          "activity": "待在家里"
-        },
-        {
-          "time": "傍晚",
-          "activity": "待在家里"
-        },
-        {
-          "time": "夜里",
-          "activity": "睡觉"
-        }
-      ],
-      "patrol": [
-        {
-          "time": "清晨",
-          "activity": "巡城墙"
-        },
-        {
-          "time": "正午",
-          "activity": "巡道"
-        },
-        {
-          "time": "午后",
-          "activity": "巡道"
-        },
-        {
-          "time": "傍晚",
-          "activity": "回营报到"
-        },
-        {
-          "time": "夜里",
-          "activity": "守夜"
-        }
-      ],
-      "office_hours": [
-        {
-          "time": "清晨",
-          "activity": "听取陈情"
-        },
-        {
-          "time": "正午",
-          "activity": "批阅文书"
-        },
-        {
-          "time": "午后",
-          "activity": "会见官员"
-        },
-        {
-          "time": "傍晚",
-          "activity": "用饭"
-        },
-        {
-          "time": "夜里",
-          "activity": "睡觉"
-        }
-      ],
-      "wander": [
-        {
-          "time": "清晨",
-          "activity": "哪里有兴致就往哪去"
-        },
-        {
-          "time": "正午",
-          "activity": "哪里有兴致就往哪去"
-        },
-        {
-          "time": "午后",
-          "activity": "哪里有兴致就往哪去"
-        },
-        {
-          "time": "傍晚",
-          "activity": "有乐声的地方"
-        },
-        {
-          "time": "夜里",
-          "activity": "不见踪影"
-        }
-      ],
-      "outdoors": [
-        {
-          "time": "清晨",
-          "activity": "查陷阱、看足迹"
-        },
-        {
-          "time": "正午",
-          "activity": "在城外巡猎"
-        },
-        {
-          "time": "午后",
-          "activity": "在城外巡猎"
-        },
-        {
-          "time": "傍晚",
-          "activity": "处理当天的猎物"
-        },
-        {
-          "time": "夜里",
-          "activity": "在营地"
-        }
-      ],
-      "follow_player": [
-        {
-          "time": "清晨",
-          "activity": "跟着同行"
-        },
-        {
-          "time": "正午",
-          "activity": "跟着同行"
-        },
-        {
-          "time": "午后",
-          "activity": "跟着同行"
-        },
-        {
-          "time": "傍晚",
-          "activity": "围着同一堆火"
-        },
-        {
-          "time": "夜里",
-          "activity": "守第一班"
-        }
-      ]
-    },
-    "life_events": [
-      "{name}收到了家里的来信，看起来心事重重。",
-      "{name}今天帮了一个陌生人，心情不错。",
-      "{name}病了几天，脸上还带着倦色。",
-      "{name}和邻里吵了一架，说话比平时冲。",
-      "{name}在集市上买到便宜货，见人就炫耀。",
-      "{name}的货被雨淋了，一脸阴沉。",
-      "{name}最近常往城外跑，回来时身上带着土。"
-    ],
-    "name_pools": {
-      "_desc": "中文人名池。generate_npc_name 优先用这里；音节池只作为兜底。",
-      "male": [
-        "阿尔文",
-        "布兰",
-        "科恩",
-        "德里克",
-        "埃德",
-        "芬恩",
-        "盖尔",
-        "哈尔",
-        "伊沃",
-        "约恩",
-        "凯尔",
-        "罗兰",
-        "马伦",
-        "奈恩",
-        "奥兰",
-        "派克",
-        "昆廷",
-        "罗斯",
-        "萨恩",
-        "托林",
-        "乌尔",
-        "瓦尔",
-        "温德",
-        "约里克",
-        "赞恩"
-      ],
-      "female": [
-        "艾拉",
-        "贝拉",
-        "柯拉",
-        "黛拉",
-        "伊芙",
-        "菲奥娜",
-        "格蕾",
-        "海伦",
-        "伊莎",
-        "茱恩",
-        "凯特",
-        "莉娜",
-        "米拉",
-        "奈拉",
-        "奥莉",
-        "佩拉",
-        "琪拉",
-        "瑞娜",
-        "塞拉",
-        "塔拉",
-        "薇拉",
-        "温妮",
-        "雪莉",
-        "伊莲",
-        "泽娜"
-      ],
-      "family": [
-        "灰石",
-        "黑木",
-        "冷泉",
-        "晨星",
-        "余烬",
-        "白桦",
-        "荆棘",
-        "铁砧",
-        "橡盾",
-        "月谷",
-        "北风",
-        "乌鸦",
-        "银溪",
-        "石楠",
-        "西岭",
-        "狼耳",
-        "风谷",
-        "格林姆",
-        "夜鸦",
-        "霜原"
-      ]
-    }
-  },
   "quest_features": [
     "身上有一道旧疤",
     "一只眼睛浑浊发白",
@@ -2169,7 +1730,6 @@
       }
     ]
   },
-  "quest_features_note": "抽象特征。GM 把它挂到具体目标身上。",
   "ability_slots": {
     "skills": [
       {
@@ -2813,6 +2373,7 @@
   },
   "regions": {
     "forest": {
+      "desc_hint": "密林",
       "monster_type_pool": [
         "low",
         "small",
@@ -2820,6 +2381,7 @@
       ]
     },
     "plains": {
+      "desc_hint": "开阔草原",
       "monster_type_pool": [
         "low",
         "beast",
@@ -2827,6 +2389,7 @@
       ]
     },
     "mountain": {
+      "desc_hint": "山岭地带",
       "monster_type_pool": [
         "mid",
         "flying",
@@ -2834,6 +2397,7 @@
       ]
     },
     "dungeon": {
+      "desc_hint": "地窟",
       "monster_type_pool": [
         "low",
         "mid",
@@ -2841,6 +2405,7 @@
       ]
     },
     "swamp": {
+      "desc_hint": "沼泽",
       "monster_type_pool": [
         "small",
         "mid",
@@ -2848,12 +2413,14 @@
       ]
     },
     "ruins": {
+      "desc_hint": "废墟",
       "monster_type_pool": [
         "mid",
         "high"
       ]
     },
     "cavern": {
+      "desc_hint": "洞穴群",
       "monster_type_pool": [
         "small",
         "low",
@@ -2861,15 +2428,18 @@
       ]
     },
     "town": {
+      "desc_hint": "城镇",
       "monster_type_pool": []
     },
     "corrupted_land": {
+      "desc_hint": "侵蚀之地",
       "monster_type_pool": [
         "high",
         "flying"
       ]
     },
     "volcanic": {
+      "desc_hint": "火山带",
       "monster_type_pool": [
         "mid",
         "high"

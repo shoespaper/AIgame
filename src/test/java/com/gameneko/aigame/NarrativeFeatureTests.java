@@ -2,46 +2,58 @@ package com.gameneko.aigame;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
-import com.gameneko.aigame.narrative.NarrativeProposalCandidate;
-import com.gameneko.aigame.narrative.ProposalConversionService;
+import com.gameneko.aigame.engine.ActionIntent;
+import com.gameneko.aigame.narrative.DefaultNarrationService;
+import com.gameneko.aigame.narrative.NarrativeRequest;
+import com.gameneko.aigame.narrative.NarrativeResponse;
+import com.gameneko.aigame.narrative.NarrativeSnapshot;
+import com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/** 验证引擎动作清单由引擎侧暴露，且叙事层按清单校验 action 类型。 */
 class NarrativeFeatureTests {
     private final ClasspathContentCatalog catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-    private final ProposalConversionService converter = new ProposalConversionService();
 
     @Test
-    void engineOwnsProposalFieldAndValueValidation() {
+    void engineExposesItsActionCatalog() {
         var world = catalog.world("isekai_grey");
-        var engine = new com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime(world);
-        var accepted = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "40")), "game", 0, 0, 0, world, engine);
-        assertTrue(accepted.converted());
-        assertEquals("grant_experience", accepted.action().type());
-
-        var bounded = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "100000")), "game", 0, 0, 0, world, engine);
-        assertFalse(bounded.converted());
-        var extra = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "40", "energy", "99")), "game", 0, 0, 0, world, engine);
-        assertFalse(extra.converted());
+        var engine = new ApGameEngineRuntime(world);
+        var actions = engine.supportedActions();
+        assertFalse(actions.isEmpty());
+        assertTrue(actions.stream().anyMatch(action -> action.type().equals("rest")));
+        assertTrue(actions.stream().anyMatch(action -> action.type().equals("acquire_item")));
     }
 
     @Test
-    void itemAndTimedEventProposalsUseTypedServerOwnedDefinitions() {
+    void narrationRejectsActionOutsideEngineCatalog() {
         var world = catalog.world("isekai_grey");
-        var engine = new com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime(world);
-        var item = converter.convert(new NarrativeProposalCandidate("acquire_item", java.util.Map.of("itemName", "healing", "itemCategory", "healing", "itemTier", "common")), "game", 3, 0, 0, world, engine);
-        assertTrue(item.converted());
-        assertEquals("acquire_item", item.action().type());
+        var engine = new ApGameEngineRuntime(world);
+        var actions = engine.supportedActions();
+        var service = new DefaultNarrationService(prompt -> new NarrativeResponse(
+                "就绪。", new ActionIntent("socialize", "", List.of()), List.of("继续前进")));
+        assertThrows(IllegalArgumentException.class, () -> service.narrate(request(), actions));
+    }
 
-        var event = converter.convert(new NarrativeProposalCandidate("schedule_event", java.util.Map.of("deadlineDays", "5", "eventId", "thread-1", "eventDescription", "A sealed door hums", "eventAnswer", "seal", "eventConsequence", "breach")), "game", 3, 0, 2, world);
-        assertTrue(event.converted());
-        assertTrue(event.worldAction() instanceof com.gameneko.aigame.engine.WorldAction.ScheduleEvent);
+    @Test
+    void pureNarrationWithoutActionIsAccepted() {
+        var world = catalog.world("isekai_grey");
+        var engine = new ApGameEngineRuntime(world);
+        var actions = engine.supportedActions();
+        var service = new DefaultNarrationService(prompt -> new NarrativeResponse("夜色降临。", null, List.of("继续前进")));
+        var response = service.narrate(request(), actions);
+        assertTrue(response.action() == null);
+    }
 
-        var noEngine = converter.convert(new NarrativeProposalCandidate("gain_experience", java.util.Map.of("amount", "40")), "game", 3, 0, 0, world, null);
-        assertFalse(noEngine.converted());
+    private static NarrativeRequest request() {
+        return new NarrativeRequest("test-game", 0, "观察四周", "zh-CN",
+                new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "dawn", "spring", "clear",
+                        "村庄", "北境", "Low", List.of(), List.of(), List.of()), null, List.of()));
     }
 }

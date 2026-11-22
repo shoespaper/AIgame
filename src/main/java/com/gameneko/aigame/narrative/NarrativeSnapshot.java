@@ -2,15 +2,45 @@ package com.gameneko.aigame.narrative;
 
 import java.util.List;
 
-/** Read-only facts supplied to a narrator after a ruleset resolution. */
+/** 将动态世界事实、确认事件、引擎投影及世界书设定作为只读数据传给叙事模型。 */
 public record NarrativeSnapshot(WorldView world, CharacterView character,
-                                List<ConfirmedEvent> confirmedEvents, Object engineProjection) {
+                                List<ConfirmedEvent> confirmedEvents, Object engineProjection,
+                                com.gameneko.aigame.content.WorldbookDefinition worldbook) {
+    /** 创建不附带世界书资料的兼容快照。
+     * @param world 世界动态视图
+     * @param character 可空的旧角色视图
+     * @param confirmedEvents 已确认事件
+     * @param engineProjection 引擎中立的展示投影
+     */
+    public NarrativeSnapshot(WorldView world, CharacterView character, List<ConfirmedEvent> confirmedEvents, Object engineProjection) {
+        this(world, character, confirmedEvents, engineProjection, null);
+    }
+    /** 创建不附带引擎和世界书资料的兼容快照。
+     * @param world 世界动态视图
+     * @param character 可空的旧角色视图
+     * @param confirmedEvents 已确认事件
+     */
     public NarrativeSnapshot(WorldView world, CharacterView character, List<ConfirmedEvent> confirmedEvents) {
         this(world, character, confirmedEvents, null);
     }
+    /** 校验叙事快照并复制确认事件。
+     * @param world 世界动态视图
+     * @param character 可空的旧角色视图
+     * @param confirmedEvents 已确认事件
+     * @param engineProjection 引擎中立的展示投影
+     * @param worldbook 可空的世界书叙事设定
+     */
     public NarrativeSnapshot {
         if (world == null) throw new IllegalArgumentException("Narrative snapshot world is required");
         confirmedEvents = confirmedEvents == null ? List.of() : List.copyOf(confirmedEvents);
+    }
+
+    /** 为模型补充世界书叙事设定，避免开局后丢失故事基调与势力。
+     * @param setting 世界书叙事资料
+     * @return 附带叙事设定的新快照
+     */
+    public NarrativeSnapshot withWorldbook(com.gameneko.aigame.content.WorldbookDefinition setting) {
+        return new NarrativeSnapshot(world, character, confirmedEvents, engineProjection, setting);
     }
 
     public record WorldView(long day, String time, String season, String weather,

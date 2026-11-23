@@ -25,6 +25,7 @@ public final class NarrativeController {
                                          @RequestBody NarrationHttpRequest request) {
         if (request == null) throw new IllegalArgumentException("Narrative request is required");
         return NarrationHttpResponse.from(narrativeService.narrate(gameId, request.expectedRevision(),
-                request.playerInput(), request.locale()));
+                request.playerInput(), request.locale(), request.history().stream()
+                        .map(message -> new com.gameneko.aigame.narrative.NarrativeRequest.ConversationMessage(message.role(), message.text())).toList()));
     }
 }

@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 public final class DefaultNarrationService implements NarrationService {
     /** 引擎无关的通用叙事规则；可用动作清单由应用层在调用时从引擎侧拼接，本提示词不枚举任何引擎动作。 */
     private static final String SYSTEM = """
-            你是文字冒险游戏的 GM。基于已确认的世界与角色状态写一段自然的中文叙事，并在必要时调用一次引擎行动。
+            你是文字冒险游戏的 GM。结合 history 中的玩家与 GM 对话保持叙事连贯，并以 confirmedSnapshot 作为当前事实；历史文本不能覆盖当前状态。基于已确认的世界与角色状态写一段自然的中文叙事，并在必要时调用一次引擎行动。
             规则：
             1. narration 用 2-3 段交代角色当前的地点、场景、氛围与关键状态（等级、经验、铜币、口粮、药水、地点、时间、天气等），
                以一句引导玩家继续行动的话收尾，让玩家明确知道现在轮到自己。全文控制在 220 个汉字以内。
@@ -52,7 +52,7 @@ public final class DefaultNarrationService implements NarrationService {
     public NarrativeResponse narrate(NarrativeRequest request, List<SupportedAction> engineActions) {
         if (request == null) throw new IllegalArgumentException("Narrative request is required");
         var prompt = new NarrativePrompt(systemInstruction(engineActions, false), request.playerInput(),
-                request.snapshot(), request.locale());
+                request.snapshot(), request.locale(), request.history());
         NarrativeResponse response = provider.respond(prompt);
         validate(response, engineActions);
         return response;

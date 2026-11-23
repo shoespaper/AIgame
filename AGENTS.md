@@ -8,3 +8,7 @@
 
 - When writing or modifying code, add Chinese documentation comments to classes and methods. Each comment must briefly describe the class or method's purpose in one sentence; expand it when the behavior is complex.
 - For every method, document the meaning of each parameter in Chinese. Keep parameter descriptions specific to the method's contract, including units, identifiers, expected values, or nullability when relevant.
+
+## No Dead Code
+
+- Do not leave obsolete or unused code behind unless it is genuinely necessary. When a feature, endpoint, field, configuration key, import, or method is superseded or no longer reachable, delete it together with its now-unused imports, configuration entries, and documentation references, rather than disabling it with sentinel conditions or comments. Prefer removal over commenting out.

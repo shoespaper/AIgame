@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, InitializationAnswerResult, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn } from './types'
+import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, InitializationAnswerResult, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn, ConversationMessage } from './types'
 
 const apiRoot = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
@@ -69,8 +69,11 @@ export function listGames(): Promise<SaveMetadata[]> { return request<SaveMetada
 export function createInitializationSession(selection: GameSelection): Promise<InitializationSession> { return request<InitializationSession>('/initialization/sessions', { method: 'POST', body: JSON.stringify(selection) }) }
 export function answerInitialization(id: string, answer: string): Promise<InitializationAnswerResult> { return request<InitializationAnswerResult>(`/initialization/sessions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }) }
 export function finalizeInitialization(id: string): Promise<InitializationFinalizeResult> { return request<InitializationFinalizeResult>(`/initialization/sessions/${encodeURIComponent(id)}/finalize`, { method: 'POST' }) }
-export function narrate(gameId: string, expectedRevision: number, playerInput: string): Promise<NarrativeResponse> {
-  return request<NarrativeResponse>(`${gamePath(gameId)}/narration`, { method: 'POST', body: JSON.stringify({ expectedRevision, playerInput, locale: 'zh-CN' }) })
+/** 将当前输入与近期非权威对话上下文提交给 GM。 */
+/** @param gameId 当前游戏标识 @param expectedRevision 客户端观察到的游戏修订号 @param playerInput 玩家本轮输入 */
+/** @param history 仅用于叙事连贯性的近期玩家与 GM 消息 */
+export function narrate(gameId: string, expectedRevision: number, playerInput: string, history: ConversationMessage[] = []): Promise<NarrativeResponse> {
+  return request<NarrativeResponse>(`${gamePath(gameId)}/narration`, { method: 'POST', body: JSON.stringify({ expectedRevision, playerInput, locale: 'zh-CN', history: history.slice(-40) }) })
 }
 
 /** 创建世界构建 AI 会话。

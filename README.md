@@ -10,11 +10,11 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 - `application`：世界初始化、游戏实例创建、动作结算、版本检查、存档和叙事编排。
 - `engine`：规则集无关的 `GameInstance`、`WorldState`、动作、事件和 runtime 契约。
 - `rulesets.ap`：AP 规则集的类型化状态、动作验证和结算，覆盖角色资源、每日推进、经验、任务、NPC、物品和战斗基础模型。
-- `content`：从 classpath 读取并校验静态世界定义，目前注册了 `isekai_grey`。
+- `content`：从 classpath 读取并校验静态世界定义，通过世界书目录暴露可选世界。
 - `persistence`：通过 `GameRepository` 接口提供 JSON 文件存档，默认目录为 `./data/saves`。
 - `narrative`：本地确定性叙事 provider，以及可选的 OpenAI Chat Completions 兼容 provider。
 
-游戏状态由 `GameInstance` 包装，包含游戏 ID、世界和内容版本、规则集及版本、生命周期、revision、`WorldState` 和规则集拥有的类型化状态。客户端不能提交任意状态 patch；动作必须先映射为封闭的 AP 或世界命令，再由规则集验证、结算和持久化。
+游戏状态由 `GameInstance` 包装，包含游戏 ID、世界和内容版本、可选引擎及版本、生命周期、revision、`WorldState` 和引擎拥有的类型化状态。`engineId: null` 表示纯叙事模式。客户端不能提交任意状态 patch；`ActionIntent` 必须先由所选引擎验证和结算。
 
 ## 请求入口
 
@@ -29,23 +29,48 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 | `POST` | `/api/games/{gameId}/actions` | 执行 AP 或世界动作 |
 | `POST` | `/api/games/{gameId}/actions/narrate` | 执行动作后基于确认事件生成叙事 |
 | `POST` | `/api/games/{gameId}/narration` | 基于当前存档生成叙事和提案候选 |
+| `POST` | `/api/games/{gameId}/narration/options` | 将所选 GM 意图交给引擎校验、结算并生成后续叙事 |
 | `POST` | `/api/games/{gameId}/narration/proposals` | 重新转换、校验并应用一个提案 |
+| `GET` | `/api/games/initialization/catalog` | 查询世界书和可选引擎目录 |
+| `GET` | `/api/games/initialization/schema?worldId=isekai_grey&engineId=ap` | 查询此次创建组合后的初始化字段 schema |
 | `GET` | `/actuator/health` | Spring Boot Actuator 健康检查 |
 
-动作和提案都带有 `expectedRevision`。服务端只接受当前版本，成功结算后 revision 加一；版本不匹配时拒绝请求。
+动作、选项和提案都带有 `expectedRevision`。服务端只接受当前版本，成功结算后 revision 加一；版本不匹配时拒绝请求。GM 选项和自由文本都不能直接修改存档：选项中的 `intent` 必须由当前引擎验证，纯叙事实例会返回 `engine_required`。
+
+创建请求明确选择世界书及可选引擎。例如纯叙事请求设置 `engineId` 为 `null`，不发送引擎专属初始化字段；AP 请求则显式传入 `engineId: "ap"`：
+
+```json
+{
+  "worldId": "isekai_grey",
+  "engineId": null,
+  "characterName": "旅人",
+  "age": 16,
+  "gender": "未定"
+}
+```
+
+通用动作请求使用 `type`、`target` 和类型化 `arguments`，参数项形状为 `{ "name": "amount", "type": "integer", "integer": 20 }`（也可使用 `text`、`decimal` 或 `flag`）。叙事响应包含 `narration`、`options`、`initializationQuestions`、`parseCandidates`、`proposals` 和 `mediaRequests`。玩家选择选项时，将该选项与当前 `expectedRevision` 提交到 `/narration/options`。
+
+## 自定义世界与模板
+
+创建新冒险的第一步可选择「自定义世界」，与 GM 对话确认类型、背景、名称、规则、势力和故事基调。类型匹配时复用已有模板；也可通过「优先复用模板」选择已保存的自定义模板。没有匹配模板的类型从空白设定开始，可使用纯叙事模式。
+
+对话完成后，「保存为模板」将完整机制骨架、type、tags 和本次世界配置的创建默认值写入模板库，保留当前页面；「下一步」保存独立世界书并进入规则选择，再进入原有角色初始化。世界书背景、势力、规则和故事基调也会传给角色创建及后续叙事。
+
+内置内容分别位于 `src/main/resources/world/templates/isekai.json` 和 `src/main/resources/world/worldbooks/cinder_continent.json`；用户内容保存至 `data/templates/` 和 `data/worldbooks/`，目录会合并两处内容。`aigame.content.root` 可覆盖用户内容根目录。旧 `isekai_grey` 标识仍用于读取既有存档，新建目录展示「残烬大陆」（`cinder_continent`）。
+
+新增接口：
+
+- `POST /api/initialization/worldbuild/sessions`：创建 AI 世界构建会话，可选 `{ "templateId": "..." }`。
+- `POST /api/initialization/worldbuild/sessions/{id}/answer`：提交 `{ "answer": "..." }`，返回结构化配置和 `done`。
+- `POST /api/games/initialization/templates`：保存完整模板，返回 `templateId`。
+- `POST /api/games/initialization/worldbooks`：保存世界书实例，返回后续角色初始化使用的 `worldbookId`。
 
 ## 叙事边界
 
-默认使用本地 provider，因此开发和测试不需要外部模型。启用 OpenAI 兼容 provider 时设置：
+世界构建与角色初始化使用同一套 OpenAI 兼容模型配置。请在前端「设置」页启用模型并填写 API Key、Base URL 和模型名；配置保存在 `data/narrative-settings.json`，也可通过 `aigame.narrative.settings-file` 指定配置文件。未配置模型或请求失败时会显示明确错误，可保留当前会话重试。自动化测试使用模型桩，不依赖外部模型。
 
-```text
-AI_GAME_NARRATIVE_ENABLED=true
-AI_GAME_NARRATIVE_API_KEY=...
-AI_GAME_NARRATIVE_BASE_URL=https://api.openai.com/v1   # 可选
-AI_GAME_NARRATIVE_MODEL=gpt-4o-mini                    # 可选
-```
-
-AI 收到服务端生成的只读快照和确认事件，可以返回文本、媒体请求以及以下提案：`gain_experience`、`acquire_item`、`offer_quest`、`schedule_event`。提案不会随叙事响应自动改变存档，必须在单独请求中重新转换并通过规则验证。
+AI 收到服务端生成的只读快照和确认事件，可以返回叙事文本、通用行动选项、解析候选、媒体请求以及规则提案。提案不会随叙事响应自动改变存档，必须在单独请求中重新转换并通过所选引擎验证；叙事仅依据确认事件和最新只读快照生成。
 
 ## 随机性
 
@@ -72,7 +97,6 @@ mvn spring-boot:run
 主要配置位于 `src/main/resources/application.properties`：
 
 - `aigame.persistence.root`：存档目录，默认读取 `AI_GAME_SAVE_ROOT`，否则使用 `./data/saves`。
-- `aigame.narrative.enabled`：是否启用外部叙事 provider，默认 `false`。
 
 ## 测试
 
@@ -82,7 +106,7 @@ mvn spring-boot:run
 mvn verify
 ```
 
-架构测试要求 `engine` 和 `rulesets` 不依赖 Spring、HTTP、持久化或应用层；控制器位于 `api` 包中。当前实现仍有两个明确限制：规则集选择在应用层直接实例化 AP runtime，文件存档反序列化也只支持 `ap`；未来增加规则集时需要补充 runtime 注册和存档适配。
+架构测试要求 `engine` 和 `rulesets` 不依赖 Spring、HTTP、持久化或应用层；控制器位于 `api` 包中。存档信封 schema v2 显式保存世界书/版本与可选引擎/版本；schema v1 继续读取并在下次保存时迁移。生产恢复通过 `GameStateTypeResolver` 按引擎 ID 还原类型化状态，未知引擎会明确失败。
 
 ## 外部参考
 

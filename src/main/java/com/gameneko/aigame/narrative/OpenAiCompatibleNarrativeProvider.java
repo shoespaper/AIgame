@@ -81,7 +81,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     private NarrativeResponse doRespond(NarrativePrompt prompt, int outputTokens) {
         String userContent;
         try {
-            userContent = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot()));
+        userContent = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
         } catch (java.io.IOException exception) {
             throw new NarrativeProviderException("无法编码叙事请求", false, exception);
         }
@@ -219,7 +219,8 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     }
 
     /** 模型调用中的用户文本与只读世界快照。 */
-    private record UserInput(String playerInput, String locale, NarrativeSnapshot confirmedSnapshot) {}
+    private record UserInput(String playerInput, String locale, NarrativeSnapshot confirmedSnapshot,
+                             java.util.List<NarrativeRequest.ConversationMessage> history) {}
     /** Chat Completions 请求体。 */
     private record ChatRequest(String model, List<ChatMessage> messages, int max_tokens, JsonNode response_format) {}
     /** Chat Completions 消息。 */

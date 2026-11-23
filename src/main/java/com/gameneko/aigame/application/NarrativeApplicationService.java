@@ -37,10 +37,19 @@ public final class NarrativeApplicationService {
     /** @param locale 叙事语言标识 */
     /** @return 叙事与可能发生的引擎结算结果 */
     public NarratedTurn narrate(String gameId, long expectedRevision, String playerInput, String locale) {
+        return narrate(gameId, expectedRevision, playerInput, locale, List.of());
+    }
+
+    /** 使用最新状态、世界书与近期对话生成回合；对话仅作为模型叙事上下文。 */
+    /** @param gameId 游戏标识 @param expectedRevision 客户端观察到的修订号 @param playerInput 玩家本轮输入 */
+    /** @param locale 叙事语言标识 @param history 仅供模型参考的近期对话 */
+    /** @return 叙事与可能发生的引擎结算结果 */
+    public NarratedTurn narrate(String gameId, long expectedRevision, String playerInput, String locale,
+                                List<NarrativeRequest.ConversationMessage> history) {
         GameInstance<?> instance = load(gameId, expectedRevision);
         var snapshot = NarrativeSnapshotFactory.from(instance, List.of(), instance.worldState().worldEvents(), projection(instance))
                 .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative());
-        var response = narrationService.narrate(new NarrativeRequest(gameId, expectedRevision, playerInput, locale, snapshot),
+        var response = narrationService.narrate(new NarrativeRequest(gameId, expectedRevision, playerInput, locale, snapshot, history),
                 supportedActions(instance));
         return settle(instance, response);
     }

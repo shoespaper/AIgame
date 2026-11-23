@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { loadGame, saveGame, narrate, ApiError, createInitializationSession, answerInitialization, finalizeInitialization } from '../api/client'
-import type { ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeResponse, InitializationTurn, InitializationQuestion, InitializationParseCandidate } from '../api/types'
+import type { ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeResponse, InitializationTurn, InitializationQuestion, InitializationParseCandidate, ConversationMessage } from '../api/types'
 
 export interface TimelineEvent {
   id: number
@@ -20,6 +20,13 @@ export interface InitMessage {
 }
 
 const CURRENT_GAME_KEY = 'aigame.currentGameId'
+function conversationKey(gameId: string): string { return `aigame.conversation.${gameId}` }
+function readConversation(gameId: string): ConversationMessage[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(conversationKey(gameId)) || '[]')
+    return Array.isArray(value) ? value.filter((item): item is ConversationMessage => item && (item.role === 'player' || item.role === 'gm') && typeof item.text === 'string') : []
+  } catch { return [] }
+}
 function nowLabel(): string { return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date()) }
 function event(kind: TimelineEvent['kind'], title: string, detail: string): TimelineEvent {
   return { id: Date.now() + Math.floor(Math.random() * 1000), kind, title, detail, time: nowLabel() }
@@ -40,6 +47,7 @@ export const useGameStore = defineStore('game', {
     error: '',
     notice: '',
     narration: null as NarrativeResponse | null,
+    conversation: [] as ConversationMessage[],
     initializationSessionId: '',
     initializationTurn: null as InitializationTurn | null,
     initializationBusy: false,
@@ -98,12 +106,15 @@ export const useGameStore = defineStore('game', {
         const result = await finalizeInitialization(this.initializationSessionId)
         this.game = result.game
         this.remember(this.game.gameId)
+        this.conversation = []
         this.events = [event('system', '新的远征已建立', '世界状态和角色初始状态已由服务器确认。')]
         if (result.opening) {
           this.narration = result.opening
+          this.conversation.push({ role: 'gm', text: result.opening.narration })
           result.opening.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
         }
         this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []
+        localStorage.setItem(conversationKey(this.game.gameId), JSON.stringify(this.conversation))
         return this.game
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '创建游戏失败'; throw cause
       } finally { this.initializationBusy = false }
@@ -113,6 +124,7 @@ export const useGameStore = defineStore('game', {
       try {
         this.game = await loadGame(gameId)
         this.remember(gameId)
+        this.conversation = readConversation(gameId)
         this.events = [event('system', '已恢复存档', `已读取第 ${this.game.revision} 次状态修订。`)]
         return this.game
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '读取存档失败'; throw cause
@@ -134,16 +146,20 @@ export const useGameStore = defineStore('game', {
       if (!this.game) return
       this.acting = true; this.clearMessages()
       const gameId = this.game.gameId; const revision = this.game.revision
+      const transcript = [...this.conversation]
+      this.conversation.push({ role: 'player', text: input })
       try {
-        const result = await narrate(gameId, revision, input)
+        const result = await narrate(gameId, revision, input, transcript)
         this.game = result.game
         this.narration = result
+        this.conversation.push({ role: 'gm', text: result.narration })
+        localStorage.setItem(conversationKey(gameId), JSON.stringify(this.conversation))
         result.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
         return result
       }
-      catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
+      catch (cause) { this.conversation = transcript; if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
       finally { this.acting = false }
     },
-    reset() { this.game = null; this.events = []; this.narration = null; this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []; this.clearMessages() },
+    reset() { this.game = null; this.events = []; this.narration = null; this.conversation = []; this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []; this.clearMessages() },
   },
 })

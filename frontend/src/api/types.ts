@@ -36,6 +36,8 @@ export interface WorldbookDetail {
   worldTropes: string[]
 }
 export interface ConfirmedEvent { domain: string; type: string; subject: string; target: string | null; amount: number; outcome: string }
+/** 展示与叙事模型参考用的对话消息，不代表权威游戏状态。 */
+export interface ConversationMessage { role: 'player' | 'gm'; text: string }
 /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
 export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[] }
 export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; season: string | null; weather: string | null; flags: Record<string, boolean>; threatLevel: string; threatCounter: number; threatInterval: number; threatHistory: string[]; timedEvents: string[]; incidentalEvents: string[]; lastTickDay: number; crisisTriggered: boolean; mainPlotStage: number; mainPlotStages: string[]; priceModifiers: Record<string, number>; originScene: string }

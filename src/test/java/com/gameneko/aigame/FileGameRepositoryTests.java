@@ -70,7 +70,7 @@ class FileGameRepositoryTests {
 
     private static WorldState state() {
         return new WorldState("isekai_grey", "1.0", 0, "灰烬界", null,
-                "白栎镇", "forest", null, 1, "清晨", null, null,
+                "白栎镇", "forest", null, 1, "清晨",
                 Map.of(), "Dormant", 0, 7, java.util.List.of(), java.util.List.of(),
                 java.util.List.of(), 0, false, 0, java.util.List.of(), Map.of(), "", java.util.List.of());
     }

@@ -39,7 +39,7 @@ class StageAProtocolTests {
     @Test
     void noEngineInstanceHasNoRulesetIdentity() {
         var world = new WorldState("world", "v1", 0, "name", "desc", "town", "town", "", 1,
-                "morning", "spring", "clear", Map.of(), "Dormant", 0, 1, List.of(), List.of(), List.of(),
+                "morning", Map.of(), "Dormant", 0, 1, List.of(), List.of(), List.of(),
                 0, false, 0, List.of(), Map.of(), "", java.util.List.of());
         var instance = GameInstance.narrativeOnly("game", world);
         assertNull(instance.rulesetId());

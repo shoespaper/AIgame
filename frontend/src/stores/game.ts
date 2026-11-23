@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { loadGame, saveGame, narrate, ApiError, createInitializationSession, answerInitialization, finalizeInitialization } from '../api/client'
-import type { ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeResponse, InitializationTurn, InitializationQuestion, ConversationMessage } from '../api/types'
+import type { ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeResponse, InitializationTurn, ConversationMessage } from '../api/types'
 
 export interface TimelineEvent {
   id: number
@@ -10,12 +10,11 @@ export interface TimelineEvent {
   time: string
 }
 
-/** 初始化对话流中的一条消息：GM 话术或玩家回答，GM 消息可附带当前问题。 */
+/** 初始化对话流中的一条 GM 话术或玩家回答。 */
 export interface InitMessage {
   id: number
   role: 'gm' | 'player'
   text: string
-  question?: InitializationQuestion | null
 }
 
 const CURRENT_GAME_KEY = 'aigame.currentGameId'
@@ -66,7 +65,7 @@ export const useGameStore = defineStore('game', {
         this.initializationSessionId = session.id
         this.initializationTurn = session.turn
         this.initializationHistory = []
-        this.pushInitMessage('gm', session.turn.narration, session.turn.question)
+        this.pushInitMessage('gm', session.turn.narration)
         return session
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '无法开始初始化问答'; throw cause
       } finally { this.initializationBusy = false }
@@ -74,10 +73,9 @@ export const useGameStore = defineStore('game', {
     /** 在初始化对话流中追加一条 GM 或玩家消息。
      * @param role 消息角色
      * @param text 消息正文
-     * @param question 当前 GM 提问（仅 GM 消息）
      */
-    pushInitMessage(role: 'gm' | 'player', text: string, question?: InitializationQuestion | null) {
-      this.initializationHistory.push({ id: Date.now() + Math.floor(Math.random() * 1000), role, text, question })
+    pushInitMessage(role: 'gm' | 'player', text: string) {
+      this.initializationHistory.push({ id: Date.now() + Math.floor(Math.random() * 1000), role, text })
     },
     /** 提交初始化自然语言回答并更新 GM 回合。
      * @param answer 玩家当前回答
@@ -89,7 +87,7 @@ export const useGameStore = defineStore('game', {
       try {
         const result = await answerInitialization(this.initializationSessionId, answer)
         this.initializationTurn = result.turn
-        this.pushInitMessage('gm', result.turn.narration, result.turn.question)
+        this.pushInitMessage('gm', result.turn.narration)
         return result
       } catch (cause) { this.initializationHistory.pop(); this.error = cause instanceof Error ? cause.message : '初始化回答未通过校验'; throw cause
       } finally { this.initializationBusy = false }

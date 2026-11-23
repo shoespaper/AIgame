@@ -94,7 +94,7 @@ public final class WorldbuildNarrationService {
                 + "\n模板默认配置：" + (session.template == null ? "{}" : json(session.template.creationDefaults()))
                 + "\n对话历史：" + json(session.history);
         NarrativeResponse response = provider.respond(new NarrativePrompt(context, input,
-                new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null, null, null,
+                new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null,
                         "Dormant", List.of(), List.of(), List.of()), null, List.of()), "zh-CN"));
         if (response == null || response.narration().length() > 6000) throw new IllegalArgumentException("Invalid worldbuild response");
         response.validateUpdates();

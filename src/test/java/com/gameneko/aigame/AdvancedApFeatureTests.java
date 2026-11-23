@@ -85,13 +85,13 @@ class AdvancedApFeatureTests {
 
     @Test
     void worldDeadlineAndPriceAreTypedAndDeterministic() {
-        WorldState state = new WorldState("w", "1", 0, null, null, null, null, null, 1, "", null, null,
+        WorldState state = new WorldState("w", "1", 0, null, null, null, null, null, 1, "",
                 Map.of(), "Dormant", 0, 7, List.of(), List.of(), List.of(), 0, false, 0, List.of(), Map.of(), "", java.util.List.of());
         var event = new com.gameneko.aigame.engine.TimedEvent("e1", "plot", "desc", "answer", "late", 0, 3, 2,
                 com.gameneko.aigame.engine.TimedEvent.Status.ACTIVE, com.gameneko.aigame.engine.WorldEffects.none());
         state = state.schedule(event).resolveTimedEvent("e1", "done");
         assertEquals(com.gameneko.aigame.engine.TimedEvent.Status.RESOLVED, state.deadlineEvents().getFirst().status());
-        state = new WorldState(state.worldId(), state.contentVersion(), state.revision(), state.setting(), state.settingDescription(), state.location(), state.currentRegion(), state.mainQuest(), state.day(), state.time(), state.season(), state.weather(), state.flags(), state.threatLevel(), state.threatCounter(), state.threatInterval(), state.threatHistory(), state.timedEvents(), state.incidentalEvents(), state.lastTickDay(), state.crisisTriggered(), state.mainPlotStage(), state.mainPlotStages(), state.priceModifiers(), state.originScene(), state.deadlineEvents(), state.worldEvents(), Map.of(com.gameneko.aigame.engine.PriceModifier.Category.ALL, new com.gameneko.aigame.engine.PriceModifier("all", 125)), state.activeEffects(), state.visitedLocations());
+        state = new WorldState(state.worldId(), state.contentVersion(), state.revision(), state.setting(), state.settingDescription(), state.location(), state.currentRegion(), state.mainQuest(), state.day(), state.time(), state.flags(), state.threatLevel(), state.threatCounter(), state.threatInterval(), state.threatHistory(), state.timedEvents(), state.incidentalEvents(), state.lastTickDay(), state.crisisTriggered(), state.mainPlotStage(), state.mainPlotStages(), state.priceModifiers(), state.originScene(), state.deadlineEvents(), state.worldEvents(), Map.of(com.gameneko.aigame.engine.PriceModifier.Category.ALL, new com.gameneko.aigame.engine.PriceModifier("all", 125)), state.activeEffects(), state.visitedLocations());
         assertEquals(125, state.price(100, com.gameneko.aigame.engine.PriceModifier.Category.FOOD));
     }
 }

@@ -18,7 +18,7 @@ public final class NarrativeSnapshotFactory {
     public static NarrativeSnapshot fromConfirmed(GameInstance<?> instance, List<ConfirmedEvent> actionEvents,
                                                    List<WorldEvent> confirmedWorldEvents, Object engineProjection) {
         var world = instance.worldState();
-        var worldView = new NarrativeSnapshot.WorldView(world.day(), world.time(), world.season(), world.weather(),
+        var worldView = new NarrativeSnapshot.WorldView(world.day(), world.time(),
                 world.location(), world.currentRegion(), world.threatLevel(),
                 world.deadlineEvents().stream().filter(e -> e.status() == com.gameneko.aigame.engine.TimedEvent.Status.ACTIVE).limit(12)
                         .map(e -> new NarrativeSnapshot.TimedEventView(e.id(), e.description(), e.daysRemaining(), e.status().name())).toList(),

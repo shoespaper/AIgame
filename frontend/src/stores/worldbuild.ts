@@ -1,11 +1,18 @@
 import { defineStore } from 'pinia'
 import { answerWorldbuild, createWorldbuildSession } from '../api/client'
-import type { WorldbuildTurn } from '../api/types'
-import type { InitMessage } from './game'
+import type { InitializationQuestion, WorldbuildTurn } from '../api/types'
+
+/** 世界构建对话中的玩家回答或带服务端问题的 GM 回合。 */
+export interface WorldbuildMessage {
+  id: number
+  role: 'gm' | 'player'
+  text: string
+  question?: InitializationQuestion | null
+}
 
 /** 保存独立于角色初始化的世界构建对话和当前结构化配置。 */
 export const useWorldbuildStore = defineStore('worldbuild', {
-  state: () => ({ sessionId: '', turn: null as WorldbuildTurn | null, busy: false, history: [] as InitMessage[] }),
+  state: () => ({ sessionId: '', turn: null as WorldbuildTurn | null, busy: false, history: [] as WorldbuildMessage[] }),
   actions: {
     /** 建立世界构建会话，失败时保留已有对话。
      * @param templateId 可空的优先复用模板标识

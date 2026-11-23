@@ -143,7 +143,7 @@ class NarrationOutputReliabilityTests {
 
     /** 构造最小可信快照。 */
     private static NarrativeSnapshot snapshot() {
-        return new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "dawn", "spring", "clear",
+        return new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "dawn",
                 "村庄", "北境", "Low", List.of(), List.of(), List.of()), null, List.of());
     }
 

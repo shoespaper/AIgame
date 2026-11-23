@@ -13,7 +13,7 @@ import com.gameneko.aigame.engine.SupportedAction;
 import java.util.List;
 import java.util.Map;
 
-/** AP adapter for engine selection and initialization; action translation remains a later migration step. */
+/** 为 AP 规则提供引擎中立接口所需的初始化、动作校验与状态投影适配。 */
 public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRuntime.ApState, ApRulesetRuntime.ApProjection> {
     private final WorldDefinition world;
     private final ApRulesetRuntime runtime = new ApRulesetRuntime();
@@ -27,9 +27,53 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         this.world = world;
     }
 
+    /** 返回此规则引擎的稳定标识。
+     * @return 引擎标识
+     */
     @Override public String id() { return runtime.id(); }
+    /** 返回此规则引擎的版本。
+     * @return 引擎版本
+     */
     @Override public String version() { return runtime.version(); }
 
+    /** 返回 AP 引擎的初始化访谈模板，职业细节由引擎模块独立维护。
+     * @return AP 专属的初始化提示词
+     */
+    @Override
+    public String initializationPrompt() {
+        var prompt = new StringBuilder("""
+                你正在主持 AP 规则游戏的开局访谈。结合玩家已经说过的内容，自然地逐步了解角色。
+                职业可选：swordsman（剑士，均衡近战）、mage（法师，擅长法术但体质较弱）、
+                ranger（游侠，灵活的远程角色）、alchemist（炼金术师，擅长药剂辅助）。
+                难度选项及其可解释的含义见下方清单；所有枚举 updates 必须使用稳定 id。
+                字段清单里的“缺少的必填字段”是服务端校验结果，请继续多轮提问，直到这些字段合法齐全。
+                可以从玩家一句话里确认多个字段；可按玩家要求修改已填字段。把确认值放入 updates。
+                narration 用自然对话提出下一问并回应玩家；options 给出贴合本轮问题的简短建议。
+                初始化期间 action 必须为 null。只输出四字段响应 JSON，未声明字段时 updates 为 {}。
+
+                难度选项与说明：
+                """);
+        world.difficulties().forEach((id, difficulty) -> prompt.append(id).append("（")
+                .append(difficulty.label()).append("）：").append(difficulty.description()).append("\n"));
+        return prompt.toString();
+    }
+
+    /** 返回 AP 引擎可用的默认职业与该世界支持的默认难度。
+     * @return AP 引擎拥有的类型化默认字段值
+     */
+    @Override
+    public Map<String, InitializationValue> defaultInitializationAnswers() {
+        var schema = initializationSchema();
+        var archetypes = schema.fields().stream().filter(field -> "archetype".equals(field.id())).findFirst().orElseThrow();
+        var difficulty = schema.fields().stream().filter(field -> "difficulty".equals(field.id())).findFirst().orElseThrow();
+        String defaultDifficulty = difficulty.options().contains("adventure") ? "adventure" : difficulty.options().getFirst();
+        return Map.of("archetype", new InitializationValue.Text(archetypes.options().getFirst()),
+                "difficulty", new InitializationValue.Text(defaultDifficulty));
+    }
+
+    /** 返回 AP 引擎专属初始化字段及其合法选项。
+     * @return AP 初始化 schema
+     */
     @Override
     public InitializationSchema initializationSchema() {
         return new InitializationSchema(List.of(
@@ -39,16 +83,22 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                         world.difficulties().keySet().stream().sorted().toList(), null, null, "请选择难度")));
     }
 
+    /** 校验并创建 AP 初始状态。
+     * @param answers 已通过组合 schema 校验的初始化字段
+     * @return AP 初始规则状态
+     */
     @Override
     public ApRulesetRuntime.ApState initialize(Map<String, InitializationValue> answers) {
         if (answers == null) throw new IllegalArgumentException("AP initialization answers are required");
         // The application validates the combined world-book + engine schema. The
         // adapter validates only fields owned by AP so shared world-book fields
         // are not rejected as unknown engine fields.
+        var engineFieldIds = initializationSchema().fields().stream()
+                .map(InitializationField::id).collect(java.util.stream.Collectors.toSet());
         var engineAnswers = new java.util.HashMap<String, InitializationValue>();
-        for (String field : List.of("archetype", "difficulty")) {
-            if (answers.containsKey(field)) engineAnswers.put(field, answers.get(field));
-        }
+        answers.forEach((field, value) -> {
+            if (engineFieldIds.contains(field)) engineAnswers.put(field, value);
+        });
         var validation = initializationSchema().validate(engineAnswers);
         if (!validation.accepted()) throw new IllegalArgumentException("Invalid AP initialization fields: " + validation.errors());
         String name = text(answers, "characterName", "旅人");

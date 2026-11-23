@@ -44,8 +44,8 @@ const collectedEntries = computed(() => Object.entries(store.initializationTurn?
 /** 初始化字段 ID 到中文标签的映射，用于确认页展示。 */
 const FIELD_LABELS: Record<string, string> = {
   characterName: '角色名字', age: '年龄', gender: '性别', archetype: '职业', difficulty: '难度',
-  name: '世界名', description: '世界描述', location: '地点', region: '区域', weather: '天气',
-  season: '季节', time: '时间', mainQuest: '主线方向', originScene: '开场场景',
+  name: '世界名', description: '世界描述', location: '地点', region: '区域',
+  time: '时间', mainQuest: '主线方向', originScene: '开场场景',
 }
 /** 枚举字段值到中文标签的映射。 */
 const VALUE_LABELS: Record<string, string> = {
@@ -338,13 +338,12 @@ onMounted(() => { void loadCatalog() })
             <div v-for="message in store.initializationHistory" :key="message.id" class="onboarding-message" :class="message.role">
               <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span>
               <p>{{ message.text }}</p>
-              <p v-if="message.role === 'gm' && showsSeparateQuestion(message)" class="onboarding-question">{{ message.question?.prompt }}</p>
             </div>
             <div v-if="store.initializationBusy" class="onboarding-message gm thinking"><span class="loader small" />GM 正在思考…</div>
           </div>
-          <div v-if="store.initializationTurn?.question?.options?.length" class="onboarding-options">
+          <div v-if="store.initializationTurn?.options?.length" class="onboarding-options">
             <button
-              v-for="option in store.initializationTurn.question.options"
+              v-for="option in store.initializationTurn.options"
               :key="option"
               type="button"
               class="onboarding-option"

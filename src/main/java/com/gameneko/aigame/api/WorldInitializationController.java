@@ -11,10 +11,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.Map;
-
-/** 提供直接创建世界与游戏实例的底层初始化端点（非 AI 问答），供 API 与测试使用。 */
+/** 提供直接创建世界与游戏实例的初始化端点，使用调用方显式选择的可选引擎。 */
 @RestController
 @RequestMapping("/api")
 public final class WorldInitializationController {
@@ -45,27 +43,44 @@ public final class WorldInitializationController {
     }
 
     /**
-     * 直接创建并持久化一个游戏实例（默认 ap 引擎与默认角色答案）。
+     * 直接创建并持久化一个游戏实例，并应用所选引擎模块提供的默认字段。
      * @param gameId 游戏标识
-     * @param request 世界与角色覆盖请求
+     * @param request 世界书选择、可选引擎及类型化字段覆盖值
      */
     @PostMapping("/games/{gameId}/initialize")
-    public GameInstanceResponse initializeGame(@PathVariable String gameId, @RequestBody InitializeWorldRequest request) {
+    public GameInstanceResponse initializeGame(@PathVariable String gameId, @RequestBody GameInitializationRequest request) {
         if (request == null || request.worldId() == null) throw new IllegalArgumentException("worldId is required");
-        var instance = instances.initialize(gameId, request, "ap", defaultAnswers(request));
+        var world = request.worldRequest();
+        var instance = instances.initializeWithDefaults(gameId, world, request.engineId(),
+                request.answers() == null ? Map.of() : request.answers());
         saves.save(instance);
         return GameInstanceResponse.from(instance);
     }
 
-    /** 从请求覆盖字段构建默认角色答案，缺失时使用内置默认值。 */
-    /** @param request 初始化请求 */
-    private static Map<String, InitializationValue> defaultAnswers(InitializeWorldRequest request) {
-        Map<String, InitializationValue> answers = new HashMap<>();
-        answers.put("characterName", new InitializationValue.Text(request.characterName() == null ? "旅人" : request.characterName()));
-        answers.put("age", new InitializationValue.IntegerNumber(request.age() == null ? 16 : request.age()));
-        answers.put("gender", new InitializationValue.Text(request.gender() == null ? "未定" : request.gender()));
-        answers.put("archetype", new InitializationValue.Text(request.archetype() == null ? "swordsman" : request.archetype()));
-        answers.put("difficulty", new InitializationValue.Text(request.difficulty() == null ? "adventure" : request.difficulty()));
-        return answers;
+
+
+    /** 兼容直接建档入口的选择、共享世界覆盖和类型化字段请求。
+     * @param worldId 世界书稳定标识
+     * @param engineId 可空的可选规则引擎标识
+     * @param name 可空的世界名称覆盖值
+     * @param description 可空的世界描述覆盖值
+     * @param location 可空的开场地点文本
+     * @param region 可空的区域稳定标识
+     * @param time 可空的开场时间
+     * @param mainQuest 可空的开场主线方向
+     * @param originScene 可空的开场场景描述
+     * @param answers 调用方提供的类型化字段覆盖值
+     */
+    public record GameInitializationRequest(String worldId, String engineId, String name, String description,
+                                            String location, String region, String time,
+                                            String mainQuest, String originScene,
+                                            Map<String, InitializationValue> answers) {
+        /** 转换为只含世界书共享字段的初始化请求。
+         * @return 世界书共享字段请求
+         */
+        public InitializeWorldRequest worldRequest() {
+            return new InitializeWorldRequest(worldId, name, description, location, region,
+                    time, mainQuest, originScene);
+        }
     }
 }

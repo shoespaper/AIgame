@@ -21,7 +21,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GameInitializationSchemaTests {
     @Test
@@ -41,7 +40,7 @@ class GameInitializationSchemaTests {
     }
 
     @Test
-    void duplicateWorldAndEngineFieldIsRejected() {
+    void duplicateWorldAndEngineFieldUsesEngineDefinition() {
         WorldBook book = new WorldBook(new WorldDefinition("world", "1", "name", "desc", 1,
                 Map.of("town", List.of()), Map.of(), Map.of()),
                 new InitializationSchema(List.of(new InitializationField("name", "Name", InitializationField.ValueType.TEXT, true, List.of(), null, null, ""))));
@@ -49,9 +48,13 @@ class GameInitializationSchemaTests {
             @Override public List<WorldBook> available() { return List.of(book); }
             @Override public WorldBook worldBook(String worldId) { return book; }
         };
-        var engineField = new InitializationField("name", "Name", InitializationField.ValueType.TEXT, true, List.of(), null, null, "");
-        assertThrows(IllegalArgumentException.class, () -> new GameInitializationSchemaService(worlds, engineFactory(engineField))
-                .schema(new GameSelection("world", "engine")));
+        InitializationField engineField = new InitializationField("name", "Engine name", InitializationField.ValueType.INTEGER,
+                true, List.of(), 1L, 20L, "engine prompt");
+        GameInitializationSchemaService service = new GameInitializationSchemaService(worlds, engineFactory(engineField));
+        GameInitializationSchemaService.InitializationProfile profile = service.profile(new GameSelection("world", "engine"));
+        assertEquals("Engine name", profile.schema().fields().getFirst().label());
+        assertEquals(InitializationField.ValueType.INTEGER, profile.schema().fields().getFirst().type());
+        assertFalse(profile.worldSchema().fields().stream().anyMatch(field -> field.id().equals("name")));
     }
 
     @Test
@@ -81,6 +84,8 @@ class GameInitializationSchemaTests {
         return (id, world) -> new GameEngineRuntime<GameState, Object>() {
             @Override public String id() { return id; }
             @Override public String version() { return "1"; }
+            @Override public String initializationPrompt() { return "test engine setup prompt"; }
+            @Override public Map<String, InitializationValue> defaultInitializationAnswers() { return Map.of("dicePool", new InitializationValue.IntegerNumber(1)); }
             @Override public InitializationSchema initializationSchema() { return new InitializationSchema(List.of(field)); }
             @Override public GameState initialize(Map<String, InitializationValue> answers) { throw new UnsupportedOperationException(); }
             @Override public ActionValidation validate(GameState state, ActionIntent intent) { throw new UnsupportedOperationException(); }

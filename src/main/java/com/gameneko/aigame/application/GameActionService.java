@@ -185,7 +185,7 @@ public final class GameActionService {
             next.remove(remove.category());
             return new WorldState(world.worldId(), world.contentVersion(), world.revision(), world.setting(),
                     world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(),
-                    world.day(), world.time(), world.season(), world.weather(), world.flags(), world.threatLevel(),
+                    world.day(), world.time(), world.flags(), world.threatLevel(),
                     world.threatCounter(), world.threatInterval(), world.threatHistory(), world.timedEvents(),
                     world.incidentalEvents(), world.lastTickDay(), world.crisisTriggered(), world.mainPlotStage(),
                     world.mainPlotStages(), world.priceModifiers(), world.originScene(), world.deadlineEvents(),
@@ -216,7 +216,7 @@ public final class GameActionService {
             next.put(modifier.category(), modifier);
             return new WorldState(world.worldId(), world.contentVersion(), world.revision(), world.setting(),
                     world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(),
-                    world.day(), world.time(), world.season(), world.weather(), world.flags(), world.threatLevel(),
+                    world.day(), world.time(), world.flags(), world.threatLevel(),
                     world.threatCounter(), world.threatInterval(), world.threatHistory(), world.timedEvents(),
                     world.incidentalEvents(), world.lastTickDay(), world.crisisTriggered(), world.mainPlotStage(),
                     world.mainPlotStages(), world.priceModifiers(), world.originScene(), world.deadlineEvents(),
@@ -310,7 +310,7 @@ public final class GameActionService {
                                  long lastTick, boolean crisis, Map<PriceModifier.Category, PriceModifier> activePrices,
                                  WorldEffects activeEffects,
                                  List<TimedEvent> deadlines, List<WorldEvent> events) {
-        return new WorldState(world.worldId(), world.contentVersion(), revision, world.setting(), world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(), day, world.time(), world.season(), world.weather(), world.flags(), level, counter, world.threatInterval(), history, timed, incidental, lastTick, crisis, world.mainPlotStage(), world.mainPlotStages(), world.priceModifiers(), world.originScene(), deadlines, events, activePrices, activeEffects, world.visitedLocations());
+        return new WorldState(world.worldId(), world.contentVersion(), revision, world.setting(), world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(), day, world.time(), world.flags(), level, counter, world.threatInterval(), history, timed, incidental, lastTick, crisis, world.mainPlotStage(), world.mainPlotStages(), world.priceModifiers(), world.originScene(), deadlines, events, activePrices, activeEffects, world.visitedLocations());
     }
 
     /** 按价格分类合并修正值。

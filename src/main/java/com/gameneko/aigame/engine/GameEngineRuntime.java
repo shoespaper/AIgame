@@ -9,6 +9,16 @@ public interface GameEngineRuntime<S extends GameState, P> {
 
     String version();
 
+    /** 返回当前引擎专属的多轮开局访谈提示模板。
+     * @return 指导叙事模型收集引擎字段的系统提示
+     */
+    String initializationPrompt();
+
+    /** 返回可供兼容创建入口使用的引擎字段默认答案。
+     * @return 当前引擎拥有的默认初始化字段
+     */
+    Map<String, InitializationValue> defaultInitializationAnswers();
+
     InitializationSchema initializationSchema();
 
     S initialize(Map<String, InitializationValue> answers);

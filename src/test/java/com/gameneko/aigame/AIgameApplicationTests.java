@@ -53,6 +53,8 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.contentVersion").value("1.0"))
                 .andExpect(jsonPath("$.day").value(1))
                 .andExpect(jsonPath("$.time").value("黄昏"))
+                .andExpect(jsonPath("$.weather").doesNotExist())
+                .andExpect(jsonPath("$.season").doesNotExist())
                 .andExpect(jsonPath("$.currentRegion").value("forest"))
                 .andExpect(jsonPath("$.threatLevel").value("Dormant"));
     }
@@ -79,7 +81,7 @@ class AIgameApplicationTests {
     void savesAndLoadsWorldStateThroughApi() throws Exception {
         mockMvc.perform(post("/api/games/api-test/initialize")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"worldId\":\"isekai_grey\",\"region\":\"forest\"}"))
+                        .content("{\"worldId\":\"isekai_grey\",\"engineId\":\"ap\",\"region\":\"forest\"}"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/games/api-test/save")
@@ -127,7 +129,7 @@ class AIgameApplicationTests {
     void initializesAndPersistsCompleteGameInstance() throws Exception {
         mockMvc.perform(post("/api/games/instance-test/initialize")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"worldId\":\"isekai_grey\",\"region\":\"forest\"}"))
+                        .content("{\"worldId\":\"isekai_grey\",\"engineId\":\"ap\",\"region\":\"forest\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.gameId").value("instance-test"))
                 .andExpect(jsonPath("$.rulesetId").value("ap"))
@@ -150,7 +152,7 @@ class AIgameApplicationTests {
     void actionEndpointPersistsUpdatedRulesetStateForResume() throws Exception {
         mockMvc.perform(post("/api/games/action-api-test/initialize")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"worldId\":\"isekai_grey\",\"characterName\":\"Traveler\"}"))
+                        .content("{\"worldId\":\"isekai_grey\",\"engineId\":\"ap\",\"answers\":{\"characterName\":{\"type\":\"text\",\"value\":\"Traveler\"}}}"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/games/action-api-test/actions")
@@ -172,7 +174,7 @@ class AIgameApplicationTests {
     void experienceActionEndpointPersistsLevelUp() throws Exception {
         mockMvc.perform(post("/api/games/xp-api-test/initialize")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"worldId\":\"isekai_grey\"}"))
+                        .content("{\"worldId\":\"isekai_grey\",\"engineId\":\"ap\"}"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/games/xp-api-test/actions")
@@ -189,7 +191,7 @@ class AIgameApplicationTests {
     void phaseThreeActionsUseTypedPayloads() throws Exception {
         mockMvc.perform(post("/api/games/phase3-api-test/initialize")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"worldId\":\"isekai_grey\"}"))
+                        .content("{\"worldId\":\"isekai_grey\",\"engineId\":\"ap\"}"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/games/phase3-api-test/actions")

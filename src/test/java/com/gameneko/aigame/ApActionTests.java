@@ -176,7 +176,7 @@ class ApActionTests {
         var world = new com.gameneko.aigame.engine.WorldState(initial.worldState().worldId(), initial.worldState().contentVersion(),
                 0, initial.worldState().setting(), initial.worldState().settingDescription(), initial.worldState().location(),
                 initial.worldState().currentRegion(), initial.worldState().mainQuest(), initial.worldState().day(),
-                initial.worldState().time(), initial.worldState().season(), initial.worldState().weather(), initial.worldState().flags(),
+                initial.worldState().time(), initial.worldState().flags(),
                 initial.worldState().threatLevel(), 0, 1, initial.worldState().threatHistory(), initial.worldState().timedEvents(),
                 initial.worldState().incidentalEvents(), initial.worldState().lastTickDay(), false, initial.worldState().mainPlotStage(),
                 initial.worldState().mainPlotStages(), initial.worldState().priceModifiers(), initial.worldState().originScene(), initial.worldState().visitedLocations());

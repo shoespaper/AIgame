@@ -21,8 +21,6 @@ public record WorldInitializationResponse(
         String mainQuest,
         long day,
         String time,
-        String season,
-        String weather,
         Map<String, Boolean> flags,
         String threatLevel,
         long threatCounter,
@@ -45,7 +43,7 @@ public record WorldInitializationResponse(
         return new WorldInitializationResponse(
                 state.worldId(), state.contentVersion(), state.revision(),
                 state.setting(), state.settingDescription(), state.location(), state.currentRegion(),
-                state.mainQuest(), state.day(), state.time(), state.season(), state.weather(),
+                state.mainQuest(), state.day(), state.time(),
                 state.flags(), state.threatLevel(), state.threatCounter(), state.threatInterval(),
                 state.threatHistory(), state.timedEvents(), state.incidentalEvents(), state.lastTickDay(),
                 state.crisisTriggered(), state.mainPlotStage(), state.mainPlotStages(),

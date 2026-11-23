@@ -36,8 +36,6 @@ class WorldInitializationServiceTests {
         assertNull(state.location());
         assertNull(state.currentRegion());
         assertNull(state.mainQuest());
-        assertNull(state.season());
-        assertNull(state.weather());
         assertEquals(0, state.threatCounter());
         assertEquals(0, state.lastTickDay());
         assertEquals(0, state.mainPlotStage());
@@ -65,13 +63,11 @@ class WorldInitializationServiceTests {
     void appliesWorldOverridesWithoutInterpretingNarrativeTextAsEnums() {
         WorldState state = service.initialize(new InitializeWorldRequest("isekai_grey",
                 "灰烬界", "大陆", "幽篁古道", "forest",
-                "阴", "秋", "辰时", "寻找裂隙", "本地猎户"));
+                "辰时", "寻找裂隙", "本地猎户"));
         assertEquals("灰烬界", state.setting());
         assertEquals("大陆", state.settingDescription());
         assertEquals("幽篁古道", state.location());
         assertEquals("forest", state.currentRegion());
-        assertEquals("阴", state.weather());
-        assertEquals("秋", state.season());
         assertEquals("辰时", state.time());
         assertEquals("寻找裂隙", state.mainQuest());
         assertEquals("本地猎户", state.originScene());
@@ -81,6 +77,6 @@ class WorldInitializationServiceTests {
     @Test
     void rejectsUnknownRegionsInsteadOfAcceptingPlaceNamesAsRegionIds() {
         assertThrows(IllegalArgumentException.class, () -> service.initialize(new InitializeWorldRequest(
-                "isekai_grey", null, null, null, "幽篁古道", null, null, null, null, null)));
+                "isekai_grey", null, null, null, "幽篁古道", null, null, null)));
     }
 }

@@ -53,7 +53,7 @@ class NarrativeFeatureTests {
 
     private static NarrativeRequest request() {
         return new NarrativeRequest("test-game", 0, "观察四周", "zh-CN",
-                new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "dawn", "spring", "clear",
+                new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "dawn",
                         "村庄", "北境", "Low", List.of(), List.of(), List.of()), null, List.of()));
     }
 }

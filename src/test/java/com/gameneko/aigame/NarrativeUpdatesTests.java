@@ -1,6 +1,7 @@
 package com.gameneko.aigame;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.application.*;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
@@ -36,9 +37,9 @@ class NarrativeUpdatesTests {
         repository.save(initial);
         assertEquals(List.of("石桥镇"), initial.worldState().visitedLocations());
         var responses = new ArrayDeque<>(List.of(
-                response(Map.of("location", text("古堡"), "region", text("ruins"), "weather", text("雨"), "name", text("新世界"))),
+                response(Map.of("location", text("古堡"), "region", text("ruins"), "name", text("新世界"))),
                 response(Map.of("location", text("石桥镇"), "region", text("错误区域"), "time", text("黄昏"))),
-                response(Map.of("visitedLocations", text("古堡"), "weather", text("晴"), "mainQuest", text("寻找钥匙")))));
+                response(Map.of("visitedLocations", text("古堡"), "mainQuest", text("寻找钥匙")))));
         var service = service(repository, responses);
         var first = service.narrate("travel", 0, "去古堡", "zh-CN");
         assertEquals(1, first.instance().revision());
@@ -52,7 +53,6 @@ class NarrativeUpdatesTests {
         assertEquals("石桥镇", loaded.worldState().location());
         assertEquals("ruins", loaded.worldState().currentRegion());
         assertEquals("黄昏", loaded.worldState().time());
-        assertEquals("晴", loaded.worldState().weather());
         assertEquals("寻找钥匙", loaded.worldState().mainQuest());
         assertEquals(List.of("石桥镇", "古堡"), loaded.worldState().visitedLocations());
     }
@@ -65,7 +65,8 @@ class NarrativeUpdatesTests {
         repository.save(GameInstance.narrativeOnly("opening", world));
         var responses = new ArrayDeque<>(List.of(
                 response(Map.of("location", text("石桥镇"), "region", text("town"))),
-                response(Map.of("region", text("石桥镇"), "weather", new InitializationValue.Flag(true), "unknown", text("无效")))));
+                response(Map.of("region", text("石桥镇"), "weather", text("雨"), "season", text("冬"),
+                        "unknown", text("无效")))));
         var service = service(repository, responses);
         var opening = service.opening("opening", 0, "zh-CN");
         assertEquals(1, opening.instance().revision());
@@ -73,7 +74,7 @@ class NarrativeUpdatesTests {
         var turn = service.narrate("opening", 1, "观察", "zh-CN");
         assertEquals(opening.instance(), turn.instance());
         assertEquals("town", turn.instance().worldState().currentRegion());
-        assertNull(turn.instance().worldState().weather());
+        assertEquals(opening.instance().worldState(), turn.instance().worldState());
     }
 
     /** 验证引擎动作与世界更新共用一次 revision 和一次保存，错误动作不产生部分写入。 */
@@ -105,52 +106,106 @@ class NarrativeUpdatesTests {
         assertEquals(0, narrative.writes);
     }
 
-    /** 验证初始化由服务端选择问题，声明可一次多答和修改，非法枚举及类型独立忽略。 */
+    /** 验证引擎提示模板进入 AI 多轮上下文，由 updates 一次多答，并按缺失字段反馈推进。
+     * @throws Exception 提示捕获或服务响应失败
+     */
     @Test
-    void initializationCollectsAndOverwritesTypedUpdatesWithServerQuestions() {
-        var responses = new ArrayDeque<>(List.of(new NarrativeResponse("请确认资料。"),
+    void initializationUsesEnginePromptAndAiLedMultiturnCollection() throws Exception {
+        var prompts = new java.util.ArrayList<NarrativePrompt>();
+        var responses = new ArrayDeque<>(List.of(new NarrativeResponse("我们先聊聊你的角色。", null,
+                        List.of("从角色经历开始"), Map.of()),
                 response(Map.of("characterName", text("凯尔"), "age", text("十六"), "location", text("石桥镇"), "region", text("town"))),
                 response(Map.of("characterName", text("莉娅"), "age", new InitializationValue.IntegerNumber(16),
                         "archetype", text("mage"), "difficulty", text("invalid"), "region", text("invalid"))),
-                response(Map.of("difficulty", text("adventure"))),
-                response(Map.of("characterName", text("最终名"), "weather", text("晴")))));
-        var service = new InitializationNarrationService(prompt -> responses.removeFirst(),
+                response(Map.of("difficulty", text("adventure")))));
+        var service = new InitializationNarrationService(prompt -> { prompts.add(prompt); return responses.removeFirst(); },
                 new GameInitializationSchemaService(catalog, engines), catalog);
         var session = service.session("init", new GameSelection("isekai_grey", "ap"));
-        assertEquals("characterName", service.open(session).question().fieldId());
-        var name = service.answer(session, "凯尔，住在石桥镇");
-        assertEquals("age", name.question().fieldId());
-        assertFalse(name.collected().containsKey("age"));
-        var age = service.answer(session, "16岁，改名莉娅，法师");
-        assertEquals("difficulty", age.question().fieldId());
-        assertEquals("莉娅", age.collected().get("characterName"));
-        assertEquals("town", age.collected().get("region"));
-        assertEquals("mage", age.collected().get("archetype"));
-        assertFalse(age.collected().containsKey("difficulty"));
-        var supplement = service.answer(session, "冒险");
-        assertEquals("__world_supplement", supplement.question().fieldId());
-        assertFalse(supplement.done());
-        assertTrue(service.answer(session, "晴天，改名最终名").done());
-        assertEquals(text("最终名"), service.answers(session).get("characterName"));
+        var opening = service.open(session);
+        assertFalse(opening.done());
+        assertEquals(List.of("从角色经历开始"), opening.options());
+        assertTrue(prompts.getFirst().systemInstruction().contains("AP 规则游戏的开局访谈"));
+        assertTrue(prompts.getFirst().systemInstruction().contains("characterName（角色名字）"));
+        assertTrue(prompts.getFirst().systemInstruction().contains("difficulty（难度）"));
+        assertTrue(prompts.getFirst().systemInstruction().contains("archetype（职业"));
+
+        var first = service.answer(session, "我叫凯尔，十六岁，在石桥镇开始冒险");
+        assertFalse(first.done());
+        assertEquals("凯尔", first.collected().get("characterName"));
+        assertFalse(first.collected().containsKey("age"));
+        assertEquals("石桥镇", first.collected().get("location"));
+        assertTrue(prompts.get(1).systemInstruction().contains("age（年龄）"));
+        assertTrue(prompts.get(0).history().isEmpty());
+        assertEquals("我们先聊聊你的角色。", prompts.get(1).history().getFirst().text());
+
+        var second = service.answer(session, "改名莉娅，我是一位法师，普通难度");
+        assertFalse(second.done());
+        assertEquals("莉娅", second.collected().get("characterName"));
+        assertEquals(16L, second.collected().get("age"));
+        assertEquals("mage", second.collected().get("archetype"));
+        assertFalse(second.collected().containsKey("difficulty"));
+        assertEquals("town", second.collected().get("region"));
+
+        var ready = service.answer(session, "adventure");
+        assertTrue(ready.done());
+        assertTrue(prompts.get(3).systemInstruction().contains("difficulty：field_option_invalid"));
+        assertTrue(prompts.get(3).systemInstruction().contains("已收集字段"));
+        assertEquals("莉娅", ready.collected().get("characterName"));
         assertEquals("石桥镇", service.request(session).location());
-        assertEquals("晴", service.request(session).weather());
+        assertEquals("town", service.request(session).region());
+        assertEquals(text("adventure"), service.answers(session).get("difficulty"));
     }
 
-    /** 验证模型未声明字段时不猜测原文，非结构化补充仍进入开场场景。 */
+    /** 验证未选引擎时服务端使用纯叙事默认模板且只等待世界书必填字段。
+     * @throws Exception 提示捕获失败
+     */
     @Test
-    void missingDeclarationsKeepQuestionAndUnstructuredSupplementIsPreserved() {
-        var responses = new ArrayDeque<>(List.of(new NarrativeResponse("开始确认。"), new NarrativeResponse("收到。"),
-                response(Map.of("characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(16))),
-                new NarrativeResponse("已记下你的故事。")));
+    void narrativeOnlyInitializationUsesDefaultPromptAndWorldbookSchema() throws Exception {
+        var prompts = new java.util.ArrayList<NarrativePrompt>();
+        var responses = new ArrayDeque<>(List.of(new NarrativeResponse("告诉我角色名字和年龄。"),
+                response(Map.of("characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(19)))));
+        var service = new InitializationNarrationService(prompt -> { prompts.add(prompt); return responses.removeFirst(); },
+                new GameInitializationSchemaService(catalog, engines), catalog);
+        var session = service.session("story-init", new GameSelection("isekai_grey", null));
+        assertFalse(service.open(session).done());
+        assertTrue(prompts.getFirst().systemInstruction().contains("自然的多轮开局访谈"));
+        assertFalse(prompts.getFirst().systemInstruction().contains("AP 规则游戏"));
+        var ready = service.answer(session, "凯尔，十九岁");
+        assertTrue(ready.done());
+        assertEquals("凯尔", ready.collected().get("characterName"));
+        assertEquals(19L, ready.collected().get("age"));
+    }
+
+    /** 验证缺失必填字段时通过上下文继续访谈，AI 声明的补充场景写入世界请求。
+     */
+    @Test
+    void missingDeclarationsStayPendingAndAiCanDeclareOpeningScene() {
+        var responses = new ArrayDeque<>(List.of(new NarrativeResponse("我先了解角色信息。"),
+                new NarrativeResponse("还需要名字和年龄。"),
+                response(Map.of("characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(16),
+                        "originScene", text("我在寻找失散的家人")))));
         var service = new InitializationNarrationService(prompt -> responses.removeFirst(),
                 new GameInitializationSchemaService(catalog, engines), catalog);
         var session = service.session("fallback", new GameSelection("isekai_grey", null));
-        service.open(session);
-        assertEquals("characterName", service.answer(session, "凯尔").question().fieldId());
-        service.answer(session, "凯尔，16岁");
-        service.answer(session, "我在寻找失散的家人");
+        assertFalse(service.open(session).done());
+        assertFalse(service.answer(session, "我叫凯尔").done());
+        assertTrue(service.answer(session, "凯尔，16岁，我在寻找失散的家人").done());
         assertEquals("我在寻找失散的家人", service.request(session).originScene());
         assertTrue(service.ready(session));
+    }
+
+    /** 验证可选字段声明被拒绝时保留已满足的必填状态，且不阻止进入下一步。
+     */
+    @Test
+    void invalidOptionalFieldDoesNotBlockCompletedRequiredFields() {
+        var service = new InitializationNarrationService(prompt -> response(Map.of(
+                "characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(16),
+                "region", text("not-a-region"))), new GameInitializationSchemaService(catalog, engines), catalog);
+        var session = service.session("optional-error", new GameSelection("isekai_grey", null));
+        var turn = service.open(session);
+        assertTrue(turn.done());
+        assertEquals("凯尔", turn.collected().get("characterName"));
+        assertFalse(turn.collected().containsKey("region"));
     }
 
     /** 验证访问记录在世界复制、事件处理与价格修改后仍被保留，且旧 JSON 缺失该字段时可读取。 */
@@ -169,8 +224,12 @@ class NarrativeUpdatesTests {
         var removed = actions.applyWorldAction("copies", 1, new WorldAction.RemovePriceModifier(PriceModifier.Category.ALL));
         assertEquals(world.visitedLocations(), removed.worldState().visitedLocations());
         var json = mapper.valueToTree(world);
-        ((com.fasterxml.jackson.databind.node.ObjectNode) json).remove("visitedLocations");
+        ((ObjectNode) json).remove("visitedLocations");
+        ((ObjectNode) json).put("weather", "旧天气");
+        ((ObjectNode) json).put("season", "旧季节");
         assertEquals(List.of(), mapper.treeToValue(json, WorldState.class).visitedLocations());
+        assertFalse(mapper.valueToTree(mapper.treeToValue(json, WorldState.class)).has("weather"));
+        assertFalse(mapper.valueToTree(mapper.treeToValue(json, WorldState.class)).has("season"));
     }
 
     /** 验证声明数量与标识符边界在进入字段采纳之前被拒绝。 */
@@ -202,8 +261,7 @@ class NarrativeUpdatesTests {
      * @return 合法世界初始化请求
      */
     private static InitializeWorldRequest request(String location) {
-        return new InitializeWorldRequest("isekai_grey", null, null, location, "town", null, null, null, null,
-                null, "凯尔", 16, "未定", "swordsman", "adventure");
+        return new InitializeWorldRequest("isekai_grey", null, null, location, "town", null, null, null);
     }
 
     /** 构造带确定字段声明的有效叙事响应。

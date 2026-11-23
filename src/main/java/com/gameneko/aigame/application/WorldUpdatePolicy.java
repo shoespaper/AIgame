@@ -9,8 +9,8 @@ import java.util.Set;
 
 /** 在应用层限定可写的世界字段与模板区域枚举，不依赖具体引擎。 */
 final class WorldUpdatePolicy {
-    private static final Set<String> FIELDS = Set.of("name", "description", "location", "region", "weather",
-            "season", "time", "mainQuest", "originScene", "visitedLocations");
+    private static final Set<String> FIELDS = Set.of("name", "description", "location", "region",
+            "time", "mainQuest", "originScene", "visitedLocations");
 
     /** 禁止实例化无状态校验工具。 */
     private WorldUpdatePolicy() {}

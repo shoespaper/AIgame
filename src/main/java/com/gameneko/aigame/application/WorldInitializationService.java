@@ -29,14 +29,14 @@ public final class WorldInitializationService {
         return initialize(InitializeWorldRequest.defaults(worldId));
     }
 
-    /** 使用指定开场初始化世界。
-     * @param worldId 世界书标识
-     * @param originScene 开场场景，可空
+    /** 使用指定开场描述初始化世界。
+     * @param worldId 世界书稳定标识
+     * @param originScene 开场场景描述，可空
      * @return 世界初始状态
      */
     public WorldState initialize(String worldId, String originScene) {
         return initialize(new InitializeWorldRequest(worldId, null, null, null, null,
-                null, null, null, null, originScene, "旅人", 16, "未定", "swordsman", "adventure"));
+                null, null, originScene));
     }
 
     /** 将已确认请求转换为初始世界状态。
@@ -49,13 +49,10 @@ public final class WorldInitializationService {
         if (request.region() != null && !definition.regionMonsterTypes().containsKey(request.region())) {
             throw new IllegalArgumentException("Unknown region: " + request.region());
         }
-        String difficulty = request.difficulty() == null ? "adventure" : request.difficulty().toLowerCase().trim();
-        var difficultyDefinition = definition.difficulties().get(difficulty);
-        if (difficultyDefinition == null && !definition.difficulties().isEmpty()) throw new IllegalArgumentException("Unknown difficulty: " + difficulty);
         return new WorldState(definition.worldId(), definition.contentVersion(), 0,
                 request.name(), request.description(), request.location(), request.region(), request.mainQuest(),
-                1, request.time() == null ? "清晨" : request.time(), request.season(), request.weather(), Map.of(),
-                "Dormant", 0, difficultyDefinition == null ? definition.defaultThreatInterval() : difficultyDefinition.threatInterval(), List.of(), List.of(), List.of(),
+                1, request.time() == null ? "清晨" : request.time(), Map.of(),
+                "Dormant", 0, definition.defaultThreatInterval(), List.of(), List.of(), List.of(),
                 0, false, 0, List.of(), Map.of(), request.originScene() == null ? "" : request.originScene(),
                 request.location() == null || request.location().isBlank() ? List.of() : List.of(request.location()));
     }

@@ -43,7 +43,7 @@ public record NarrativeSnapshot(WorldView world, CharacterView character,
         return new NarrativeSnapshot(world, character, confirmedEvents, engineProjection, setting);
     }
 
-    public record WorldView(long day, String time, String season, String weather,
+    public record WorldView(long day, String time,
                             String location, String region, String threatLevel,
                             List<TimedEventView> deadlines, List<WorldEventView> recentEvents,
                             List<PriceView> prices) {

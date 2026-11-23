@@ -28,7 +28,7 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 | `POST` | `/api/games/{gameId}/save` | 按 `expectedRevision` 创建 checkpoint |
 | `POST` | `/api/games/{gameId}/actions` | 执行 AP 或世界动作 |
 | `POST` | `/api/games/{gameId}/actions/narrate` | 执行动作后基于确认事件生成叙事 |
-| `POST` | `/api/games/{gameId}/narration` | 基于当前存档生成叙事和提案候选 |
+| `POST` | `/api/games/{gameId}/narration` | 基于当前存档生成叙事并结算动作及字段声明 |
 | `POST` | `/api/games/{gameId}/narration/options` | 将所选 GM 意图交给引擎校验、结算并生成后续叙事 |
 | `POST` | `/api/games/{gameId}/narration/proposals` | 重新转换、校验并应用一个提案 |
 | `GET` | `/api/games/initialization/catalog` | 查询世界书和可选引擎目录 |
@@ -49,7 +49,7 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 }
 ```
 
-通用动作请求使用 `type`、`target` 和类型化 `arguments`，参数项形状为 `{ "name": "amount", "type": "integer", "integer": 20 }`（也可使用 `text`、`decimal` 或 `flag`）。叙事响应包含 `narration`、`options`、`initializationQuestions`、`parseCandidates`、`proposals` 和 `mediaRequests`。玩家选择选项时，将该选项与当前 `expectedRevision` 提交到 `/narration/options`。
+通用动作请求使用 `type`、`target` 和类型化 `arguments`，参数项形状为 `{ "name": "amount", "value": { "type": "integer", "value": 20 } }`（也可使用 `text`、`decimal` 或 `flag`）。GM 输出仅包含 `narration`、`action`、`options`、`updates`；`updates` 以字段名映射类型化确定值，无变化时为 `{}`。角色初始化由 AI 根据已收集内容和服务端提供的 schema/缺失必填字段逐轮访谈，Turn 返回 `narration`、`options`、`collected` 和 `done`。玩家点击建议选项时，将选项作为自由文本与当前 `expectedRevision` 提交到 `/api/games/{gameId}/narration`。详见 [初始化与 GM 输出协议](docs/INITIALIZATION_AI_REFACTOR.md)。
 
 ## 自定义世界与模板
 
@@ -70,7 +70,7 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 
 世界构建与角色初始化使用同一套 OpenAI 兼容模型配置。请在前端「设置」页启用模型并填写 API Key、Base URL 和模型名；配置保存在 `data/narrative-settings.json`，也可通过 `aigame.narrative.settings-file` 指定配置文件。未配置模型或请求失败时会显示明确错误，可保留当前会话重试。自动化测试使用模型桩，不依赖外部模型。
 
-AI 收到服务端生成的只读快照和确认事件，可以返回叙事文本、通用行动选项、解析候选、媒体请求以及规则提案。提案不会随叙事响应自动改变存档，必须在单独请求中重新转换并通过所选引擎验证；叙事仅依据确认事件和最新只读快照生成。
+AI 收到服务端生成的只读快照和确认事件，返回叙事正文、可空引擎动作、建议选项与确定字段声明。动作由选中引擎验证和结算；世界字段经应用层验证后合并。同轮动作和字段更新仅推进一次 revision 并保存一次，非法 region 独立忽略。
 
 ## 随机性
 

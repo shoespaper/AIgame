@@ -1,5 +1,7 @@
 package com.gameneko.aigame.engine;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.List;
 import java.util.Map;
 
@@ -14,8 +16,6 @@ import java.util.Map;
  * @param mainQuest 主线方向，可空
  * @param day 当前世界天数，以天为单位
  * @param time 当前时间描述，可空
- * @param season 当前季节描述，可空
- * @param weather 当前天气描述，可空
  * @param flags 世界布尔标记映射
  * @param threatLevel 当前威胁级别标识
  * @param threatCounter 威胁计数，单位为天
@@ -35,6 +35,7 @@ import java.util.Map;
  * @param activePriceModifiers 有效价格百分比映射，可空
  * @param activeEffects 世界持续效果，可空
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record WorldState(
         String worldId,
         String contentVersion,
@@ -46,8 +47,6 @@ public record WorldState(
         String mainQuest,
         long day,
         String time,
-        String season,
-        String weather,
         Map<String, Boolean> flags,
         String threatLevel,
         long threatCounter,
@@ -93,8 +92,6 @@ public record WorldState(
      * @param mainQuest 主线方向，可空
      * @param day 当前世界天数，以天为单位
      * @param time 当前时间描述，可空
-     * @param season 当前季节描述，可空
-     * @param weather 当前天气描述，可空
      * @param flags 世界布尔标记映射
      * @param threatLevel 当前威胁级别标识
      * @param threatCounter 威胁计数，单位为天
@@ -112,13 +109,13 @@ public record WorldState(
      */
     public WorldState(String worldId, String contentVersion, long revision, String setting,
                       String settingDescription, String location, String currentRegion, String mainQuest,
-                      long day, String time, String season, String weather, Map<String, Boolean> flags,
+                      long day, String time, Map<String, Boolean> flags,
                       String threatLevel, long threatCounter, long threatInterval, List<String> threatHistory,
                       List<String> timedEvents, List<String> incidentalEvents, long lastTickDay,
                       boolean crisisTriggered, int mainPlotStage, List<String> mainPlotStages,
                       Map<String, Integer> priceModifiers, String originScene, List<String> visitedLocations) {
         this(worldId, contentVersion, revision, setting, settingDescription, location, currentRegion, mainQuest,
-                day, time, season, weather, flags, threatLevel, threatCounter, threatInterval, threatHistory,
+                day, time, flags, threatLevel, threatCounter, threatInterval, threatHistory,
                 timedEvents, incidentalEvents, lastTickDay, crisisTriggered, mainPlotStage, mainPlotStages,
                 priceModifiers, originScene, List.of(), List.of(), Map.of(), WorldEffects.none(), visitedLocations);
     }
@@ -135,8 +132,7 @@ public record WorldState(
         return new WorldState(worldId, contentVersion, revision, updatedText(updates, "name", setting),
                 updatedText(updates, "description", settingDescription), nextLocation,
                 updatedText(updates, "region", currentRegion), updatedText(updates, "mainQuest", mainQuest),
-                day, updatedText(updates, "time", time), updatedText(updates, "season", season),
-                updatedText(updates, "weather", weather), flags, threatLevel, threatCounter, threatInterval,
+                day, updatedText(updates, "time", time), flags, threatLevel, threatCounter, threatInterval,
                 threatHistory, timedEvents, incidentalEvents, lastTickDay, crisisTriggered, mainPlotStage,
                 mainPlotStages, priceModifiers, updatedText(updates, "originScene", originScene),
                 deadlineEvents, worldEvents, activePriceModifiers, activeEffects, List.copyOf(visited));
@@ -168,7 +164,7 @@ public record WorldState(
      */
     public WorldState withRevision(long nextRevision) {
         return new WorldState(worldId, contentVersion, nextRevision, setting, settingDescription, location,
-                currentRegion, mainQuest, day, time, season, weather, flags, threatLevel, threatCounter,
+                currentRegion, mainQuest, day, time, flags, threatLevel, threatCounter,
                 threatInterval, threatHistory, timedEvents, incidentalEvents, lastTickDay, crisisTriggered,
                 mainPlotStage, mainPlotStages, priceModifiers, originScene, deadlineEvents, worldEvents,
                 activePriceModifiers, activeEffects, visitedLocations);
@@ -208,7 +204,7 @@ public record WorldState(
                                  Map<PriceModifier.Category, PriceModifier> nextPrices,
                                  WorldEffects effects) {
         return new WorldState(worldId, contentVersion, revision, setting, settingDescription, location, currentRegion,
-                mainQuest, day, time, season, weather, flags, threatLevel, threatCounter, threatInterval,
+                mainQuest, day, time, flags, threatLevel, threatCounter, threatInterval,
                 threatHistory, timedEvents, incidentalEvents, lastTickDay, crisisTriggered, mainPlotStage,
                 mainPlotStages, priceModifiers, originScene, nextDeadlines, nextEvents, nextPrices, effects, visitedLocations);
     }

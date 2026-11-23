@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/** Read-only projection of the static world book used by initialization and AP validation. */
+/** 保存世界书内容及可供规则引擎读取的模板机制数据。 */
 public record WorldDefinition(String worldId, String contentVersion, String nameHint,
                               String descriptionHint, long defaultThreatInterval,
                               Map<String, List<String>> regionMonsterTypes,
@@ -31,17 +31,41 @@ public record WorldDefinition(String worldId, String contentVersion, String name
         itemTemplates = itemTemplates == null ? Map.of() : Map.copyOf(itemTemplates);
     }
 
-    /** Initial fields declared by the world book; engine-specific fields are composed separately. */
+    /** 返回世界书拥有的共享角色字段和世界开场字段 schema。
+     * @return 世界书共享初始化字段定义
+     */
     public InitializationSchema initializationSchema() {
-        return new InitializationSchema(List.of(
+        var fields = new java.util.ArrayList<InitializationField>(List.of(
                 new InitializationField("characterName", "角色名字", InitializationField.ValueType.TEXT,
                         true, List.of(), null, null, "请输入主角名字"),
                 new InitializationField("age", "年龄", InitializationField.ValueType.INTEGER,
                         true, List.of(), 1L, 120L, "请输入主角年龄"),
-                // Gender is a common character field. "Undecided" remains valid for players
-                // who do not want to specify it during setup.
                 new InitializationField("gender", "性别", InitializationField.ValueType.TEXT,
-                        false, List.of(), null, null, "你的角色是男性还是女性？不想指定可以说「跳过」")));
+                        false, List.of(), null, null, "你的角色是什么性别？不想指定可以跳过"),
+                new InitializationField("name", "世界名称", InitializationField.ValueType.TEXT,
+                        false, List.of(), null, null, "这个世界叫什么名字？"),
+                new InitializationField("description", "世界描述", InitializationField.ValueType.TEXT,
+                        false, List.of(), null, null, "如何概括这个世界的背景？"),
+                new InitializationField("location", "开场地点", InitializationField.ValueType.TEXT,
+                        false, List.of(), null, null, "故事从哪里开始？"),
+                new InitializationField("region", "区域", InitializationField.ValueType.TEXT,
+                        false, regionMonsterTypes.keySet().stream().sorted().toList(), null, null, "开场地点属于哪个区域？"),
+                new InitializationField("time", "时间", InitializationField.ValueType.TEXT,
+                        false, List.of(), null, null, "故事从一天中的什么时候开始？"),
+                new InitializationField("mainQuest", "主线方向", InitializationField.ValueType.TEXT,
+                        false, List.of(), null, null, "角色目前有什么主要目标？"),
+                new InitializationField("originScene", "开场场景", InitializationField.ValueType.TEXT,
+                        false, List.of(), null, null, "还有什么开场设定想补充？")));
+        return new InitializationSchema(fields);
+    }
+
+    /** 返回世界书共享必填角色字段的兼容默认值。
+     * @return 类型化的世界书默认字段值
+     */
+    public Map<String, com.gameneko.aigame.engine.InitializationValue> defaultInitializationAnswers() {
+        return Map.of("characterName", new com.gameneko.aigame.engine.InitializationValue.Text("旅人"),
+                "age", new com.gameneko.aigame.engine.InitializationValue.IntegerNumber(16),
+                "gender", new com.gameneko.aigame.engine.InitializationValue.Text("未定"));
     }
 
     public WorldDefinition(String worldId, String contentVersion, String nameHint,

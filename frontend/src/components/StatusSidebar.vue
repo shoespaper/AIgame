@@ -133,10 +133,13 @@ function questStatusClass(statusKey: string): string {
           <details class="side-sub">
             <summary class="side-row">背包 <em v-if="inventory.length" class="side-count">{{ inventory.length }}</em></summary>
             <div class="sub-body">
+              <div class="sub-item money"><strong>存款 · 铜币</strong><span>×{{ character.resources.copper }}</span></div>
+              <div class="sub-item"><strong>口粮</strong><span>×{{ character.resources.rations }}</span></div>
+              <div class="sub-item"><strong>药水</strong><span>×{{ character.resources.potions }}</span></div>
               <template v-if="inventory.length">
                 <div v-for="item in inventory" :key="item.name" class="sub-item"><strong>{{ item.name }} · {{ item.typeLabel }}{{ item.damage ? ' · ' + item.damage : '' }}</strong><span>×{{ item.quantity }}</span></div>
               </template>
-              <p v-else class="side-empty">背包空空。</p>
+              <p v-else class="side-empty">暂无其他物品。</p>
             </div>
           </details>
         </template>

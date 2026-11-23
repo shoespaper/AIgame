@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/** 编排叙事与引擎结算，保持权威状态由服务端持有：action 为空时纯叙事，非空时经引擎校验并结算。 */
+/** 编排叙事与引擎结算，保持权威状态由服务端持有：世界声明与经引擎校验的动作共同结算一次。 */
 @Service
 public final class NarrativeApplicationService {
     private final GameRepository repository;
@@ -21,6 +21,12 @@ public final class NarrativeApplicationService {
     private final NarrationService narrationService;
     private final GameActionService gameActionService;
 
+    /** 装配叙事、内容读取及统一回合结算依赖。
+     * @param repository 游戏存档端口
+     * @param contentCatalog 世界书和模板目录
+     * @param narrationService 模型叙事服务
+     * @param gameActionService 动作及世界声明的统一结算服务
+     */
     public NarrativeApplicationService(GameRepository repository, ContentCatalog contentCatalog,
                                        NarrationService narrationService,
                                        GameActionService gameActionService) {
@@ -67,13 +73,13 @@ public final class NarrativeApplicationService {
         return settle(instance, response);
     }
 
-    /** 依据模型输出决定纯叙事还是引擎结算，并返回带候选与确认事件的回合。 */
+    /** 合并模型世界声明与可空引擎动作，返回最新权威实例和确认事件。 */
     /** @param instance 结算前的权威游戏实例 @param response 模型叙事响应 */
     private NarratedTurn settle(GameInstance<?> instance, NarrativeResponse response) {
-        if (response.action() == null) {
+        if (response.action() == null && response.updates().isEmpty()) {
             return new NarratedTurn(instance, response.narration(), response.options(), List.of());
         }
-        var applied = gameActionService.applyIntent(instance.gameId(), instance.revision(), response.action());
+        var applied = gameActionService.applyNarrativeTurn(instance.gameId(), instance.revision(), response.action(), response.updates());
         var confirmed = NarrativeSnapshotFactory.fromConfirmed(applied.instance(), applied.events(),
                 applied.worldEvents(), projection(applied.instance())).confirmedEvents();
         return new NarratedTurn(applied.instance(), response.narration(), response.options(), confirmed);
@@ -86,12 +92,17 @@ public final class NarrativeApplicationService {
     /** @param confirmedEvents 本次引擎与世界层确认事件 */
     public record NarratedTurn(GameInstance<?> instance, String narration, List<String> options,
                                List<com.gameneko.aigame.narrative.NarrativeSnapshot.ConfirmedEvent> confirmedEvents) {
+        /** 复制选项和确认事件，保持返回快照不可变。 */
         public NarratedTurn {
             options = List.copyOf(options);
             confirmedEvents = List.copyOf(confirmedEvents);
         }
     }
 
+    /** 读取权威存档并校验客户端修订号。
+     * @param gameId 游戏存档标识
+     * @param expectedRevision 客户端观察到的权威修订号
+     */
     private GameInstance<?> load(String gameId, long expectedRevision) {
         GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
         if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
@@ -105,11 +116,17 @@ public final class NarrativeApplicationService {
         return runtime == null ? List.of() : runtime.supportedActions();
     }
 
+    /** 获取实例选中的引擎运行时。
+     * @param instance 当前权威游戏实例
+     */
     private GameEngineRuntime<?, ?> runtimeFor(GameInstance<?> instance) {
         if (instance.rulesetId() == null) return null;
         return gameActionService.runtimeForNarration(instance, contentCatalog.world(instance.worldId()));
     }
 
+    /** 通过选中引擎生成只读投影，不读取具体引擎字段。
+     * @param instance 当前权威游戏实例
+     */
     @SuppressWarnings({"rawtypes", "unchecked"})
     private Object projection(GameInstance<?> instance) {
         if (instance.rulesetId() == null) return null;

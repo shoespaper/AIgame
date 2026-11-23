@@ -9,20 +9,18 @@ import com.gameneko.aigame.engine.InitializationField;
 import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.NarrativeInitializationQuestion;
-import com.gameneko.aigame.narrative.NarrativeParseCandidate;
 import com.gameneko.aigame.narrative.NarrativePrompt;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.narrative.NarrativeSnapshot;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 驱动初始化问答：由模型动态决定问什么与顺序，服务端负责选项补全、必填字段兜底与最终校验。 */
+/** 驱动初始化问答：由服务端 schema 决定问题与顺序，模型声明确定字段值，服务端执行类型和枚举校验。 */
 @Service
 public final class InitializationNarrationService {
     private static final String SUPPLEMENT_FIELD = "__world_supplement";
@@ -36,17 +34,14 @@ public final class InitializationNarrationService {
             "alchemist", "辅助定位，能调配药剂与投掷物支援队友");
     private static final String SYSTEM = """
             你是文字冒险游戏的 GM（主持人），正在与玩家对话做「开局确认」，而不是开始游戏叙事。
-            你的职责是与玩家对话，确认开局所需的信息，直到你觉得信息足够、可以开始游戏为止。
-            规则：
-            1. 一次只问一个字段。具体问题必须写在 initializationQuestions[0].prompt 里（例如问性别时 prompt 写「你的角色是男性还是女性？」）。
-               narration 只是承接上一句的自然短句（例如「好，格雷，十六岁——记下了。」），可以简短，但不要只写「再确认几件小事」
-               这类含糊的话，也不要把问题只写在 narration 里而让 prompt 留空。不要扮演游戏内的角色（如 NPC），不要描写世界观，不要推进剧情。
-            2. 枚举字段（职业、难度）：上下文的「待确认字段」里给出了合法值与说明，你必须从中挑选选项返回；提问时用一句话简要介绍各选项的区别。
-            3. 开放字段（名字、性别、年龄等）：可以给出 1-2 个简短建议填入 options，同时允许玩家自由填写。
-            4. 除了「待确认字段」列出的项，你还可以根据世界背景补充提问（比如玩家的身份、出身、开场地点、为何来冒险等），使用自定义的 fieldId；当你觉得信息已经足够，就停止提问（initializationQuestions 返回空数组）。
-            5. 玩家回答后用 parseCandidates 返回结构化解析（字段名来自字段表或世界字段），最终以服务端校验为准。
-            6. action 返回 null（初始化阶段不调用引擎）、options 返回空数组；只输出响应 JSON。
-            7. 控制输出体量：narration 不超过 60 个汉字；initializationQuestions 最多 1 项且 prompt 不超过 60 个汉字；options 最多 3 个且每个不超过 20 个汉字；parseCandidates 最多 6 项。
+            问题、顺序及选项由服务端 schema 决定，narration 仅自然承接本轮回答，不生成问题结构，不推进剧情。
+            把本轮玩家确认或修改的字段放进 updates，值使用 {"type":"text"|"integer"|"decimal"|"flag","value":...}。
+            已确认字段也允许修改，标量新值覆盖旧值；不要把尚未确认的建议当成玩家答案。
+            枚举字段（职业、难度）必须使用字段表里的稳定 id，例如 swordsman、adventure，不能用中文 label。
+            region 必须为 forest/plains/mountain/dungeon/swamp/ruins/cavern/town/corrupted_land/volcanic 之一，location 是具体地点的自由文本。
+            补充设定可声明 name/description/location/region/weather/season/time/mainQuest/originScene。
+            action 返回 null，options 返回空数组，无字段声明时 updates 输出 {}；只输出响应 JSON。
+            narration 不超过 60 个汉字，updates 最多 16 项。
             """;
 
     private final NarrativeProvider provider;
@@ -55,7 +50,7 @@ public final class InitializationNarrationService {
     private final GameEngineCatalog engines;
 
     /** 创建初始化叙事服务。
-     * @param provider 生成初始化话术和结构化候选的叙事提供器
+     * @param provider 生成初始化话术和确定字段值的叙事提供器
      * @param schemas 组合世界书与引擎字段的 schema 服务
      * @param content 读取世界书背景和世界字段约束的目录
      * @param engines 读取引擎显示名的目录
@@ -91,10 +86,10 @@ public final class InitializationNarrationService {
     /** 打开会话并生成 GM 开场白和第一问。 */
     /** @param session 待打开的初始化会话 */
     public Turn open(Session session) {
-        return respond(session, "", true);
+        return nextQuestion(session, ask(session, ""));
     }
 
-    /** 接收玩家回答，解析候选并推进到下一问或补充设定阶段。 */
+    /** 接收玩家回答，采纳字段声明并推进到下一问或补充设定阶段。 */
     /** @param session 当前初始化会话 @param input 玩家自然语言回答 */
     public Turn answer(Session session, String input) {
         if (session == null) throw new IllegalArgumentException("Initialization session is required");
@@ -102,35 +97,9 @@ public final class InitializationNarrationService {
         String answer = input.trim();
         if (session.stage == Stage.READY) return session.turn;
         if (session.stage == Stage.SUPPLEMENT) return answerSupplement(session, answer);
-        String currentFieldId = session.turn != null && session.turn.question() != null ? session.turn.question().fieldId() : null;
-        InitializationField currentField = fieldById(session, currentFieldId);
-        // 枚举字段的非法输入：友好重问，不交给模型，避免模型自由发挥或输出坏 JSON
-        if (currentField != null && !currentField.options().isEmpty() && !validOption(session, currentField, answer)) {
-            session.turn = new Turn("没有「" + answer + "」这种类别，请从下面的选项里重新选择。",
-                    questionFor(session, null, currentField), List.of(), collected(session), false);
-            return session.turn;
-        }
         NarrativeResponse response = ask(session, answer);
-        List<NarrativeParseCandidate> accepted = applyCandidates(session, response.parseCandidates(), false);
-        if (currentField != null && !session.values.containsKey(currentField.id())) applyDirectAnswer(session, currentField, answer);
-        // 开放问题（非 schema 字段）：把回答解析到世界字段，解析不了则并入开场场景
-        if (currentFieldId != null && currentField == null && !SUPPLEMENT_FIELD.equals(currentFieldId)) {
-            List<NarrativeParseCandidate> worldAccepted = applyCandidates(session, response.parseCandidates(), true);
-            if (worldAccepted.isEmpty()) {
-                session.worldValues.merge("originScene", new InitializationValue.Text(answer),
-                        (oldValue, newValue) -> new InitializationValue.Text(text(oldValue, "") + "\n" + text(newValue, "")));
-            } else {
-                accepted.addAll(worldAccepted);
-            }
-        }
-        if (missingRequired(session).isEmpty()) {
-            session.stage = Stage.SUPPLEMENT;
-            String narration = response.narration().isBlank() ? "基本资料已经确认。还有什么想补充的吗？" : response.narration();
-            session.turn = new Turn(narration + "\n还有什么想补充的吗？", new NarrativeInitializationQuestion(
-                    SUPPLEMENT_FIELD, "还有什么想补充的吗？可以描述开场地点、天气、季节或主线方向；没有的话请输入“没有”。", List.of()), accepted, collected(session), false);
-            return session.turn;
-        }
-        return nextQuestion(session, response, accepted, false);
+        applyUpdates(session, response.updates());
+        return nextQuestion(session, response);
     }
 
     /** 判断会话是否已完成补充并可 finalize。 */
@@ -151,7 +120,7 @@ public final class InitializationNarrationService {
                 text(session.values.get("gender"), "未定"), text(session.values.get("archetype"), "swordsman"), difficulty);
     }
 
-    /** 返回已通过服务端候选校验的引擎初始化答案。 */
+    /** 返回已通过服务端字段校验的引擎初始化答案。 */
     /** @param session 已完成的初始化会话 */
     public Map<String, InitializationValue> answers(Session session) {
         if (!ready(session)) throw new IllegalArgumentException("Initialization confirmation is required");
@@ -163,108 +132,85 @@ public final class InitializationNarrationService {
     private Turn answerSupplement(Session session, String answer) {
         if (answer.matches("(?i)没有|没有了|无|不用|no|none|确认|确定|就这样")) {
             session.stage = Stage.READY;
-            session.turn = new Turn("好的，开局资料已经确认。现在就开始你的故事。", null, List.of(), collected(session), true);
+            session.turn = new Turn("好的，开局资料已经确认。现在就开始你的故事。", null, collected(session), true);
             return session.turn;
         }
         NarrativeResponse response = ask(session, answer);
-        List<NarrativeParseCandidate> accepted = applyCandidates(session, response.parseCandidates(), true);
-        if (accepted.isEmpty()) {
+        boolean applied = applyUpdates(session, response.updates());
+        if (!applied) {
             session.worldValues.merge("originScene", new InitializationValue.Text(answer), (oldValue, newValue) -> new InitializationValue.Text(text(oldValue, "") + "\n" + text(newValue, "")));
         }
         session.stage = Stage.READY;
-        session.turn = new Turn(response.narration().isBlank() ? "已记录你的补充。好的，开局资料已经确认。" : response.narration() + "\n好的，开局资料已经确认。", null, accepted, collected(session), true);
+        session.turn = new Turn(response.narration().isBlank() ? "已记录你的补充。好的，开局资料已经确认。" : response.narration() + "\n好的，开局资料已经确认。", null, collected(session), true);
         return session.turn;
     }
 
-    /** 调用模型并将其输出规整为当前问题。 */
-    private Turn respond(Session session, String input, boolean opening) {
-        NarrativeResponse response = ask(session, input);
-        return nextQuestion(session, response, List.of(), opening);
-    }
-
-    /** 以模型返回的问题为主推进；模型未给问题时按必填字段兜底。 */
-    private Turn nextQuestion(Session session, NarrativeResponse response, List<NarrativeParseCandidate> candidates, boolean opening) {
-        NarrativeInitializationQuestion modelQuestion = response.initializationQuestions().isEmpty() ? null : response.initializationQuestions().getFirst();
-        String narration = response.narration();
-        if (modelQuestion != null && fieldById(session, modelQuestion.fieldId()) != null) {
-            InitializationField field = fieldById(session, modelQuestion.fieldId());
-            NarrativeInitializationQuestion question = questionFor(session, response, field);
-            if (narration.isBlank()) narration = opening ? "开始游戏前，我需要确认一些基本信息。" : question.prompt();
-            session.turn = new Turn(narration, question, candidates, collected(session), false);
-            return session.turn;
-        }
-        if (modelQuestion != null) {
-            if (narration.isBlank()) narration = "请继续。";
-            session.turn = new Turn(narration, modelQuestion, candidates, collected(session), false);
-            return session.turn;
-        }
+    /** 按 schema 必填字段顺序生成问题，字段齐备后进入开放补充阶段。
+     * @param session 当前初始化会话
+     * @param response 本轮模型话术及字段声明
+     * @return 服务端生成问题的回合
+     */
+    private Turn nextQuestion(Session session, NarrativeResponse response) {
         List<InitializationField> missing = missingRequired(session);
         if (missing.isEmpty()) {
             session.stage = Stage.SUPPLEMENT;
-            if (narration.isBlank()) narration = "基本资料已经确认。";
-            session.turn = new Turn(narration + "\n还有什么想补充的吗？",
-                    new NarrativeInitializationQuestion(SUPPLEMENT_FIELD, "还有什么想补充的吗？", List.of()), candidates, collected(session), false);
-            return session.turn;
+            session.turn = new Turn(response.narration().isBlank() ? "基本资料已经确认。" : response.narration(),
+                    new NarrativeInitializationQuestion(SUPPLEMENT_FIELD,
+                            "还有什么想补充的吗？可以描述开场地点、天气、季节或主线方向；没有的话请输入“没有”。", List.of()),
+                    collected(session), false);
+        } else {
+            InitializationField field = missing.getFirst();
+            session.turn = new Turn(response.narration().isBlank() ? field.prompt() : response.narration(),
+                    questionFor(session, field), collected(session), false);
         }
-        InitializationField field = missing.getFirst();
-        NarrativeInitializationQuestion question = questionFor(session, null, field);
-        if (narration.isBlank()) narration = field.prompt();
-        session.turn = new Turn(narration, question, candidates, collected(session), false);
         return session.turn;
     }
 
-    /** 调用叙事提供器，失败时向上抛出异常交由上层提示用户。 */
+    /** 调用叙事提供器，失败时向上抛出异常交由上层提示用户。
+     * @param session 当前初始化会话
+     * @param input 本轮玩家文本，开场为空字符串
+     */
     private NarrativeResponse ask(Session session, String input) {
         NarrativeResponse response = provider.respond(new NarrativePrompt(system(session, input), input, emptySnapshot(), "zh-CN"));
         validate(response);
         return response;
     }
 
-    /** 将模型候选逐个放入部分答案并执行字段级 schema 校验。 */
-    private List<NarrativeParseCandidate> applyCandidates(Session session, List<NarrativeParseCandidate> candidates, boolean worldOnly) {
-        List<NarrativeParseCandidate> accepted = new ArrayList<>();
-        if (candidates == null) return accepted;
-        for (NarrativeParseCandidate candidate : candidates.stream().limit(16).toList()) {
-            if (worldOnly) {
-                if (!WORLD_FIELDS.contains(candidate.fieldId()) || !validWorldValue(session, candidate)) continue;
-                session.worldValues.put(candidate.fieldId(), candidate.value()); accepted.add(candidate); continue;
+    /** 校验并覆盖已声明的世界和 schema 字段，非法字段独立忽略。
+     * @param session 当前初始化会话
+     * @param updates GM 声明的类型化确定值
+     * @return 是否至少采纳一个字段
+     */
+    private boolean applyUpdates(Session session, Map<String, InitializationValue> updates) {
+        boolean applied = false;
+        for (var entry : updates.entrySet()) {
+            String id = entry.getKey();
+            InitializationValue value = entry.getValue();
+            if (WORLD_FIELDS.contains(id)) {
+                if (!(value instanceof InitializationValue.Text text)) continue;
+                if ("region".equals(id) && !session.world.regionMonsterTypes().containsKey(text.value())) continue;
+                session.worldValues.put(id, value);
+                applied = true;
+                continue;
             }
-            InitializationField field = fieldById(session, candidate.fieldId());
-            if (field == null || session.values.containsKey(field.id())) continue;
-            InitializationValue value = normalizeValue(session, field, candidate.value());
+            InitializationField field = fieldById(session, id);
+            if (field == null) continue;
+            value = normalizeValue(session, field, value);
             if (value == null) continue;
-            var probe = new LinkedHashMap<>(session.values); probe.put(field.id(), value);
-            if (session.schema.validate(probe).errors().containsKey(field.id())) continue;
-            session.values.put(field.id(), value);
-            accepted.add(new NarrativeParseCandidate(field.id(), value, candidate.confidence()));
+            var probe = new LinkedHashMap<>(session.values);
+            probe.put(id, value);
+            if (session.schema.validate(probe).errors().containsKey(id)) continue;
+            session.values.put(id, value);
+            applied = true;
         }
-        return accepted;
+        return applied;
     }
 
-    /** 将选项点击或简单数值文本作为模型解析失败时的确定性兜底。 */
-    private void applyDirectAnswer(Session session, InitializationField field, String answer) {
-        InitializationValue value = directValue(session, field, answer);
-        if (value == null) return;
-        var probe = new LinkedHashMap<>(session.values); probe.put(field.id(), value);
-        if (!session.schema.validate(probe).errors().containsKey(field.id())) session.values.put(field.id(), value);
-    }
-
-    private InitializationValue directValue(Session session, InitializationField field, String answer) {
-        if (field.type() == InitializationField.ValueType.TEXT) {
-            String normalized = normalizeOption(session, field, answer);
-            if (!field.options().isEmpty() && !field.options().contains(normalized)) return null;
-            return new InitializationValue.Text(normalized);
-        }
-        try {
-            return switch (field.type()) {
-                case INTEGER -> new InitializationValue.IntegerNumber(Long.parseLong(answer));
-                case DECIMAL -> new InitializationValue.DecimalNumber(Double.parseDouble(answer));
-                case BOOLEAN -> new InitializationValue.Flag(Boolean.parseBoolean(answer));
-                case TEXT -> new InitializationValue.Text(answer);
-            };
-        } catch (NumberFormatException exception) { return null; }
-    }
-
+    /** 按 schema 规范化字段声明并拒绝非法枚举。
+     * @param session 当前初始化会话
+     * @param field 当前 schema 字段定义
+     * @param value 待转换或验证的字段值
+     */
     private InitializationValue normalizeValue(Session session, InitializationField field, InitializationValue value) {
         if (field.type() == InitializationField.ValueType.TEXT && value instanceof InitializationValue.Text text) {
             String normalized = normalizeOption(session, field, text.value());
@@ -274,6 +220,11 @@ public final class InitializationNarrationService {
         return value;
     }
 
+    /** 将稳定 id 或受支持的展示标签规范化为选项值。
+     * @param session 当前初始化会话
+     * @param field 当前 schema 字段定义
+     * @param raw 原始文本，可空
+     */
     private String normalizeOption(Session session, InitializationField field, String raw) {
         String value = raw == null ? "" : raw.trim();
         if (field.options().contains(value)) return value;
@@ -286,46 +237,50 @@ public final class InitializationNarrationService {
         return value;
     }
 
-    /** 判断玩家输入是否为当前枚举字段的合法值（含中文 label 映射）。 */
-    private boolean validOption(Session session, InitializationField field, String raw) {
-        return field.options().contains(normalizeOption(session, field, raw));
+    /** 使用 schema 提问文本与服务端枚举标签生成前端问题。
+     * @param session 当前初始化会话
+     * @param field 待确认的 schema 字段
+     * @return 完整问题与合法选项
+     */
+    private NarrativeInitializationQuestion questionFor(Session session, InitializationField field) {
+        List<String> options = field.options().stream().map(option -> optionLabel(session, field, option)).toList();
+        return new NarrativeInitializationQuestion(field.id(), field.prompt(), options);
     }
 
-    private NarrativeInitializationQuestion questionFor(Session session, NarrativeResponse response, InitializationField field) {
-        NarrativeInitializationQuestion modelQuestion = response == null ? null : response.initializationQuestions().stream()
-                .filter(question -> question.fieldId().equals(field.id())).findFirst().orElse(null);
-        List<String> options;
-        if (!field.options().isEmpty()) {
-            options = field.options().stream().map(option -> optionLabel(session, field, option)).toList();
-        } else {
-            options = modelQuestion == null ? List.of() : modelQuestion.options().stream().filter(option -> option != null && !option.isBlank()).limit(3).toList();
-        }
-        String prompt = modelQuestion == null || modelQuestion.prompt().isBlank() ? field.prompt() : modelQuestion.prompt();
-        return new NarrativeInitializationQuestion(field.id(), prompt, options);
-    }
-
+    /** 读取字段选项的中文展示标签。
+     * @param session 当前初始化会话
+     * @param field 当前 schema 字段定义
+     * @param option schema 中的稳定选项 id
+     */
     private String optionLabel(Session session, InitializationField field, String option) {
         if ("difficulty".equals(field.id()) && session.world.difficulties().containsKey(option)) return session.world.difficulties().get(option).label();
         return ARCHETYPE_LABELS.getOrDefault(option, option);
     }
 
+    /** 读取合法选项的说明供模型参考。
+     * @param session 当前初始化会话
+     * @param field 当前 schema 字段定义
+     * @param option schema 中的稳定选项 id
+     */
     private String optionDescription(Session session, InitializationField field, String option) {
         if ("difficulty".equals(field.id()) && session.world.difficulties().containsKey(option)) return session.world.difficulties().get(option).description();
         return ARCHETYPE_DESCRIPTIONS.getOrDefault(option, "");
     }
 
+    /** 在组合 schema 中查找字段，未知标识返回 null。
+     * @param session 当前初始化会话
+     * @param fieldId 待查字段稳定标识，可空
+     */
     private InitializationField fieldById(Session session, String fieldId) {
         if (fieldId == null) return null;
         return session.schema.fields().stream().filter(field -> field.id().equals(fieldId)).findFirst().orElse(null);
     }
 
+    /** 按 schema 顺序返回尚未确认的必填字段。
+     * @param session 当前初始化会话
+     */
     private List<InitializationField> missingRequired(Session session) {
         return session.schema.fields().stream().filter(field -> field.required() && !session.values.containsKey(field.id())).toList();
-    }
-
-    private boolean validWorldValue(Session session, NarrativeParseCandidate candidate) {
-        if (!(candidate.value() instanceof InitializationValue.Text text)) return false;
-        return !"region".equals(candidate.fieldId()) || session.world.regionMonsterTypes().containsKey(text.value());
     }
 
     /** 将已确认字段与完整世界书叙事设定组合成模型上下文。
@@ -358,14 +313,21 @@ public final class InitializationNarrationService {
                         .append(optionDescription(session, field, option)).append("\n");
             }
         }
+        builder.append("## 已确认世界字段\n").append(session.worldValues)
+                .append("\n## 当前服务端问题\n").append(session.turn == null ? missingRequired(session) : session.turn.question()).append('\n');
         builder.append("## 当前玩家输入\n").append(input == null ? "" : input);
         return builder.toString();
     }
 
+    /** 创建初始化阶段不含引擎状态的中立快照。
+     */
     private static NarrativeSnapshot emptySnapshot() {
         return new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null, null, null, "Dormant", List.of(), List.of(), List.of()), null, List.of());
     }
 
+    /** 汇总类型化答案为前端可展示的普通值。
+     * @param session 当前初始化会话
+     */
     private static Map<String, Object> collected(Session session) {
         Map<String, Object> result = new LinkedHashMap<>();
         session.values.forEach((key, value) -> result.put(key, primitive(value)));
@@ -373,6 +335,9 @@ public final class InitializationNarrationService {
         return Map.copyOf(result);
     }
 
+    /** 将有限类型协议值展开为普通 JSON 值。
+     * @param value 待转换或验证的字段值
+     */
     private static Object primitive(InitializationValue value) {
         return switch (value) {
             case InitializationValue.Text text -> text.value();
@@ -382,12 +347,23 @@ public final class InitializationNarrationService {
         };
     }
 
+    /** 提取非空白文本，否则返回默认值。
+     * @param value 待转换或验证的字段值
+     * @param fallback 字段缺失或类型不符时的默认值
+     */
     private static String text(InitializationValue value, String fallback) { return value instanceof InitializationValue.Text text && !text.value().isBlank() ? text.value() : fallback; }
-    private static String text(Object value, String fallback) { return value instanceof InitializationValue.Text text && !text.value().isBlank() ? text.value() : fallback; }
+    /** 提取经过 schema 范围校验的整数答案。
+     * @param value 待转换或验证的字段值
+     * @param fallback 字段缺失或类型不符时的默认值
+     */
     private static int integer(InitializationValue value, int fallback) { return value instanceof InitializationValue.IntegerNumber number ? (int) number.value() : fallback; }
 
+    /** 检查响应结构或动作与当前引擎约束的一致性。
+     * @param response 待检查的模型响应
+     */
     private static void validate(NarrativeResponse response) {
-        if (response == null || response.narration().length() > 6000 || response.initializationQuestions().size() > 1 || response.parseCandidates().size() > 16) throw new IllegalArgumentException("Invalid initialization narrative response");
+        if (response == null || response.narration().length() > 6000) throw new IllegalArgumentException("Invalid initialization narrative response");
+        response.validateUpdates();
     }
 
     /** 初始化会话的可变内存状态。 */
@@ -401,21 +377,36 @@ public final class InitializationNarrationService {
         private Stage stage = Stage.QUESTIONS;
         private Turn turn;
 
+        /** 创建尚未确认答案的初始化会话。
+         * @param id 会话唯一标识
+         * @param selection 世界书与可选引擎选择
+         * @param schema 组合后的初始化字段定义
+         * @param world 当前权威世界状态
+         */
         private Session(String id, GameSelection selection, InitializationSchema schema, WorldDefinition world) {
             this.id = id; this.selection = selection; this.schema = schema; this.world = world;
         }
+        /** 返回会话标识。
+         */
         public String id() { return id; }
+        /** 返回世界书与可选引擎选择。
+         */
         public GameSelection selection() { return selection; }
     }
 
     private enum Stage { QUESTIONS, SUPPLEMENT, READY }
 
-    /** 初始化接口返回的 GM 回合。 */
+    /** 初始化接口返回的 GM 回合。
+     * @param narration narration 对应的协议值
+     * @param question question 对应的协议值
+     * @param collected collected 对应的协议值
+     * @param done done 对应的协议值
+     */
     public record Turn(String narration, NarrativeInitializationQuestion question,
-                       List<NarrativeParseCandidate> parseCandidates, Map<String, Object> collected, boolean done) {
+                       Map<String, Object> collected, boolean done) {
+        /** 复制已确认答案并规范化缺失话术。 */
         public Turn {
             narration = narration == null ? "" : narration;
-            parseCandidates = parseCandidates == null ? List.of() : List.copyOf(parseCandidates);
             collected = collected == null ? Map.of() : Map.copyOf(collected);
         }
     }

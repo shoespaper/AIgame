@@ -46,7 +46,7 @@ public final class WorldInitializationService {
     public WorldState initialize(InitializeWorldRequest request) {
         Objects.requireNonNull(request, "request");
         WorldDefinition definition = contentCatalog.world(request.worldId());
-        if (request.region() != null && !definition.regionMonsterTypes().isEmpty() && !definition.regionMonsterTypes().containsKey(request.region())) {
+        if (request.region() != null && !definition.regionMonsterTypes().containsKey(request.region())) {
             throw new IllegalArgumentException("Unknown region: " + request.region());
         }
         String difficulty = request.difficulty() == null ? "adventure" : request.difficulty().toLowerCase().trim();
@@ -56,6 +56,7 @@ public final class WorldInitializationService {
                 request.name(), request.description(), request.location(), request.region(), request.mainQuest(),
                 1, request.time() == null ? "清晨" : request.time(), request.season(), request.weather(), Map.of(),
                 "Dormant", 0, difficultyDefinition == null ? definition.defaultThreatInterval() : difficultyDefinition.threatInterval(), List.of(), List.of(), List.of(),
-                0, false, 0, List.of(), Map.of(), request.originScene() == null ? "" : request.originScene());
+                0, false, 0, List.of(), Map.of(), request.originScene() == null ? "" : request.originScene(),
+                request.location() == null || request.location().isBlank() ? List.of() : List.of(request.location()));
     }
 }

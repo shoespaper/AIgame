@@ -179,7 +179,7 @@ class ApActionTests {
                 initial.worldState().time(), initial.worldState().season(), initial.worldState().weather(), initial.worldState().flags(),
                 initial.worldState().threatLevel(), 0, 1, initial.worldState().threatHistory(), initial.worldState().timedEvents(),
                 initial.worldState().incidentalEvents(), initial.worldState().lastTickDay(), false, initial.worldState().mainPlotStage(),
-                initial.worldState().mainPlotStages(), initial.worldState().priceModifiers(), initial.worldState().originScene());
+                initial.worldState().mainPlotStages(), initial.worldState().priceModifiers(), initial.worldState().originScene(), initial.worldState().visitedLocations());
         var prepared = new GameInstance<>(initial.gameId(), initial.worldId(), initial.contentVersion(), initial.rulesetId(),
                 initial.rulesetVersion(), initial.lifecycle(), 0, world, initial.rulesetState());
         repository.save(prepared);

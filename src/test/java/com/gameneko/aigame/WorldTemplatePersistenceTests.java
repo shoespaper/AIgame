@@ -7,8 +7,6 @@ import com.gameneko.aigame.content.*;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineCatalog;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
-import com.gameneko.aigame.narrative.NarrativeInitializationQuestion;
-import com.gameneko.aigame.narrative.NarrativeParseCandidate;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.persistence.FileTemplateRepository;
 import com.gameneko.aigame.persistence.FileWorldbookRepository;
@@ -54,7 +52,7 @@ class WorldTemplatePersistenceTests {
         assertTrue(reloaded.availableTemplates().stream().anyMatch(item -> item.id().equals("moon_template")));
         AtomicInteger calls = new AtomicInteger();
         var worldbuild = new WorldbuildNarrationService(prompt -> calls.incrementAndGet() == 1
-                ? response(null) : response("name", candidate("type", "异世界")), mapper, reloaded);
+                ? response() : response(update("type", "异世界")), mapper, reloaded);
         var session = worldbuild.session("reused", "moon_template");
         var reused = worldbuild.answer(session, "异世界");
         assertEquals("moon_template", reused.templateId());
@@ -151,23 +149,21 @@ class WorldTemplatePersistenceTests {
         return new GameCatalogController.WorldbookRequest(id, "测试", type, templateId, tone, "", List.of(), List.of(), List.of(), Map.of());
     }
 
-    /** 构造模型结构化候选。
+    /** 创建一个类型化确定字段声明。
      * @param field 世界构建字段标识
-     * @param value 文本值
-     * @return 类型化候选
+     * @param value 文本或 JSON 数组文本
+     * @return 字段和值的映射项
      */
-    private static NarrativeParseCandidate candidate(String field, String value) {
-        return new NarrativeParseCandidate(field, new InitializationValue.Text(value), 1);
+    private static Map.Entry<String, InitializationValue> update(String field, String value) {
+        return Map.entry(field, new InitializationValue.Text(value));
     }
 
-    /** 构造可选问题和候选组成的模型响应。
-     * @param field 问题字段，空值表示模型结束
-     * @param candidates 模型解析的候选
-     * @return 叙事模型响应
+    /** 创建只声明确定字段值的模型响应。
+     * @param updates 本轮确定字段值
+     * @return 不包含问题结构的叙事响应
      */
-    private static NarrativeResponse response(String field, NarrativeParseCandidate... candidates) {
-        return new NarrativeResponse("继续确认世界。", null, List.of(),
-                field == null ? List.of() : List.of(new NarrativeInitializationQuestion(field, "请确认" + field, List.of())),
-                List.of(candidates));
+    @SafeVarargs
+    private static NarrativeResponse response(Map.Entry<String, InitializationValue>... updates) {
+        return new NarrativeResponse("已记录。", null, List.of(), Map.ofEntries(updates));
     }
 }

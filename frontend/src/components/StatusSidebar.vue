@@ -86,6 +86,7 @@ function questStatusClass(statusKey: string): string {
       <summary class="side-title">世界信息</summary>
       <div class="side-body">
         <div class="kv-row"><span class="kv-key">地点</span><span class="kv-val">{{ locationLabel }}</span></div>
+        <div class="kv-row"><span class="kv-key">去过地点</span><span class="kv-val">{{ world.visitedLocations?.join('、') || '—' }}</span></div>
         <div class="kv-row"><span class="kv-key">时间</span><span class="kv-val">{{ timeLabel }}</span></div>
       </div>
     </details>

@@ -190,14 +190,14 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     }
 
     /**
-     * 将模型输出 DTO 转换为应用内部的叙事与引擎调用协议，并对可能缺失的数组字段做空值兜底。
+     * 将模型输出 DTO 转换为应用内部的叙事与引擎调用协议，并对缺失的集合字段做空值兜底。
      * @param wire 符合响应结构的模型响应 DTO
      */
     private static NarrativeResponse toResponse(WireResponse wire) {
         if (wire == null) throw new IllegalArgumentException("叙事响应为空");
         ActionIntent action = wire.action() == null ? null : new ActionIntent(wire.action().type(),
                 wire.action().target(), arguments(wire.action()));
-        return new NarrativeResponse(wire.narration(), action, wire.options(), wire.initializationQuestions(), wire.parseCandidates());
+        return new NarrativeResponse(wire.narration(), action, wire.options(), wire.updates());
     }
 
     /** 将意图中的参数数组转换为引擎中立参数，缺失时返回空列表。 */
@@ -235,8 +235,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     private record CompletionMessage(String content, String refusal) {}
     /** 结构化输出的根 DTO。 */
     record WireResponse(String narration, IntentWire action, List<String> options,
-                        List<NarrativeInitializationQuestion> initializationQuestions,
-                        List<NarrativeParseCandidate> parseCandidates) {}
+                        java.util.Map<String, com.gameneko.aigame.engine.InitializationValue> updates) {}
     /** 引擎中立的行动意图。 */
     private record IntentWire(String type, String target, List<ArgumentWire> arguments) {}
     /** 行动意图中的类型化参数。 */

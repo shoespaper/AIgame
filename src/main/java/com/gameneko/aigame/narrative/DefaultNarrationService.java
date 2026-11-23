@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 面向应用层的叙事服务，只接纳经结构校验的叙事结果，不接受任意状态补丁。 */
+/** 面向应用层的叙事服务，只接纳经结构校验的叙事结果，以有限类型声明世界字段变化。 */
 @Service
 public final class DefaultNarrationService implements NarrationService {
     /** 引擎无关的通用叙事规则；可用动作清单由应用层在调用时从引擎侧拼接，本提示词不枚举任何引擎动作。 */
@@ -24,7 +24,7 @@ public final class DefaultNarrationService implements NarrationService {
                继续用叙事承接即可，绝不能自己编造 action 类型。
             4. 每轮必须给出 3-4 个候选行动（options）：每个候选是一句简短的中文建议（不超过 12 个汉字），
                引导玩家下一步可以做什么；options 绝不能为空数组。
-            5. 不要替玩家做决定，不要推进剧情，不要复述规则数值。initializationQuestions、parseCandidates 均返回空数组。
+            5. 不要替玩家做决定，不要推进剧情，不要复述规则数值。当玩家行动造成世界参数变化或开局需要确定地点、区域时，用 updates 声明确定值；location 用自由文本，region 必须为 forest/plains/mountain/dungeon/swamp/ruins/cavern/town/corrupted_land/volcanic 之一。天气、季节、时间等变化也要声明，无变化时 updates 输出 {}。visitedLocations 可用 text 声明一个去过的地点，location 会自动累积到访问记录。
             只输出响应 JSON。
             """;
 
@@ -115,9 +115,7 @@ public final class DefaultNarrationService implements NarrationService {
         if (response.options().size() > 4 || response.options().stream().anyMatch(option -> option == null || option.isBlank() || option.length() > 12)) {
             throw new IllegalArgumentException("候选行动字段无效");
         }
-        if (response.initializationQuestions().size() > 12 || response.parseCandidates().size() > 16) {
-            throw new IllegalArgumentException("叙事响应条目数量超出限制");
-        }
+        response.validateUpdates();
         if (response.action() != null) validateAction(response.action(), engineActions);
     }
 

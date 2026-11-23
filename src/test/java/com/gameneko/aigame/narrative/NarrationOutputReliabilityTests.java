@@ -58,7 +58,7 @@ class NarrationOutputReliabilityTests {
         var provider = new OpenAiCompatibleNarrativeProvider(org.springframework.web.client.RestClient.create(),
                 new ObjectMapper(), "test-model");
         String valid = """
-                {"narration":"可以","action":null,"options":["继续前进"],"initializationQuestions":[],"parseCandidates":[]}
+                {"narration":"可以","action":null,"options":["继续前进"],"updates":{}}
                 """;
 
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> provider.readStrict(
@@ -66,6 +66,27 @@ class NarrationOutputReliabilityTests {
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> provider.readStrict("```json\n" + valid + "\n```"));
         assertThrows(Exception.class, () -> provider.readStrict(
                 valid.replace("\"narration\":\"可以\"", "\"narration\":\"可以\",\"narration\":\"重复\"")));
+    }
+
+    /** 验证更新对象支持全部四种类型，并拒绝未声明的类型标签。 */
+    @Test
+    void updatesDeserializeWithFourFiniteValueTypes() throws Exception {
+        var provider = new OpenAiCompatibleNarrativeProvider(org.springframework.web.client.RestClient.create(),
+                new ObjectMapper(), "test-model");
+        String json = """
+                {"narration":"已确认","action":null,"options":[],"updates":{
+                  "name":{"type":"text","value":"凯尔"},
+                  "age":{"type":"integer","value":16},
+                  "ratio":{"type":"decimal","value":1.5},
+                  "enabled":{"type":"flag","value":true}
+                }}
+                """;
+        var wire = provider.readStrict(json);
+        assertEquals(new InitializationValue.Text("凯尔"), wire.updates().get("name"));
+        assertEquals(new InitializationValue.IntegerNumber(16), wire.updates().get("age"));
+        assertEquals(new InitializationValue.DecimalNumber(1.5), wire.updates().get("ratio"));
+        assertEquals(new InitializationValue.Flag(true), wire.updates().get("enabled"));
+        assertThrows(Exception.class, () -> provider.readStrict(json.replace("\"flag\"", "\"array\"")));
     }
 
     /** 验证输出上限缺失或越界时收敛到允许区间，避免旧配置文件读出 0。 */
@@ -90,7 +111,7 @@ class NarrationOutputReliabilityTests {
                 {"choices":[{"message":{"content":"{\\"narration\\":\\"半句"},"finish_reason":"length"}],"usage":{"completion_tokens":256}}
                 """;
         String completed = """
-                {"choices":[{"message":{"content":"{\\"narration\\":\\"夜色降临。\\",\\"action\\":null,\\"options\\":[\\"继续前进\\"],\\"initializationQuestions\\":[],\\"parseCandidates\\":[]}"},"finish_reason":"stop"}],"usage":{"completion_tokens":120}}
+                {"choices":[{"message":{"content":"{\\"narration\\":\\"夜色降临。\\",\\"action\\":null,\\"options\\":[\\"继续前进\\"],\\"updates\\":{}}"},"finish_reason":"stop"}],"usage":{"completion_tokens":120}}
                 """;
         for (int expected : new int[]{256, 512}) {
             server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("https://model.test/chat/completions"))

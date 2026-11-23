@@ -16,21 +16,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 验证世界构建对话的 AI 候选驱动收集、枚举校验、列表合并、模板复用和失败重试。 */
+/** 验证世界构建对话的 AI 声明驱动收集、枚举校验、列表合并、模板复用和失败重试。 */
 class WorldbuildNarrationServiceTests {
     private final ObjectMapper mapper = new ObjectMapper();
     private final ClasspathContentCatalog catalog = new ClasspathContentCatalog(mapper, new DefaultResourceLoader());
 
-    /** 验证字段值由 AI 候选驱动，必填字段依次收集，非法枚举候选被服务端拒绝。 */
+    /** 验证字段值由 AI 声明驱动，必填字段依次收集，非法枚举声明被服务端拒绝。 */
     @Test
-    void requiredFieldsCollectedFromCandidatesAndEnumsValidated() {
+    void requiredFieldsCollectedFromUpdatesAndEnumsValidated() {
         var service = new WorldbuildNarrationService(prompt -> {
             String input = prompt.userInput();
-            if (input.contains("蒸汽")) return response("type", candidate("type", "蒸汽朋克"));
-            if (input.contains("异世界")) return response("name", candidate("type", "异世界"));
-            if (input.contains("群星")) return response("tone", candidate("name", "群星之城"));
-            if (input.contains("平衡")) return response(null, candidate("tone", "平衡"));
-            return response("type");
+            if (input.contains("蒸汽")) return response(update("type", "蒸汽朋克"));
+            if (input.contains("异世界")) return response(update("type", "异世界"));
+            if (input.contains("群星")) return response(update("name", "群星之城"));
+            if (input.contains("平衡")) return response(update("tone", "平衡"));
+            return response();
         }, mapper, catalog);
         var session = service.session("required", null);
         assertEquals("type", session.turn().question().fieldId());
@@ -43,10 +43,10 @@ class WorldbuildNarrationServiceTests {
         var type = service.answer(session, "异世界");
         assertEquals("isekai", type.collected().get("type"));
         assertEquals("isekai", type.templateId());
-        assertEquals("name", type.question().fieldId());
+        assertEquals("description_hint", type.question().fieldId());
 
         var name = service.answer(session, "群星之城");
-        assertEquals("tone", name.question().fieldId());
+        assertEquals("description_hint", name.question().fieldId());
 
         var done = service.answer(session, "平衡");
         assertTrue(done.done());
@@ -54,15 +54,15 @@ class WorldbuildNarrationServiceTests {
         assertNull(done.question());
     }
 
-    /** 验证模型可以动态提问并结构化合并多轮规则、势力与出身，非法候选不进入配置。 */
+    /** 验证模型可以按服务端顺序提问并结构化合并多轮规则、势力与出身，非法声明不进入配置。 */
     @Test
-    void dynamicQuestionsCollectStructuredListsAndIgnoreInvalidCandidates() {
-        var responses = new ArrayDeque<>(List.of(response("type"),
-                response("world_tropes", candidate("type", "异世界")),
-                response("factions", candidate("world_tropes", "[\"双月\",\"魔法有代价\"]"), candidate("tone", "invalid")),
-                response("name", candidate("factions", "[{\"type\":\"联盟\",\"desc_hint\":\"守护双月\"}]")),
-                response("tone", candidate("name", "群星之城"), candidate("world_tropes", "[\"魔法有代价\",\"潮汐变幻\"]"), candidate("origin_contexts", "[\"流亡者\"]")),
-                response(null, candidate("tone", "硬核"))));
+    void schemaQuestionsCollectStructuredListsAndIgnoreInvalidUpdates() {
+        var responses = new ArrayDeque<>(List.of(response(),
+                response(update("type", "异世界")),
+                response(update("world_tropes", "[\"双月\",\"魔法有代价\"]"), update("tone", "invalid")),
+                response(update("factions", "[{\"type\":\"联盟\",\"desc_hint\":\"守护双月\"}]")),
+                response(update("name", "群星之城"), update("world_tropes", "[\"魔法有代价\",\"潮汐变幻\"]"), update("origin_contexts", "[\"流亡者\"]")),
+                response(update("tone", "硬核"))));
         var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper, catalog);
         var session = service.session("lists", null);
         service.answer(session, "异世界");
@@ -84,8 +84,8 @@ class WorldbuildNarrationServiceTests {
         NarrativeProvider provider = prompt -> {
             int call = calls.incrementAndGet();
             if (call == 2) throw new NarrativeProviderException("暂时失败", true);
-            if (call == 1) return response("type");
-            return response("name", candidate("type", "奇幻"));
+            if (call == 1) return response();
+            return response(update("type", "奇幻"));
         };
         var service = new WorldbuildNarrationService(provider, mapper, catalog);
         var session = service.session("retry", null);
@@ -95,39 +95,37 @@ class WorldbuildNarrationServiceTests {
         assertEquals("", session.turn().templateId());
     }
 
-    /** 验证非法列表候选不会进入配置，玩家明确跳过（空数组候选）后可以继续。 */
+    /** 验证非法列表声明不会进入配置，玩家明确跳过（空数组声明）后可以继续。 */
     @Test
     void malformedFactionsAreRejectedAndCanBeSkipped() {
-        var responses = new ArrayDeque<>(List.of(response("type"),
-                response("factions", candidate("type", "赛博朋克")),
-                response("name", candidate("factions", "[{\"name\":\"错误结构\"}]")),
-                response("name", candidate("factions", "[]"))));
+        var responses = new ArrayDeque<>(List.of(response(),
+                response(update("type", "赛博朋克")),
+                response(update("factions", "[{\"name\":\"错误结构\"}]")),
+                response(update("factions", "[]"))));
         var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper, catalog);
         var session = service.session("invalid-lists", null);
         service.answer(session, "赛博朋克");
         var rejected = service.answer(session, "错误势力格式");
         assertFalse(rejected.collected().containsKey("factions"));
-        assertEquals("factions", rejected.question().fieldId());
+        assertEquals("description_hint", rejected.question().fieldId());
         assertEquals(List.of(), service.answer(session, "跳过").collected().get("factions"));
     }
 
-    /** 构造模型结构化候选。
+    /** 创建一个类型化确定字段声明。
      * @param field 世界构建字段标识
      * @param value 文本或 JSON 数组文本
-     * @return 类型化候选
+     * @return 字段和值的映射项
      */
-    private static NarrativeParseCandidate candidate(String field, String value) {
-        return new NarrativeParseCandidate(field, new InitializationValue.Text(value), 1);
+    private static Map.Entry<String, InitializationValue> update(String field, String value) {
+        return Map.entry(field, new InitializationValue.Text(value));
     }
 
-    /** 构造可选问题和候选组成的模型响应。
-     * @param field 问题字段，空值表示模型结束
-     * @param candidates 模型解析的候选
-     * @return 叙事模型响应
+    /** 创建只声明确定字段值的模型响应。
+     * @param updates 本轮确定字段值
+     * @return 不包含问题结构的叙事响应
      */
-    private static NarrativeResponse response(String field, NarrativeParseCandidate... candidates) {
-        return new NarrativeResponse("已记录。", null, List.of(),
-                field == null ? List.of() : List.of(new NarrativeInitializationQuestion(field, "请确认" + field, List.of())),
-                List.of(candidates));
+    @SafeVarargs
+    private static NarrativeResponse response(Map.Entry<String, InitializationValue>... updates) {
+        return new NarrativeResponse("已记录。", null, List.of(), Map.ofEntries(updates));
     }
 }

@@ -7,8 +7,6 @@ import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.engine.ActionIntent;
 import com.gameneko.aigame.engine.WorldState;
-import com.gameneko.aigame.narrative.NarrativeInitializationQuestion;
-import com.gameneko.aigame.narrative.NarrativeParseCandidate;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import org.junit.jupiter.api.Test;
 
@@ -42,22 +40,26 @@ class StageAProtocolTests {
     void noEngineInstanceHasNoRulesetIdentity() {
         var world = new WorldState("world", "v1", 0, "name", "desc", "town", "town", "", 1,
                 "morning", "spring", "clear", Map.of(), "Dormant", 0, 1, List.of(), List.of(), List.of(),
-                0, false, 0, List.of(), Map.of(), "");
+                0, false, 0, List.of(), Map.of(), "", java.util.List.of());
         var instance = GameInstance.narrativeOnly("game", world);
         assertNull(instance.rulesetId());
         assertNull(instance.rulesetVersion());
         assertNull(instance.rulesetState());
     }
 
+    /** 验证四字段协议仅携带叙事、动作、选项与类型化确定值。 */
     @Test
-    void protocolCarriesQuestionsFreeTextCandidatesAndAction() {
+    void protocolCarriesTypedUpdatesAndAction() throws Exception {
         var response = new NarrativeResponse("开始", new ActionIntent("rest", "", List.of()),
-                List.of("继续前行", "查看四周"),
-                List.of(new NarrativeInitializationQuestion("name", "名字？", List.of())),
-                List.of(new NarrativeParseCandidate("name", new InitializationValue.Text("小明"), 0.95)));
+                List.of("继续前行", "查看四周"), Map.of("name", new InitializationValue.Text("小明")));
         assertEquals("rest", response.action().type());
         assertEquals(2, response.options().size());
-        assertEquals(1, response.initializationQuestions().size());
-        assertEquals(0.95, response.parseCandidates().get(0).confidence());
+        assertEquals(new InitializationValue.Text("小明"), response.updates().get("name"));
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var json = mapper.readTree(mapper.writeValueAsString(response));
+        assertEquals(4, json.size());
+        assertEquals("text", json.path("updates").path("name").path("type").asText());
+        assertEquals(response, mapper.treeToValue(json, NarrativeResponse.class));
+        assertTrue(new NarrativeResponse("开始", null, null, null).updates().isEmpty());
     }
 }

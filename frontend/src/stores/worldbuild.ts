@@ -13,13 +13,11 @@ export interface WorldbuildMessage {
 export const useWorldbuildStore = defineStore('worldbuild', {
   state: () => ({ sessionId: '', turn: null as WorldbuildTurn | null, busy: false, history: [] as WorldbuildMessage[] }),
   actions: {
-    /** 建立世界构建会话，失败时保留已有对话。
-     * @param templateId 可空的优先复用模板标识
-     */
-    async start(templateId?: string) {
+    /** 建立世界构建会话，失败时保留已有对话。 */
+    async start() {
       this.busy = true
       try {
-        const session = await createWorldbuildSession(templateId)
+        const session = await createWorldbuildSession()
         this.sessionId = session.id
         this.turn = session.turn
         this.history = [{ id: 1, role: 'gm', text: session.turn.narration }]

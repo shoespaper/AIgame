@@ -1,4 +1,4 @@
-import type { JsonValue, WorldState } from '../api/types'
+import type { JsonValue } from '../api/types'
 
 /**
  * 规则状态在服务端以通用 JSON（engine-neutral）呈现；本模块集中负责「安全读取 + 中文标签映射」，
@@ -234,8 +234,8 @@ export function parseQuests(state: JsonMap | null): QuestView[] {
 }
 
 /** 从规则状态与世界状态解析规则状态面板。 */
-/** @param state 规则状态根对象 @param world 世界状态 @param rulesetId 规则集标识 */
-export function parseRules(state: JsonMap | null, world: WorldState, rulesetId: string | null): RulesView {
+/** @param state 规则状态根对象 @param rulesetId 规则集标识 */
+export function parseRules(state: JsonMap | null, rulesetId: string | null): RulesView {
   const talent = asMap(state?.uniqueTalent)
   const talentName = asStr(talent?.name)
   const talentAwakened = asBool(talent?.awakened)
@@ -250,9 +250,9 @@ export function parseRules(state: JsonMap | null, world: WorldState, rulesetId: 
   }).filter((text): text is string => text !== null)
   return {
     difficultyLabel: label(DIFFICULTY_LABELS, asStr(state?.difficulty)),
-    threatLabel: label(THREAT_LABELS, world.threatLevel),
-    threatCounter: world.threatCounter ?? 0,
-    threatInterval: world.threatInterval ?? 0,
+    threatLabel: Object.values(THREAT_LABELS)[asNum(asMap(state?.systems)?.threatStage)] ?? '沉寂',
+    threatCounter: asNum(asMap(state?.systems)?.threatDays),
+    threatInterval: asNum(state?.threatInterval),
     talentLabel: talentName ? `${talentName} · ${talentAwakened ? '已觉醒' : '未觉醒'}` : '无',
     effects,
     rulesetLabel: rulesetId ? rulesetId.toUpperCase() : '纯叙事',

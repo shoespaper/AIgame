@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 
 /** 根据世界书共享字段与可选引擎字段创建完整游戏实例。 */
 @Service
@@ -20,6 +21,14 @@ public final class GameInstanceService {
     private final WorldInitializationService worldInitializationService;
     private final ContentCatalog contentCatalog;
     private final GameEngineFactory gameEngineFactory;
+
+    private ConfirmedTemplateRegistry confirmedTemplates;
+
+    /** 接入开局确认时使用的注册目录。
+     * @param registry 持久化世界与引擎模板的目录
+     */
+    @Autowired
+    void configureTemplates(ConfirmedTemplateRegistry registry) { this.confirmedTemplates = registry; }
 
     @Autowired
     public GameInstanceService(WorldInitializationService worldInitializationService,
@@ -93,6 +102,10 @@ public final class GameInstanceService {
         }
         InitializationSchema.ValidationResult validation = validationSchema.validate(answers);
         if (!validation.accepted()) throw new IllegalArgumentException("Invalid initialization answers: " + validation.errors());
+        if (confirmedTemplates != null) {
+            confirmedTemplates.confirm(gameId, contentCatalog.worldBook(request.worldId()).narrative(), engineId);
+            if (runtime != null) runtime = gameEngineFactory.createForGame(engineId, definition, gameId);
+        }
         WorldState worldState = worldInitializationService.initialize(request);
         if (runtime == null) return GameInstance.narrativeOnly(gameId, worldState);
         GameState state = runtime.initialize(Map.copyOf(answers));

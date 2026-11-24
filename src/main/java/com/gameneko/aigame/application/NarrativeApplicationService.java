@@ -12,6 +12,8 @@ import com.gameneko.aigame.narrative.NarrationService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** 编排叙事与引擎结算，保持权威状态由服务端持有：世界声明与经引擎校验的动作共同结算一次。 */
 @Service
@@ -20,6 +22,14 @@ public final class NarrativeApplicationService {
     private final ContentCatalog contentCatalog;
     private final NarrationService narrationService;
     private final GameActionService gameActionService;
+
+    private ConfirmedTemplateRegistry templates;
+
+    /** 注入已注册素材目录。
+     * @param registry 开局确认后的模板目录
+     */
+    @Autowired
+    void configureTemplates(ConfirmedTemplateRegistry registry) { templates = registry; }
 
     /** 装配叙事、内容读取及统一回合结算依赖。
      * @param repository 游戏存档端口
@@ -54,7 +64,8 @@ public final class NarrativeApplicationService {
                                 List<NarrativeRequest.ConversationMessage> history) {
         GameInstance<?> instance = load(gameId, expectedRevision);
         var snapshot = NarrativeSnapshotFactory.from(instance, List.of(), instance.worldState().worldEvents(), projection(instance))
-                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative());
+                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
+                .withMaterials(templates == null ? null : templates.world(instance.gameId()));
         var response = narrationService.narrate(new NarrativeRequest(gameId, expectedRevision, playerInput, locale, snapshot, history),
                 supportedActions(instance));
         return settle(instance, response);
@@ -67,7 +78,8 @@ public final class NarrativeApplicationService {
     public NarratedTurn opening(String gameId, long revision, String locale) {
         GameInstance<?> instance = load(gameId, revision);
         var snapshot = NarrativeSnapshotFactory.from(instance, List.of(), instance.worldState().worldEvents(), projection(instance))
-                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative());
+                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
+                .withMaterials(templates == null ? null : templates.world(instance.gameId()));
         var response = narrationService.opening(new NarrativeRequest(gameId, revision, "", locale, snapshot),
                 supportedActions(instance));
         return settle(instance, response);

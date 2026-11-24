@@ -138,11 +138,7 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .custom-world-entry { margin-top: 18px; }
 .worldbuild-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .worldbuild-heading p { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
-.worldbuild-template-picker { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
-.worldbuild-template-picker label { flex-shrink: 0; color: var(--muted); font-size: 12px; }
-.worldbuild-template-picker select, .worldbuild-template-picker input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); padding: 9px 10px; font: inherit; font-size: 13px; }
-.worldbuild-heading + .worldbuild-template-picker + .onboarding-ready { margin: 0 0 12px; }
-@media (max-width: 640px) { .worldbuild-heading, .worldbuild-template-picker { flex-wrap: wrap; } .worldbuild-template-picker select { flex-basis: 65%; } .footer-actions { flex-wrap: wrap; } }
+@media (max-width: 640px) { .worldbuild-heading { flex-wrap: wrap; } .footer-actions { flex-wrap: wrap; } }
 .onboarding-composer { display: flex; gap: 8px; margin-top: 12px; }
 .onboarding-composer input { min-width: 0; }
 .onboarding-ready { margin: 15px 0 0; color: var(--teal); font-size: 13px; }

@@ -1,5 +1,8 @@
 package com.gameneko.aigame;
 
+import java.util.List;
+import com.gameneko.aigame.engine.ActionIntent;
+import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.application.GameActionService;
 import com.gameneko.aigame.application.GameInstanceService;
@@ -26,7 +29,7 @@ class ApActionTests {
     void typedActionsResolveWithoutMutatingTheOriginalState() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
 
         var resolution = runtime.resolve(initial, new ApRulesetRuntime.ConsumeRation());
 
@@ -39,7 +42,7 @@ class ApActionTests {
     void experienceActionPreservesOverflowAndSupportsMultipleLevels() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
 
         var resolution = runtime.resolve(initial, new ApRulesetRuntime.GrantExperience(350));
         var next = resolution.nextState();
@@ -55,7 +58,7 @@ class ApActionTests {
     void experienceActionRejectsZeroOrNegativeAmounts() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
 
         assertEquals(false, runtime.validate(initial, new ApRulesetRuntime.GrantExperience(0)).accepted());
         assertThrows(IllegalArgumentException.class,
@@ -66,27 +69,27 @@ class ApActionTests {
     void learnsCatalogAbilityOnlyWhenPrerequisitesAreMet() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
 
         var next = runtime.resolve(initial, new ApRulesetRuntime.LearnAbility("skill_offense"), 0,
-                catalog.world("isekai_grey")).nextState();
+                ApTemplateFixture.confirmed(catalog)).nextState();
 
         assertEquals(1, next.skills().size());
         assertEquals("skill_offense", next.skills().getFirst().id());
         assertThrows(IllegalArgumentException.class, () -> runtime.resolve(next,
-                new ApRulesetRuntime.LearnAbility("skill_offense"), 0, catalog.world("isekai_grey")));
+                new ApRulesetRuntime.LearnAbility("skill_offense"), 0, ApTemplateFixture.confirmed(catalog)));
     }
 
     @Test
     void equipsInventoryItemAndUsesPotionThroughTypedActions() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
         var equipped = runtime.resolve(initial, new ApRulesetRuntime.EquipItem("短剑", "weapon"), 0,
-                catalog.world("isekai_grey")).nextState();
+                ApTemplateFixture.confirmed(catalog)).nextState();
         var damaged = equipped.withVitality(10, equipped.spCurrent());
         var healed = runtime.resolve(damaged, new ApRulesetRuntime.UseItem("potion"), 0,
-                catalog.world("isekai_grey")).nextState();
+                ApTemplateFixture.confirmed(catalog)).nextState();
 
         assertEquals("短剑", equipped.equipment().weapon());
         assertEquals(20, healed.hpCurrent());
@@ -97,23 +100,23 @@ class ApActionTests {
     void questRewardIsClaimedOnceAndAddsResourcesAndExperience() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
         var next = runtime.resolve(initial, new ApRulesetRuntime.ClaimQuestReward("quest-1", 100, 5, 2, 1), 0,
-                catalog.world("isekai_grey")).nextState();
+                ApTemplateFixture.confirmed(catalog)).nextState();
 
         assertEquals(2, next.level());
         assertEquals(20, next.resources().copper());
         assertEquals(5, next.resources().rations());
         assertEquals(3, next.resources().potions());
         assertThrows(IllegalArgumentException.class, () -> runtime.resolve(next,
-                new ApRulesetRuntime.ClaimQuestReward("quest-1", 1, 0, 0, 0), 0, catalog.world("isekai_grey")));
+                new ApRulesetRuntime.ClaimQuestReward("quest-1", 1, 0, 0, 0), 0, ApTemplateFixture.confirmed(catalog)));
     }
 
     @Test
     void advanceDayAddsHungerWhenRationsAreMissing() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "hard"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "hard"), ApTemplateFixture.confirmed(catalog));
         var empty = initial.withResources(new ApRulesetRuntime.Resources(0, 0, 0));
 
         var resolution = runtime.resolve(empty, new ApRulesetRuntime.AdvanceDay());
@@ -125,7 +128,7 @@ class ApActionTests {
     void existingStatusEffectsExpireDuringDailySettlement() {
         var runtime = new ApRulesetRuntime();
         var initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
         var withStatus = initial.withStatusEffect(new ApRulesetRuntime.StatusEffect("中毒", 2, "HP -1"));
 
         var next = runtime.resolve(withStatus, new ApRulesetRuntime.AdvanceDay()).nextState();
@@ -173,22 +176,15 @@ class ApActionTests {
         };
         var instanceService = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
         var initial = instanceService.initialize("threat", InitializeWorldRequest.defaults("isekai_grey"), "ap", apAnswers());
-        var world = new com.gameneko.aigame.engine.WorldState(initial.worldState().worldId(), initial.worldState().contentVersion(),
-                0, initial.worldState().setting(), initial.worldState().settingDescription(), initial.worldState().location(),
-                initial.worldState().currentRegion(), initial.worldState().mainQuest(), initial.worldState().day(),
-                initial.worldState().time(), initial.worldState().flags(),
-                initial.worldState().threatLevel(), 0, 1, initial.worldState().threatHistory(), initial.worldState().timedEvents(),
-                initial.worldState().incidentalEvents(), initial.worldState().lastTickDay(), false, initial.worldState().mainPlotStage(),
-                initial.worldState().mainPlotStages(), initial.worldState().priceModifiers(), initial.worldState().originScene(), initial.worldState().visitedLocations());
-        var prepared = new GameInstance<>(initial.gameId(), initial.worldId(), initial.contentVersion(), initial.rulesetId(),
-                initial.rulesetVersion(), initial.lifecycle(), 0, world, initial.rulesetState());
-        repository.save(prepared);
-
-        @SuppressWarnings("unchecked") GameInstance<ApRulesetRuntime.ApState> updated = (GameInstance<ApRulesetRuntime.ApState>) (GameInstance<?>) new GameActionService(repository, catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory()).applyIntent("threat", 0, new com.gameneko.aigame.engine.ActionIntent("advance_day", "", java.util.List.of())).instance();
-
-        assertEquals("Low", updated.worldState().threatLevel());
-        assertEquals(0, updated.worldState().threatCounter());
-        assertEquals(1, updated.worldState().threatHistory().size());
+        repository.save(initial);
+        GameActionService actions = new GameActionService(repository, catalog, new ClasspathGameEngineFactory());
+        GameInstance<?> updated = initial;
+        for (int day = 0; day < 7; day++) {
+            updated = actions.applyIntent("threat", updated.revision(), new ActionIntent("advance_day", "", List.of())).instance();
+        }
+        ApRulesetRuntime.ApState state = (ApRulesetRuntime.ApState) updated.rulesetState();
+        assertEquals(1, state.systems().threatStage());
+        assertEquals(0, state.systems().threatDays());
     }
 
     @Test

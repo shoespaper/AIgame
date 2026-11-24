@@ -14,7 +14,6 @@ const step = ref(1)
 const customMode = ref(false)
 const worldChat = ref<HTMLElement | null>(null)
 const worldAnswer = ref('')
-const preferredTemplateId = ref('')
 const busy = ref(false)
 const error = ref('')
 const answer = ref('')
@@ -25,7 +24,7 @@ const selectedEngine = computed(() => catalog.value?.engines.find((engine) => en
 const customWorld = computed<WorldbookDraft>(() => {
   const values = worldbuild.turn?.collected || {}
   return {
-    name: String(values.name || ''), type: String(values.type || ''), templateId: worldbuild.turn?.templateId || '',
+    name: String(values.name || ''), type: String(values.type || ''), templateId: '',
     tone: 'balanced', descriptionHint: String(values.description_hint || ''),
     factions: Array.isArray(values.factions) ? values.factions as WorldbookDraft['factions'] : [],
     originContexts: Array.isArray(values.origin_contexts) ? values.origin_contexts as string[] : [],
@@ -86,10 +85,10 @@ function exitCustomWorld() {
   worldbuild.reset()
 }
 
-/** 使用选中的可复用模板开启全新的世界构建对话。 */
+/** 开启全新的世界构建对话。 */
 async function restartWorldbuild() {
   error.value = ''; worldAnswer.value = ''
-  try { await worldbuild.start(preferredTemplateId.value || undefined) }
+  try { await worldbuild.start() }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '无法开始世界构建对话。' }
 }
 
@@ -117,16 +116,6 @@ async function finishCustomWorld() {
     step.value = 2
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '无法进入规则选择。' }
   finally { busy.value = false }
-}
-
-/** 将结构化世界配置格式化为供玩家检查的文字。
- * @param value 配置中的枚举、文本或列表
- */
-function worldValueLabel(value: unknown): string {
-  if (Array.isArray(value)) return value.map((item) => typeof item === 'object' && item !== null
-    ? `${item.type}：${item.desc_hint}` : String(item)).join('；') || '未设置'
-  return ({ isekai: '异世界', cyberpunk: '赛博朋克', fantasy: '奇幻', cosmic_horror: '克苏鲁恐怖',
-    noir: '黑色电影', wasteland: '末日废土', light: '轻松', balanced: '平衡', hardcore: '硬核' } as Record<string, string>)[String(value)] || String(value || '未设置')
 }
 
 /** 进入角色初始化步骤并启动 GM 会话。 */
@@ -231,13 +220,7 @@ onMounted(() => { void loadCatalog() })
           <template v-if="customMode">
             <div class="worldbuild-heading"><div><div class="onboarding-label">和 GM 一起构建世界</div><p>用对话确认世界类型和背景，完成后进入规则选择。</p></div>
               <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="exitCustomWorld">返回世界书</button></div>
-            <div class="worldbuild-template-picker">
-              <label for="world-template">优先复用模板</label>
-              <select id="world-template" v-model="preferredTemplateId" :disabled="worldbuild.busy || busy"><option value="">按世界类型自动匹配</option><option v-for="template in catalog?.templates || []" :key="template.id" :value="template.id">{{ template.name }} · {{ worldValueLabel(template.type) }}</option></select>
-              <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="restartWorldbuild">重新构建</button>
-            </div>
-            <p v-if="worldbuild.turn?.templateName" class="onboarding-ready">已复用「{{ worldbuild.turn.templateName }}」模板</p>
-            <p v-else-if="worldbuild.turn && !worldbuild.turn.templateName" class="onboarding-empty">该类型暂无模板，已从空白世界设定开始。</p>
+            <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="restartWorldbuild">重新构建</button>
             <div ref="worldChat" class="onboarding-chat" aria-live="polite" :aria-busy="worldbuild.busy">
               <div v-for="message in worldbuild.history" :key="message.id" class="onboarding-message" :class="message.role">
                 <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span><p>{{ message.text }}</p>

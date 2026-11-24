@@ -76,11 +76,9 @@ export function narrate(gameId: string, expectedRevision: number, playerInput: s
   return request<NarrativeResponse>(`${gamePath(gameId)}/narration`, { method: 'POST', body: JSON.stringify({ expectedRevision, playerInput, locale: 'zh-CN', history: history.slice(-40) }) })
 }
 
-/** 创建世界构建 AI 会话。
- * @param templateId 可空的优先复用模板标识
- */
-export function createWorldbuildSession(templateId?: string): Promise<WorldbuildSession> {
-  return request('/initialization/worldbuild/sessions', { method: 'POST', body: JSON.stringify({ templateId }) })
+/** 创建世界构建 AI 会话。 */
+export function createWorldbuildSession(): Promise<WorldbuildSession> {
+  return request('/initialization/worldbuild/sessions', { method: 'POST' })
 }
 /** 回答世界构建 GM 问题。
  * @param id 世界构建会话标识

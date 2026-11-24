@@ -28,38 +28,29 @@ class WorldTemplatePersistenceTests {
     @TempDir Path temporary;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /** 验证完整规则骨架、词缀和创建默认配置经落盘、重启后仍然完整。 */
+    /** 验证世界素材与引擎注册提案经落盘、重启后仍然完整。 */
     @Test
     void savedTemplateSurvivesReloadAndInitializesAp() {
         var templateFiles = new FileTemplateRepository(mapper, temporary.resolve("templates"));
         var worldFiles = new FileWorldbookRepository(mapper, temporary.resolve("worldbooks"));
         var catalog = catalog(worldFiles, templateFiles);
         var api = new GameCatalogController(catalog, catalog, new ClasspathGameEngineCatalog(), worldFiles, templateFiles);
-        var saved = api.saveTemplate(new GameCatalogController.TemplateRequest("moon_template", "双月", "isekai", List.of("双月", "生存"),
-                "isekai", "hardcore", "双月之下的世界", List.of(Map.of("type", "联盟", "desc_hint", "守护者")),
-                List.of("流亡者"), List.of("魔法有代价")));
+        GameCatalogController.TemplateResponse saved = api.saveTemplate(new GameCatalogController.TemplateRequest(
+                "moon_template", "双月", "isekai", List.of("双月", "生存"), "isekai"));
         assertEquals("moon_template", saved.templateId());
         var reloaded = catalog(worldFiles, templateFiles);
         var base = catalog.template("isekai");
         var template = reloaded.template(saved.templateId());
-        assertEquals(base.monsters(), template.monsters());
-        assertEquals(base.difficulties(), template.difficulties());
-        assertEquals(base.abilities(), template.abilities());
-        assertEquals(base.modifierPool(), template.modifierPool());
-        assertFalse(template.modifierPool().isEmpty());
-        assertEquals(List.of("魔法有代价"), template.creationDefaults().get("world_tropes"));
-        assertEquals(7, template.npcTypes().size());
-        assertTrue(template.npcTypes().values().stream().allMatch(npc -> !npc.bondPool().isEmpty()));
-        assertTrue(template.regions().values().stream().allMatch(region -> !region.descriptionHint().isBlank()));
+        assertEquals(base.materials().path("monster_types"), template.materials().path("monster_types"));
+        assertEquals(base.registrations(), template.registrations());
         assertTrue(reloaded.availableTemplates().stream().anyMatch(item -> item.id().equals("moon_template")));
         AtomicInteger calls = new AtomicInteger();
         var worldbuild = new WorldbuildNarrationService(prompt -> calls.incrementAndGet() == 1
-                ? response() : response(update("type", "异世界")), mapper, reloaded);
-        var session = worldbuild.session("reused", "moon_template");
+                ? response() : response(update("type", "isekai")), mapper);
+        var session = worldbuild.session("reused");
         var reused = worldbuild.answer(session, "异世界");
-        assertEquals("moon_template", reused.templateId());
-        assertEquals(List.of("魔法有代价"), reused.collected().get("world_tropes"));
-        assertEquals(List.of("流亡者"), reused.collected().get("origin_contexts"));
+        assertFalse(reused.collected().containsKey("world_tropes"));
+        assertFalse(reused.collected().containsKey("origin_contexts"));
         assertFalse(reused.collected().containsKey("tone"));
         api.saveWorldbook(new GameCatalogController.WorldbookRequest("moon_world", "双月世界", "isekai", "moon_template", "hardcore",
                 "双月之下的世界", List.of(), List.of(), List.of("魔法有代价"), Map.of()));
@@ -69,7 +60,7 @@ class WorldTemplatePersistenceTests {
                         "characterName", new InitializationValue.Text("旅者"), "age", new InitializationValue.IntegerNumber(20),
                         "archetype", new InitializationValue.Text("mage"), "difficulty", new InitializationValue.Text("hard")));
         assertEquals("ap", instance.rulesetId());
-        assertEquals(template.difficulties().get("hard").startingCopper(),
+        assertEquals(5L,
                 assertInstanceOf(ApState.class, instance.rulesetState()).resources().copper());
         assertEquals("hardcore", fresh.worldBook("moon_world").tone());
     }
@@ -81,8 +72,7 @@ class WorldTemplatePersistenceTests {
         var worldFiles = new FileWorldbookRepository(mapper, temporary.resolve("worldbooks"));
         var catalog = catalog(worldFiles, templateFiles);
         var api = new GameCatalogController(catalog, catalog, new ClasspathGameEngineCatalog(), worldFiles, templateFiles);
-        api.saveTemplate(new GameCatalogController.TemplateRequest("neon", "霓虹", "cyberpunk", List.of("都市"), "", "balanced",
-                "巨型都市", List.of(), List.of(), List.of()));
+        api.saveTemplate(new GameCatalogController.TemplateRequest("neon", "霓虹", "cyberpunk", List.of("都市"), ""));
         api.saveWorldbook(new GameCatalogController.WorldbookRequest("neon_world", "霓虹城", "cyberpunk", "neon", "balanced",
                 "巨型都市", List.of(), List.of(), List.of(), Map.of()));
         var fresh = catalog(worldFiles, templateFiles);
@@ -107,6 +97,7 @@ class WorldTemplatePersistenceTests {
         assertThrows(IllegalArgumentException.class, () -> api.saveWorldbook(request("cinder_continent", "isekai", "isekai", "balanced")));
         assertThrows(IllegalArgumentException.class, () -> api.saveWorldbook(request("../escape", "isekai", "isekai", "balanced")));
         assertThrows(IllegalArgumentException.class, () -> api.saveWorldbook(request("bad_tone", "isekai", "isekai", "invalid")));
+        assertThrows(IllegalArgumentException.class, () -> api.saveWorldbook(request("bad_type_format", "Dying Gods", "", "balanced")));
         assertThrows(IllegalArgumentException.class, () -> api.saveWorldbook(request("bad_type", "noir", "isekai", "balanced")));
         assertThrows(WorldContentException.class, () -> api.saveWorldbook(request("missing", "isekai", "missing_template", "balanced")));
         assertThrows(WorldContentException.class, () -> catalog.template("../escape"));
@@ -114,21 +105,23 @@ class WorldTemplatePersistenceTests {
         assertTrue(worldFiles.available().isEmpty());
     }
 
-    /** 验证自定义世界书可编辑删除，内置世界书受保护。 */
+    /** 验证自定义类型可保存和修改，并检查内置世界书的保护。 */
     @Test
     void worldbooksCanBeEditedAndDeletedButBuiltinsAreProtected() {
         var templateFiles = new FileTemplateRepository(mapper, temporary.resolve("templates"));
         var worldFiles = new FileWorldbookRepository(mapper, temporary.resolve("worldbooks"));
         var catalog = catalog(worldFiles, templateFiles);
         var api = new GameCatalogController(catalog, catalog, new ClasspathGameEngineCatalog(), worldFiles, templateFiles);
-        api.saveWorldbook(new GameCatalogController.WorldbookRequest("custom_a", "测试世界", "isekai", "isekai", "balanced",
+        api.saveWorldbook(new GameCatalogController.WorldbookRequest("custom_a", "测试世界", "dying-gods-wasteland", "", "balanced",
                 "测试描述", List.of(), List.of(), List.of(), Map.of()));
+        assertEquals("dying-gods-wasteland", catalog.worldBook("custom_a").type());
         assertThrows(IllegalArgumentException.class, () -> api.deleteWorldbook("cinder_continent"));
         assertThrows(IllegalArgumentException.class, () -> api.updateWorldbook("cinder_continent",
                 new GameCatalogController.WorldbookRequest("cinder_continent", "改名", "isekai", "isekai", "balanced",
                         "", List.of(), List.of(), List.of(), Map.of())));
         assertEquals("custom_a", api.updateWorldbook("custom_a", new GameCatalogController.WorldbookRequest("custom_a",
-                "新名字", "isekai", "isekai", "hardcore", "新描述", List.of(), List.of(), List.of(), Map.of())).worldbookId());
+                "新名字", "dying-gods_wasteland", "", "hardcore", "新描述", List.of(), List.of(), List.of(), Map.of())).worldbookId());
+        assertEquals("dying-gods_wasteland", catalog.worldBook("custom_a").type());
         assertEquals("新名字", catalog.worldBook("custom_a").narrative().name());
         api.deleteWorldbook("custom_a");
         assertTrue(worldFiles.available().isEmpty());

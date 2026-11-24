@@ -9,7 +9,9 @@
         "id": "mist_forest",
         "name": "雾林",
         "description": "清晨浓雾遮蔽林间小路。",
-        "monster_ids": ["shadow_wolf"]
+        "monster_ids": [
+          "shadow_wolf"
+        ]
       }
     ],
     "npc_types": [
@@ -17,7 +19,11 @@
         "id": "frontier_guide",
         "name": "边境向导",
         "description": "熟悉林间小路，靠给旅人引路谋生。",
-        "engines": { "ap": { "template_id": "npc_guide" } }
+        "engines": {
+          "ap": {
+            "template_id": "npc_guide"
+          }
+        }
       }
     ],
     "monster_types": [
@@ -25,7 +31,11 @@
         "id": "shadow_wolf",
         "name": "影狼",
         "description": "常在薄雾中成群出没，喜欢尾随落单的旅人。",
-        "engines": { "ap": { "template_id": "monster_basic_beast" } }
+        "engines": {
+          "ap": {
+            "template_id": "monster_basic_beast"
+          }
+        }
       }
     ],
     "skill_types": [
@@ -34,7 +44,22 @@
         "name": "断潮斩",
         "category": "近战技",
         "description": "横向挥刀，刀势如断浪。",
-        "engines": { "ap": { "template_id": "skill_single_target_strike" } }
+        "engines": {
+          "ap": {
+            "template_id": "skill_single_target_strike"
+          }
+        }
+      },
+      {
+        "id": "steady_guard",
+        "name": "稳守",
+        "category": "防御技",
+        "description": "沉肩架刀，护住身前。",
+        "engines": {
+          "ap": {
+            "template_id": "skill_guard"
+          }
+        }
       }
     ],
     "spell_types": [
@@ -43,7 +68,11 @@
         "name": "回春微光",
         "category": "治疗法术",
         "description": "温暖的微光沿施法者双手汇聚。",
-        "engines": { "ap": { "template_id": "spell_self_heal" } }
+        "engines": {
+          "ap": {
+            "template_id": "spell_self_heal"
+          }
+        }
       }
     ],
     "talent_types": [
@@ -51,7 +80,11 @@
         "id": "fog_listener",
         "name": "听雾者",
         "description": "从小习惯在浓雾中辨听脚步与风声。",
-        "engines": { "ap": { "template_id": "talent_frontier_vitality" } }
+        "engines": {
+          "ap": {
+            "template_id": "talent_frontier_vitality"
+          }
+        }
       }
     ],
     "item_types": [
@@ -59,7 +92,11 @@
         "id": "herbal_draught",
         "name": "山草药剂",
         "description": "巡林人随身携带的苦味药水。",
-        "engines": { "ap": { "template_id": "item_healing_draught" } }
+        "engines": {
+          "ap": {
+            "template_id": "item_healing_draught"
+          }
+        }
       }
     ],
     "quest_templates": [
@@ -67,7 +104,11 @@
         "id": "lost_caravan",
         "name": "失踪的商队",
         "description": "村民请求旅人查明失联商队的下落。",
-        "engines": { "ap": { "template_id": "quest_exploration_reward" } }
+        "engines": {
+          "ap": {
+            "template_id": "quest_exploration_reward"
+          }
+        }
       }
     ],
     "event_templates": [
@@ -75,12 +116,25 @@
         "id": "caravan_arrival",
         "name": "商队抵达",
         "description": "一支带着谷物和新消息的商队抵达边境村落。",
-        "engines": { "ap": { "template_id": "event_supply_arrival" } }
+        "engines": {
+          "ap": {
+            "template_id": "event_supply_arrival"
+          }
+        }
       }
     ]
   },
   "engine_template_registrations": {
     "ap": [
+      {
+        "template_id": "skill_guard",
+        "entity_type": "skill",
+        "rule_type": "defend",
+        "parameters": {
+          "ap_cost": 2,
+          "guard": 4
+        }
+      },
       {
         "template_id": "npc_guide",
         "entity_type": "npc",
@@ -91,43 +145,71 @@
         "template_id": "monster_basic_beast",
         "entity_type": "monster",
         "rule_type": "basic_attack",
-        "parameters": { "max_hp": 12, "attack_power": 4 }
+        "parameters": {
+          "max_hp": 12,
+          "attack_power": 4
+        }
       },
       {
         "template_id": "skill_single_target_strike",
         "entity_type": "skill",
         "rule_type": "single_target_damage",
-        "parameters": { "ap_cost": 2, "power": 5 }
+        "parameters": {
+          "ap_cost": 2,
+          "power": 5
+        }
       },
       {
         "template_id": "spell_self_heal",
         "entity_type": "spell",
         "rule_type": "self_heal",
-        "parameters": { "ap_cost": 2, "sp_cost": 3, "healing": 4 }
+        "parameters": {
+          "ap_cost": 2,
+          "sp_cost": 3,
+          "healing": 4
+        }
       },
       {
         "template_id": "talent_frontier_vitality",
         "entity_type": "talent",
         "rule_type": "increase_max_hp",
-        "parameters": { "max_hp_bonus": 2 }
+        "parameters": {
+          "max_hp_bonus": 2
+        }
       },
       {
         "template_id": "item_healing_draught",
         "entity_type": "item",
         "rule_type": "restore_hp",
-        "parameters": { "healing": 5 }
+        "parameters": {
+          "healing": 5
+        }
       },
       {
         "template_id": "quest_exploration_reward",
         "entity_type": "quest",
         "rule_type": "grant_experience",
-        "parameters": { "experience": 10 }
+        "parameters": {
+          "experience": 10
+        }
       },
       {
         "template_id": "event_supply_arrival",
         "entity_type": "event",
         "rule_type": "grant_rations",
-        "parameters": { "rations": 1 }
+        "parameters": {
+          "rations": 1
+        }
+      },
+      {
+        "template_id": "spell_damage",
+        "entity_type": "spell",
+        "rule_type": "spell_damage",
+        "parameters": {
+          "ap_cost": 2,
+          "sp_cost": 3,
+          "power": 5
+        }
       }
     ]
   }

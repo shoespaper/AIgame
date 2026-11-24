@@ -75,8 +75,8 @@ class WorldInitializationServiceTests {
     }
 
     @Test
-    void rejectsUnknownRegionsInsteadOfAcceptingPlaceNamesAsRegionIds() {
-        assertThrows(IllegalArgumentException.class, () -> service.initialize(new InitializeWorldRequest(
-                "isekai_grey", null, null, null, "幽篁古道", null, null, null)));
+    void acceptsWorldRegionBeforeTemplateConfirmation() {
+        assertEquals("幽篁古道", service.initialize(new InitializeWorldRequest(
+                "isekai_grey", null, null, null, "幽篁古道", null, null, null)).currentRegion());
     }
 }

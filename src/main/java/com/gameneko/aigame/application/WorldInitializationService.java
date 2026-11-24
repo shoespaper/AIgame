@@ -46,9 +46,6 @@ public final class WorldInitializationService {
     public WorldState initialize(InitializeWorldRequest request) {
         Objects.requireNonNull(request, "request");
         WorldDefinition definition = contentCatalog.world(request.worldId());
-        if (request.region() != null && !definition.regionMonsterTypes().containsKey(request.region())) {
-            throw new IllegalArgumentException("Unknown region: " + request.region());
-        }
         return new WorldState(definition.worldId(), definition.contentVersion(), 0,
                 request.name(), request.description(), request.location(), request.region(), request.mainQuest(),
                 1, request.time() == null ? "清晨" : request.time(), Map.of(),

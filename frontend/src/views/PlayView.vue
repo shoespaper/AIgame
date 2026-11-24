@@ -39,7 +39,7 @@ watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void 
       </main>
       <aside class="status-column">
         <section v-if="state" class="status-panel character-panel"><div class="panel-heading compact-heading"><span class="panel-kicker">ENGINE STATE</span><h2>{{ game.game.rulesetId || '纯叙事' }}</h2><p>由所选引擎返回的只读状态。</p></div><pre class="engine-state">{{ formatState(state) }}</pre></section>
-        <section class="status-panel world-panel"><div class="panel-heading compact-heading"><span class="panel-kicker">WORLD STATE</span><h2>当前世界</h2></div><dl class="world-facts"><div><dt>位置</dt><dd>{{ world.location || '未指定' }}</dd></div><div><dt>区域</dt><dd>{{ world.currentRegion || '未指定' }}</dd></div><div><dt>威胁</dt><dd>{{ world.threatLevel }}</dd></div></dl><div class="quest-callout"><span>主线方向</span><strong>{{ world.mainQuest || '尚未确定' }}</strong></div><div v-if="world.originScene" class="origin-scene"><span>开场场景</span><p>{{ world.originScene }}</p></div></section>
+        <section class="status-panel world-panel"><div class="panel-heading compact-heading"><span class="panel-kicker">WORLD STATE</span><h2>当前世界</h2></div><dl class="world-facts"><div><dt>位置</dt><dd>{{ world.location || '未指定' }}</dd></div><div><dt>区域</dt><dd>{{ world.currentRegion || '未指定' }}</dd></div></dl><div class="quest-callout"><span>主线方向</span><strong>{{ world.mainQuest || '尚未确定' }}</strong></div><div v-if="world.originScene" class="origin-scene"><span>开场场景</span><p>{{ world.originScene }}</p></div></section>
       </aside>
     </div>
   </section>

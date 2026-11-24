@@ -8,7 +8,6 @@ export interface GameSelection { worldId: string; engineId: string | null }
 export interface GameCatalog {
   worlds: { id: string; version: string; name: string; description: string; type: string; templateId: string; editable: boolean }[]
   engines: { id: string; version: string; displayName: string }[]
-  templates: { id: string; type: string; name: string; tags: string[] }[]
 }
 export interface WorldbookDraft {
   id?: string
@@ -58,7 +57,5 @@ export interface WorldbuildTurn {
   options: string[]
   collected: Record<string, JsonValue>
   done: boolean
-  templateId: string
-  templateName: string
 }
 export interface WorldbuildSession { id: string; turn: WorldbuildTurn }

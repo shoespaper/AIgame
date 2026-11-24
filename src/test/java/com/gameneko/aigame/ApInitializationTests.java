@@ -18,7 +18,7 @@ class ApInitializationTests {
     @Test
     void initializesSwordsmanUsingPythonBaselineValues() {
         var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "阿尔文", 16, "男", "swordsman", "adventure"), catalog.world("isekai_grey"));
+                "阿尔文", 16, "男", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
 
         assertEquals(14, state.strength());
         assertEquals(12, state.constitution());
@@ -35,7 +35,7 @@ class ApInitializationTests {
     @Test
     void difficultyChangesOnlyInitialResourcesInCharacterState() {
         var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
-                "旅人", 16, "未定", "mage", "hard"), catalog.world("isekai_grey"));
+                "旅人", 16, "未定", "mage", "hard"), ApTemplateFixture.confirmed(catalog));
 
         assertEquals(16, state.intelligence());
         assertEquals(14, state.spMax());
@@ -46,10 +46,10 @@ class ApInitializationTests {
 
     @Test
     void worldCatalogExposesNamedAbilityDefinitionsForServerValidation() {
-        var world = catalog.world("isekai_grey");
+        var world = ApTemplateFixture.confirmed(catalog);
 
         assertEquals("skill", world.abilities().get("skill_offense").kind());
-        assertEquals(12, world.abilities().get("skill_offense").prerequisites().get("STR"));
-        assertEquals("spell", world.abilities().get("spell_light").kind());
+        assertEquals(2, world.abilities().get("skill_offense").apCost());
+        assertEquals("spell", world.abilities().get("spring_light").kind());
     }
 }

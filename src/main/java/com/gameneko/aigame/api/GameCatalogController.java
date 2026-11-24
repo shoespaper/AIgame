@@ -5,6 +5,7 @@ import com.gameneko.aigame.content.TemplateCatalog;
 import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.GameEngineCatalog;
+import com.gameneko.aigame.engine.GameEngineDescriptor;
 import com.gameneko.aigame.persistence.FileWorldbookRepository;
 import com.gameneko.aigame.persistence.FileTemplateRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /** 提供选世界书和引擎所需的静态目录，不暴露旧的表单 schema 接口。 */
 @RestController
@@ -53,8 +56,7 @@ public final class GameCatalogController {
         return new CatalogResponse(worlds.available().stream().map(book ->
                 new WorldChoice(book.id(), book.version(), book.definition().nameHint(), book.definition().descriptionHint(),
                         book.type(), book.templateId(), isEditable(book.id()))).toList(),
-                engines.available(), templates.availableTemplates().stream()
-                        .map(template -> new TemplateChoice(template.id(), template.type(), template.name(), template.tags())).toList());
+                engines.available());
     }
 
     /** 返回单个世界书的完整叙事内容供编辑。
@@ -143,7 +145,7 @@ public final class GameCatalogController {
     @PostMapping("/templates")
     public TemplateResponse saveTemplate(@RequestBody TemplateRequest request) {
         if (request == null) throw new IllegalArgumentException("Template is required");
-        validateConfiguration(request.type(), request.name(), request.tone());
+        validateIdentity(request.type(), request.name());
         WorldTemplate base = request.baseTemplateId() == null || request.baseTemplateId().isBlank()
                 ? WorldTemplate.empty(request.type(), request.name()) : templates.template(request.baseTemplateId());
         if (!base.type().equals(request.type())) throw new IllegalArgumentException("Template type mismatch");
@@ -151,28 +153,31 @@ public final class GameCatalogController {
         if (templates.availableTemplates().stream().anyMatch(template -> template.id().equals(id))) {
             throw new IllegalArgumentException("Template already exists: " + id);
         }
-        var defaults = new java.util.LinkedHashMap<String, Object>();
-        defaults.put("name", request.name().trim());
-        defaults.put("tone", request.tone());
-        defaults.put("description_hint", request.descriptionHint() == null ? "" : request.descriptionHint());
-        defaults.put("world_tropes", request.worldTropes() == null ? java.util.List.of() : request.worldTropes());
-        defaults.put("factions", request.factions() == null ? java.util.List.of() : request.factions());
-        defaults.put("origin_contexts", request.originContexts() == null ? java.util.List.of() : request.originContexts());
-        templateRepository.save(base.copyAs(id, request.type(), request.name().trim(), request.tags(), defaults));
+        templateRepository.save(base.copyAs(id, request.type(), request.name().trim(), request.tags()));
         return new TemplateResponse(id);
     }
 
-    /** 校验世界构建的必填字段和枚举。
+    /** 校验世界书的类型、名称与基调。
      * @param type 世界类型稳定标识
-     * @param name 世界或模板展示名
+     * @param name 世界书展示名
      * @param tone 故事基调稳定标识
      */
     private void validateConfiguration(String type, String name, String tone) {
-        if (!java.util.List.of("isekai", "cyberpunk", "fantasy", "cosmic_horror", "noir", "wasteland").contains(type == null ? "" : type)) {
-            throw new IllegalArgumentException("Invalid world type");
+        validateIdentity(type, name);
+        if (tone == null || !List.of("light", "balanced", "hardcore").contains(tone)) {
+            throw new IllegalArgumentException("Invalid story tone");
+        }
+    }
+
+    /** 校验世界书和模板共用的类型标识和展示名。
+     * @param type 世界类型稳定标识
+     * @param name 最长 200 字符的展示名
+     */
+    private void validateIdentity(String type, String name) {
+        if (!WorldbookDefinition.isValidTypeId(type)) {
+            throw new IllegalArgumentException("世界类型须以小写字母开头，使用小写字母、数字、下划线或连字符，共 2 至 64 个字符");
         }
         if (name == null || name.isBlank() || name.length() > 200) throw new IllegalArgumentException("World name is required (maximum 200 characters)");
-        if (!java.util.List.of("light", "balanced", "hardcore").contains(tone == null ? "" : tone)) throw new IllegalArgumentException("Invalid story tone");
     }
 
     /** 生成或校验新内容的安全标识。
@@ -190,11 +195,8 @@ public final class GameCatalogController {
     /** 目录响应。
      * @param worlds 可选世界书
      * @param engines 可选引擎
-     * @param templates 可复用模板
      */
-    public record CatalogResponse(java.util.List<WorldChoice> worlds,
-                                  java.util.List<com.gameneko.aigame.engine.GameEngineDescriptor> engines,
-                                  java.util.List<TemplateChoice> templates) {}
+    public record CatalogResponse(List<WorldChoice> worlds, List<GameEngineDescriptor> engines) {}
 
     /** 世界书的展示资料。
      * @param id 世界书标识
@@ -207,14 +209,6 @@ public final class GameCatalogController {
      */
     public record WorldChoice(String id, String version, String name, String description,
                               String type, String templateId, boolean editable) {}
-
-    /** 模板目录展示资料。
-     * @param id 模板标识
-     * @param type 世界类型
-     * @param name 展示名称
-     * @param tags 模板标签
-     */
-    public record TemplateChoice(String id, String type, String name, java.util.List<String> tags) {}
 
     /** 自定义世界书提交数据。
      * @param id 可选稳定标识
@@ -243,17 +237,9 @@ public final class GameCatalogController {
      * @param name 模板展示名称
      * @param type 世界类型
      * @param tags 模板标签
-     * @param baseTemplateId 复用的机制骨架模板标识
-     * @param tone 故事基调
-     * @param descriptionHint 可复用的背景默认值
-     * @param factions 可复用的势力默认值
-     * @param originContexts 可复用的出身默认值
-     * @param worldTropes 可复用的世界规则默认值
+     * @param baseTemplateId 可空的来源模板标识
      */
-    public record TemplateRequest(String id, String name, String type, java.util.List<String> tags,
-                                  String baseTemplateId, String tone, String descriptionHint,
-                                  java.util.List<java.util.Map<String, String>> factions,
-                                  java.util.List<String> originContexts, java.util.List<String> worldTropes) {}
+    public record TemplateRequest(String id, String name, String type, List<String> tags, String baseTemplateId) {}
 
     /** 模板保存响应。
      * @param templateId 新模板标识

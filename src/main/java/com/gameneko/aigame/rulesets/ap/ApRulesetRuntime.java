@@ -1,6 +1,8 @@
 package com.gameneko.aigame.rulesets.ap;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.gameneko.aigame.content.WorldDefinition;
+import com.gameneko.aigame.content.WorldDefinition.AbilityDefinition;
 import com.gameneko.aigame.content.WorldDefinition.DifficultyDefinition;
 import com.gameneko.aigame.engine.ActionValidation;
 import com.gameneko.aigame.engine.GameState;
@@ -26,7 +28,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             "alchemist", new Archetype(9, 10, 15, 9, 11, 13, "投石索", "+1", "工作围裙"));
     private static final Archetype DEFAULT = new Archetype(10, 10, 10, 10, 10, 10, "铁匕首", "+2", "旅行衫");
     private static final Map<String, DifficultyDefinition> DEFAULT_DIFFICULTIES = Map.of(
-            "adventure", new DifficultyDefinition(7, 15, 3, 2, "冒险", "AP 标准难度。"));
+            "story", new DifficultyDefinition(14, 50, 5, 3, 2, "叙事", "敌人很软，钱好赚，很少真的会死。用来讲故事。", 70, 70, 75, 50, 150, 130, 15),
+            "adventure", new DifficultyDefinition(7, 15, 3, 2, 0, "冒险", "标准难度。会受伤，会缺钱，走错一步可能就没了。", 100, 100, 100, 100, 100, 100, 0),
+            "hard", new DifficultyDefinition(5, 5, 2, 1, -1, "艰难", "敌人更硬更狠，战利品更少。每一场都要算。", 140, 130, 125, 130, 120, 80, -10),
+            "nightmare", new DifficultyDefinition(3, 0, 1, 0, -2, "噩梦", "敌人远超同阶。能活下来就是运气。", 200, 180, 150, 160, 150, 50, -20));
     private static final String[] THREAT_LEVELS = {"Dormant", "Low", "Moderate", "High", "Severe", "Crisis"};
 
     @Override public String id() { return "ap"; }
@@ -36,12 +41,11 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         return initialize(request, null);
     }
 
-    /** 返回 AP 可用难度，优先复用已绑定模板提供的难度配置。
-     * @param world 世界书与模板的合并内容，未提供时使用 AP 默认配置
+    /** 返回 AP 引擎拥有的难度配置。
      * @return 按难度标识索引的配置
      */
-    static Map<String, DifficultyDefinition> difficultyPresets(WorldDefinition world) {
-        return world == null || world.difficulties().isEmpty() ? DEFAULT_DIFFICULTIES : world.difficulties();
+    static Map<String, DifficultyDefinition> difficultyPresets() {
+        return DEFAULT_DIFFICULTIES;
     }
 
     /** 按职业和有效难度创建 AP 初始角色状态。
@@ -54,8 +58,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         String archetype = request.archetype() == null ? "swordsman" : request.archetype().toLowerCase().trim();
         Archetype preset = ARCHETYPES.getOrDefault(archetype, DEFAULT);
         String difficulty = request.difficulty() == null ? "adventure" : request.difficulty().toLowerCase().trim();
-        DifficultyDefinition diff = world == null
-                ? DEFAULT_DIFFICULTIES.get("adventure") : difficultyPresets(world).get(difficulty);
+        DifficultyDefinition diff = difficultyPresets().get(difficulty);
         if (diff == null) throw new IllegalArgumentException("Unknown difficulty: " + difficulty);
         int hp = 20 + preset.constitution();
         int sp = 6 + Math.floorDiv(preset.intelligence(), 2);
@@ -77,10 +80,12 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     public ActionValidation validate(ApState state, ApAction action, WorldDefinition world) {
         if (state == null || action == null) return ActionValidation.reject("State and action are required");
         if (state.hpCurrent() <= 0 && !(action instanceof SettleBattle)) return ActionValidation.reject("Character is not alive");
+        if (action instanceof SupplyEvent supply) return supply.rations() >= 0 ? ActionValidation.accept() : ActionValidation.reject("补给数量无效");
         if (action instanceof LearnAbility learn) {
-            if (world == null || !world.abilities().containsKey(learn.abilityId())) return ActionValidation.reject("Unknown ability");
+            AbilityDefinition definition = learn.definition() != null ? learn.definition() : world == null ? null : world.abilities().get(learn.abilityId());
+            if (definition == null) return ActionValidation.reject("Unknown ability");
             if (state.hasAbility(learn.abilityId())) return ActionValidation.reject("Ability already learned");
-            for (var requirement : world.abilities().get(learn.abilityId()).prerequisites().entrySet())
+            for (var requirement : definition.prerequisites().entrySet())
                 if (state.attribute(requirement.getKey()) < requirement.getValue()) return ActionValidation.reject("Prerequisite not met: " + requirement.getKey());
             return ActionValidation.accept();
         }
@@ -181,8 +186,11 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     public RulesetResolution<ApState, ApEvent> resolve(ApState state, ApAction action, int hpRecoveryBonus, WorldDefinition world) {
         ActionValidation validation = validate(state, action, world);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
+        if (action instanceof SupplyEvent supply) {
+            return result(state.withResources(state.resources().add(0, supply.rations(), 0)), new ApEvent("supply_event", supply.rations()));
+        }
         if (action instanceof LearnAbility learn) {
-            var definition = Objects.requireNonNull(world).abilities().get(learn.abilityId());
+            AbilityDefinition definition = learn.definition() != null ? learn.definition() : Objects.requireNonNull(world).abilities().get(learn.abilityId());
             Ability ability = new Ability(definition.id(), definition.kind(), definition.tier(), definition.apCost(), definition.spCost(), definition.power(), definition.name(), definition.effectHint(), definition.description(), definition.mechanic());
             ApState next = "spell".equals(definition.kind()) ? state.withSpellsAdd(ability) : state.withSkillsAdd(ability);
             return result(next, new ApEvent("learn_ability", 1));
@@ -271,6 +279,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     }
 
     private RulesetResolution<ApState, ApEvent> advanceDay(ApState state, int bonus) {
+        state = state.withSystems(state.systems().advanceThreat(difficultyPresets().get(state.difficulty()).threatInterval(), THREAT_LEVELS.length - 1));
         int hpRecovery = Math.max(0, state.hpMax() / 4 + bonus);
         int spRecovery = state.spMax() / 2;
         ApState next = state.withVitality(Math.min(state.hpMax(), state.hpCurrent() + hpRecovery), Math.min(state.spMax(), state.spCurrent() + spRecovery)).withStatusEffects(tickStatusEffects(state.statusEffects()));
@@ -356,7 +365,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         int ap = definition == null ? 4 : definition.actionPoints();
         int xp = definition == null ? 20 : definition.experienceRange().roll(random);
         int gold = definition == null ? random.nextInt(0, 9) : definition.lootCopperRange().roll(random);
-        DifficultyDefinition d = difficultyPresets(world).get(difficulty);
+        DifficultyDefinition d = difficultyPresets().get(difficulty);
         if (d != null) {
             hp = scale(hp, d.enemyHpMultiplierPercent()); power = scale(power, d.enemyPowerMultiplierPercent());
             mitigation = scale(mitigation, d.enemyMitigationMultiplierPercent()); ap = Math.max(1, scale(ap, d.enemyApMultiplierPercent()));
@@ -567,6 +576,17 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         public ApState { inventory = inventory == null ? List.of() : List.copyOf(inventory); statusEffects = statusEffects == null ? List.of() : List.copyOf(statusEffects); skills = skills == null ? List.of() : List.copyOf(skills); spells = spells == null ? List.of() : List.copyOf(spells); quests = quests == null ? List.of() : List.copyOf(quests); systems = systems == null ? ApSystems.empty() : systems; }
         public ApState(String characterName, int age, String gender, String archetype, String difficulty, int level, long xp, long xpToNext, int strength, int dexterity, int constitution, int intelligence, int wisdom, int charisma, int hpCurrent, int hpMax, int spCurrent, int spMax, List<Item> inventory, Equipment equipment, Resources resources, Talent uniqueTalent) { this(characterName, age, gender, archetype, difficulty, level, xp, xpToNext, strength, dexterity, constitution, intelligence, wisdom, charisma, hpCurrent, hpMax, spCurrent, spMax, inventory, equipment, resources, uniqueTalent, List.of(), List.of(), List.of(), List.of(), ApSystems.empty()); }
         public ApState(String characterName, int age, String gender, String archetype, String difficulty, int level, long xp, long xpToNext, int strength, int dexterity, int constitution, int intelligence, int wisdom, int charisma, int hpCurrent, int hpMax, int spCurrent, int spMax, List<Item> inventory, Equipment equipment, Resources resources, Talent uniqueTalent, List<StatusEffect> statusEffects) { this(characterName, age, gender, archetype, difficulty, level, xp, xpToNext, strength, dexterity, constitution, intelligence, wisdom, charisma, hpCurrent, hpMax, spCurrent, spMax, inventory, equipment, resources, uniqueTalent, statusEffects, List.of(), List.of(), List.of(), ApSystems.empty()); }
+        /** 应用天赋的初始生命上限加成。
+         * @param bonus 非负生命点数
+         */
+        public ApState withStartingHealthBonus(int bonus) {
+            return copy(hpCurrent + bonus, hpMax + bonus, spCurrent, spMax, inventory, equipment, resources,
+                    uniqueTalent, statusEffects, skills, spells, quests, systems);
+        }
+        /** 返回当前难度对应的威胁升级间隔，单位为游戏日。 */
+        @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+        public long getThreatInterval() { return difficultyPresets().get(difficulty).threatInterval(); }
+
         public ApState withVitality(int hp, int sp) { return copy(hp, hpMax, sp, spMax, inventory, equipment, resources, uniqueTalent, statusEffects, skills, spells, quests, systems); }
         public ApState withResources(Resources value) { return copy(hpCurrent, hpMax, spCurrent, spMax, inventory, equipment, value, uniqueTalent, statusEffects, skills, spells, quests, systems); }
         public ApState withStatusEffect(StatusEffect effect) { var next = new ArrayList<>(statusEffects); next.add(effect); return withStatusEffects(next); }
@@ -602,13 +622,23 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
      * Internal AP command model. TODO(C): remove once the AP rules implementation
      * is migrated behind a fully generic adapter; application/API code must use ActionIntent.
      */
-    public sealed interface ApAction permits Rest, ConsumeRation, UsePotion, AdvanceDay, GrantExperience, LearnAbility, EquipItem, UseItem, ClaimQuestReward, OfferQuest, AcceptQuest, ProgressQuest, CompleteQuest, FailQuest, RegisterNpc, InteractNpc, TickNpcs, RecordNpcLifeEvent, SetNpcStatus, AcquireItem, StartBattle, BattleAction, AdvanceBattleTurn, SettleBattle { String type(); }
+    public sealed interface ApAction permits SupplyEvent, Rest, ConsumeRation, UsePotion, AdvanceDay, GrantExperience, LearnAbility, EquipItem, UseItem, ClaimQuestReward, OfferQuest, AcceptQuest, ProgressQuest, CompleteQuest, FailQuest, RegisterNpc, InteractNpc, TickNpcs, RecordNpcLifeEvent, SetNpcStatus, AcquireItem, StartBattle, BattleAction, AdvanceBattleTurn, SettleBattle { String type(); }
+    /** 表示一次由已登记事件发放的补给。 */
+    public record SupplyEvent(int rations) implements ApAction {
+        /** 返回补给事件类型。 */
+        public String type() { return "supply_event"; }
+    }
     public record Rest() implements ApAction { public String type() { return "rest"; } }
     public record ConsumeRation() implements ApAction { public String type() { return "consume_ration"; } }
     public record UsePotion() implements ApAction { public String type() { return "use_potion"; } }
     public record AdvanceDay() implements ApAction { public String type() { return "advance_day"; } }
     public record GrantExperience(long amount) implements ApAction { public String type() { return "grant_experience"; } }
-    public record LearnAbility(String abilityId) implements ApAction { public String type() { return "learn_ability"; } }
+    public record LearnAbility(String abilityId, AbilityDefinition definition) implements ApAction {
+        /** 使用世界素材中登记的技能。
+         * @param abilityId 已登记的技能标识
+         */
+        public LearnAbility(String abilityId) { this(abilityId, null); }
+        public String type() { return "learn_ability"; } }
     public record EquipItem(String itemName, String slot) implements ApAction { public String type() { return "equip_item"; } }
     public record UseItem(String itemName) implements ApAction { public String type() { return "use_item"; } }
     public record ClaimQuestReward(String questId, long xp, long copper, long rations, long potions) implements ApAction { public String type() { return "claim_quest_reward"; } }

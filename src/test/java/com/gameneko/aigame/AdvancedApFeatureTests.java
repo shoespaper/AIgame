@@ -24,11 +24,11 @@ class AdvancedApFeatureTests {
 
     @Test
     void complexItemEffectsAreAppliedAndConsumed() {
-        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), catalog.world("isekai_grey"));
+        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
         var item = new ApRulesetRuntime.Item("tonic", "consumable", "", 1,
                 new ApItemEffect(7, 3, true, List.of(new ApItemEffect.StatusApplication("focus", 2, "")), 0, 0, 0), 5, 5);
         state = state.withInventory(List.of(item)).withVitality(10, 1).withStatusEffect(new ApRulesetRuntime.StatusEffect("poison", 2, "HP -1"));
-        var next = runtime.resolve(state, new ApRulesetRuntime.UseItem("tonic"), 0, catalog.world("isekai_grey")).nextState();
+        var next = runtime.resolve(state, new ApRulesetRuntime.UseItem("tonic"), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         assertEquals(17, next.hpCurrent());
         assertEquals(4, next.spCurrent());
         assertEquals(1, next.statusEffects().size());
@@ -38,46 +38,46 @@ class AdvancedApFeatureTests {
 
     @Test
     void questLifecycleRequiresObjectivesAndPaysOnce() {
-        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), catalog.world("isekai_grey"));
+        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
         var quest = new ApQuest("q1", "Clear", "", "forest", ApQuest.Status.AVAILABLE,
                 List.of(new ApQuest.Objective("wolves", "", 0, 2)), new ApQuest.Reward(50, 7, 1, 0), 1, 5, 0, "");
-        state = runtime.resolve(state, new ApRulesetRuntime.OfferQuest(quest), 0, catalog.world("isekai_grey")).nextState();
-        state = runtime.resolve(state, new ApRulesetRuntime.AcceptQuest("q1"), 0, catalog.world("isekai_grey")).nextState();
-        state = runtime.resolve(state, new ApRulesetRuntime.ProgressQuest("q1", 0, 2), 0, catalog.world("isekai_grey")).nextState();
-        state = runtime.resolve(state, new ApRulesetRuntime.CompleteQuest("q1"), 0, catalog.world("isekai_grey")).nextState();
+        state = runtime.resolve(state, new ApRulesetRuntime.OfferQuest(quest), 0, ApTemplateFixture.confirmed(catalog)).nextState();
+        state = runtime.resolve(state, new ApRulesetRuntime.AcceptQuest("q1"), 0, ApTemplateFixture.confirmed(catalog)).nextState();
+        state = runtime.resolve(state, new ApRulesetRuntime.ProgressQuest("q1", 0, 2), 0, ApTemplateFixture.confirmed(catalog)).nextState();
+        state = runtime.resolve(state, new ApRulesetRuntime.CompleteQuest("q1"), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         assertEquals(ApQuest.Status.COMPLETED, state.systems().questLog().getFirst().status());
         assertEquals(22, state.resources().copper());
         var completed = state;
-        assertThrows(IllegalArgumentException.class, () -> runtime.resolve(completed, new ApRulesetRuntime.CompleteQuest("q1"), 0, catalog.world("isekai_grey")));
+        assertThrows(IllegalArgumentException.class, () -> runtime.resolve(completed, new ApRulesetRuntime.CompleteQuest("q1"), 0, ApTemplateFixture.confirmed(catalog)));
     }
 
     @Test
     void npcRelationshipIsBoundedAndInteractionIsRecorded() {
-        org.junit.jupiter.api.Assertions.assertTrue(catalog.world("isekai_grey").npcTypes().containsKey("merchant"));
-        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), catalog.world("isekai_grey"));
-        state = runtime.resolve(state, new ApRulesetRuntime.RegisterNpc("n1", "Mara", "merchant", "town", 2), 0, catalog.world("isekai_grey")).nextState();
-        for (int i = 0; i < 30; i++) state = runtime.resolve(state, new ApRulesetRuntime.InteractNpc("n1", "trade", ApNpc.InteractionResult.POSITIVE, i, 1), 0, catalog.world("isekai_grey")).nextState();
+        org.junit.jupiter.api.Assertions.assertTrue(ApTemplateFixture.confirmed(catalog).npcTypes().containsKey("merchant"));
+        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
+        state = runtime.resolve(state, new ApRulesetRuntime.RegisterNpc("n1", "Mara", "merchant", "town", 2), 0, ApTemplateFixture.confirmed(catalog)).nextState();
+        for (int i = 0; i < 30; i++) state = runtime.resolve(state, new ApRulesetRuntime.InteractNpc("n1", "trade", ApNpc.InteractionResult.POSITIVE, i, 1), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         assertEquals(100, state.systems().npcs().getFirst().relationship());
         assertEquals(30, state.systems().npcs().getFirst().interactions().size());
     }
 
     @Test
     void battleUsesInitiativeAndIntegerMitigationFormula() {
-        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), catalog.world("isekai_grey"));
-        var started = runtime.resolve(state, new ApRulesetRuntime.StartBattle("test", "forest", 1, 7), 0, catalog.world("isekai_grey")).nextState();
+        var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
+        var started = runtime.resolve(state, new ApRulesetRuntime.StartBattle("test", "forest", 1, 7), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         var battle = started.systems().battle();
         assertEquals(2, battle.combatants().size());
         assertEquals(battle.turnOrder().getFirst(), battle.currentActor().id());
         var player = battle.combatants().stream().filter(ApBattle.Combatant::player).findFirst().orElseThrow();
         var enemy = battle.combatants().stream().filter(c -> !c.player()).findFirst().orElseThrow();
-        var acted = runtime.resolve(started, new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.ATTACK, enemy.id(), null, null), 0, catalog.world("isekai_grey")).nextState();
+        var acted = runtime.resolve(started, new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.ATTACK, enemy.id(), null, null), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         assertEquals(1, acted.systems().battle().log().size());
         assertEquals(player.currentAp() - 2, acted.systems().battle().combatant(player.id()).currentAp());
     }
 
     @Test
     void monsterGenerationRejectsTypesOutsideRegionPool() {
-        var world = catalog.world("isekai_grey");
+        var world = ApTemplateFixture.confirmed(catalog);
         assertThrows(IllegalArgumentException.class, () -> runtime.generateMonster(world, "forest", "high", new java.util.SplittableRandom(1)));
         var monster = runtime.generateMonster(world, "forest", "low", new java.util.SplittableRandom(2));
         assertEquals("low", monster.type());

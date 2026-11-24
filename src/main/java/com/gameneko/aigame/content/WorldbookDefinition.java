@@ -2,12 +2,23 @@ package com.gameneko.aigame.content;
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** 世界书实例只保存模板之外的叙事设定。 */
 public record WorldbookDefinition(String id, String contentVersion, String name, String type, String templateId,
                                   String tone, String descriptionHint, List<Map<String, String>> factions,
                                   List<String> originContexts, List<String> worldTropes,
                                   Map<String, Object> adventurerGuild) {
+    private static final Pattern TYPE_ID = Pattern.compile("[a-z][a-z0-9_-]{1,63}");
+
+    /** 判断世界类型是否使用合法的稳定标识。
+     * @param type 待校验的类型标识，可为空
+     * @return 以小写字母开头、由小写字母数字下划线或连字符组成的 2 至 64 字符标识返回真
+     */
+    public static boolean isValidTypeId(String type) {
+        return type != null && TYPE_ID.matcher(type).matches();
+    }
+
     /** 创建并规范化世界书叙事集合。
      * @param id 世界书稳定标识
      * @param contentVersion 内容版本

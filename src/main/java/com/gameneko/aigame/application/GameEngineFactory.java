@@ -10,6 +10,15 @@ import java.util.Objects;
 public interface GameEngineFactory {
     GameEngineRuntime<?, ?> create(String engineId, WorldDefinition world);
 
+    /** 按开局时固定的模板创建当前存档的规则运行时。
+     * @param engineId 引擎标识
+     * @param world 世界书基础内容
+     * @param gameId 当前游戏标识
+     */
+    default GameEngineRuntime<?, ?> createForGame(String engineId, WorldDefinition world, String gameId) {
+        return create(engineId, world);
+    }
+
     static GameEngineFactory unsupported() {
         return (engineId, world) -> { throw new IllegalArgumentException("Unsupported game engine: " + engineId); };
     }

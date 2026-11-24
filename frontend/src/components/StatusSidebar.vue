@@ -26,7 +26,7 @@ const inventory = computed(() => parseInventory(state.value))
 const abilities = computed(() => parseAbilities(state.value))
 const npcGroups = computed(() => parseNpcGroups(state.value))
 const quests = computed(() => parseQuests(state.value))
-const rules = computed(() => parseRules(state.value, props.world, props.rulesetId))
+const rules = computed(() => parseRules(state.value, props.rulesetId))
 
 /** 合并位置与区域为「地点」展示文案。 */
 const locationLabel = computed(() => {
@@ -176,8 +176,8 @@ function questStatusClass(statusKey: string): string {
       <summary class="side-title">规则状态</summary>
       <div class="side-body">
         <div class="kv-row"><span class="kv-key">难度</span><span class="kv-val">{{ rules.difficultyLabel }}</span></div>
-        <div class="kv-row"><span class="kv-key">威胁等级</span><span class="kv-val">{{ rules.threatLabel }}</span></div>
-        <div class="kv-row"><span class="kv-key">威胁计数</span><span class="kv-val">{{ rules.threatCounter }} / {{ rules.threatInterval }}</span></div>
+        <div v-if="rulesetId === 'ap'" class="kv-row"><span class="kv-key">威胁等级</span><span class="kv-val">{{ rules.threatLabel }}</span></div>
+        <div v-if="rulesetId === 'ap'" class="kv-row"><span class="kv-key">威胁计数</span><span class="kv-val">{{ rules.threatCounter }} / {{ rules.threatInterval }}</span></div>
         <div class="kv-row"><span class="kv-key">天赋</span><span class="kv-val">{{ rules.talentLabel }}</span></div>
         <div class="kv-row"><span class="kv-key">状态效果</span><span class="kv-val">{{ rules.effects.length ? rules.effects.join('；') : '无' }}</span></div>
         <div class="kv-row"><span class="kv-key">规则集</span><span class="kv-val">{{ rules.rulesetLabel }}</span></div>

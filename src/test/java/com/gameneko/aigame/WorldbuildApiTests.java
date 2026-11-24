@@ -4,11 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.api.GlobalExceptionHandler;
 import com.gameneko.aigame.api.WorldbuildSessionController;
 import com.gameneko.aigame.application.WorldbuildNarrationService;
-import com.gameneko.aigame.content.ClasspathContentCatalog;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
@@ -24,14 +22,13 @@ class WorldbuildApiTests {
     @Test
     void sessionsExposeValidatedConfigurationThroughHttp() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        var catalog = new ClasspathContentCatalog(mapper, new DefaultResourceLoader());
         var service = new WorldbuildNarrationService(prompt -> {
             String input = prompt.userInput();
-            if (input.contains("异世界")) return response(update("type", "异世界"));
+            if (input.contains("异世界")) return response(update("type", "isekai"));
             if (input.contains("改名")) return response(update("name", "灰烬王座"));
             if (input.contains("双月")) return response(update("name", "双月世界"));
             return response();
-        }, mapper, catalog);
+        }, mapper);
         var mvc = MockMvcBuilders.standaloneSetup(new WorldbuildSessionController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         var created = mvc.perform(post("/api/initialization/worldbuild/sessions"))
@@ -40,7 +37,7 @@ class WorldbuildApiTests {
         String id = mapper.readTree(created).path("id").asText();
         String answerUrl = "/api/initialization/worldbuild/sessions/" + id + "/answer";
         mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\"异世界\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.turn.templateId").value("isekai"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.turn.templateId").doesNotExist())
                 .andExpect(jsonPath("$.turn.collected.type").value("isekai"));
         mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\"双月世界\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.done").value(true))

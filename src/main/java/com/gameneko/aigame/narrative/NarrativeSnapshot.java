@@ -5,7 +5,7 @@ import java.util.List;
 /** 将动态世界事实、确认事件、引擎投影及世界书设定作为只读数据传给叙事模型。 */
 public record NarrativeSnapshot(WorldView world, CharacterView character,
                                 List<ConfirmedEvent> confirmedEvents, Object engineProjection,
-                                com.gameneko.aigame.content.WorldbookDefinition worldbook) {
+                                com.gameneko.aigame.content.WorldbookDefinition worldbook, Object templateMaterials) {
     /** 创建不附带世界书资料的兼容快照。
      * @param world 世界动态视图
      * @param character 可空的旧角色视图
@@ -13,7 +13,7 @@ public record NarrativeSnapshot(WorldView world, CharacterView character,
      * @param engineProjection 引擎中立的展示投影
      */
     public NarrativeSnapshot(WorldView world, CharacterView character, List<ConfirmedEvent> confirmedEvents, Object engineProjection) {
-        this(world, character, confirmedEvents, engineProjection, null);
+        this(world, character, confirmedEvents, engineProjection, null, null);
     }
     /** 创建不附带引擎和世界书资料的兼容快照。
      * @param world 世界动态视图
@@ -40,7 +40,14 @@ public record NarrativeSnapshot(WorldView world, CharacterView character,
      * @return 附带叙事设定的新快照
      */
     public NarrativeSnapshot withWorldbook(com.gameneko.aigame.content.WorldbookDefinition setting) {
-        return new NarrativeSnapshot(world, character, confirmedEvents, engineProjection, setting);
+        return new NarrativeSnapshot(world, character, confirmedEvents, engineProjection, setting, templateMaterials);
+    }
+
+    /** 补充确认阶段登记的世界创作素材。
+     * @param materials 世界类型对应的叙事素材
+     */
+    public NarrativeSnapshot withMaterials(Object materials) {
+        return new NarrativeSnapshot(world, character, confirmedEvents, engineProjection, worldbook, materials);
     }
 
     public record WorldView(long day, String time,

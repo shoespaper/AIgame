@@ -26,13 +26,12 @@ public final class WorldbuildSessionController {
     }
 
     /** 创建世界构建会话。
-     * @param request 可空的优先复用模板选择
      * @return 会话标识和第一回合
      */
     @PostMapping
-    public SessionResponse create(@RequestBody(required = false) CreateRequest request) {
+    public SessionResponse create() {
         String id = UUID.randomUUID().toString();
-        var session = worldbuild.session(id, request == null ? null : request.templateId());
+        WorldbuildNarrationService.Session session = worldbuild.session(id);
         sessions.put(id, session);
         return new SessionResponse(id, session.turn());
     }
@@ -66,10 +65,6 @@ public final class WorldbuildSessionController {
      */
     public record SessionResponse(String id, WorldbuildNarrationService.Turn turn) {}
 
-    /** 世界构建创建请求。
-     * @param templateId 可空的优先复用模板标识
-     */
-    public record CreateRequest(String templateId) {}
 
     /** 世界构建回答请求。
      * @param answer 玩家自然语言回答

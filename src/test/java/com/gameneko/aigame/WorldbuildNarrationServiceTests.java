@@ -3,11 +3,9 @@ package com.gameneko.aigame;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.application.WorldbuildNarrationService;
 import com.gameneko.aigame.application.port.NarrativeProvider;
-import com.gameneko.aigame.content.ClasspathContentCatalog;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.*;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.DefaultResourceLoader;
 
 import java.util.ArrayDeque;
 import java.util.List;
@@ -19,7 +17,6 @@ import static org.junit.jupiter.api.Assertions.*;
 /** 验证世界构建对话的 AI 声明驱动收集、枚举校验、列表合并、模板复用和失败重试。 */
 class WorldbuildNarrationServiceTests {
     private final ObjectMapper mapper = new ObjectMapper();
-    private final ClasspathContentCatalog catalog = new ClasspathContentCatalog(mapper, new DefaultResourceLoader());
 
     /** 验证字段值由 AI 声明驱动，必填字段依次收集，非法枚举声明被服务端拒绝。 */
     @Test
@@ -27,12 +24,12 @@ class WorldbuildNarrationServiceTests {
         var service = new WorldbuildNarrationService(prompt -> {
             String input = prompt.userInput();
             if (input.contains("蒸汽")) return response(update("type", "蒸汽朋克"));
-            if (input.contains("异世界")) return response(update("type", "异世界"));
+            if (input.contains("异世界")) return response(update("type", "isekai"));
             if (input.contains("改名")) return response(update("name", "灰烬王座"));
             if (input.contains("群星")) return response(update("name", "群星之城"));
             return response();
-        }, mapper, catalog);
-        var session = service.session("required", null);
+        }, mapper);
+        var session = service.session("required");
         assertFalse(session.turn().done());
 
         var invalid = service.answer(session, "蒸汽朋克");
@@ -40,7 +37,6 @@ class WorldbuildNarrationServiceTests {
 
         var type = service.answer(session, "异世界");
         assertEquals("isekai", type.collected().get("type"));
-        assertEquals("isekai", type.templateId());
         assertFalse(type.done());
 
         var name = service.answer(session, "群星之城");
@@ -54,12 +50,12 @@ class WorldbuildNarrationServiceTests {
     @Test
     void schemaQuestionsCollectStructuredListsAndIgnoreInvalidUpdates() {
         var responses = new ArrayDeque<>(List.of(response(),
-                response(update("type", "异世界")),
+                response(update("type", "isekai")),
                 response(update("world_tropes", "[\"双月\",\"魔法有代价\"]")),
                 response(update("factions", "[{\"type\":\"联盟\",\"desc_hint\":\"守护双月\"}]")),
                 response(update("name", "群星之城"), update("world_tropes", "[\"魔法有代价\",\"潮汐变幻\"]"), update("origin_contexts", "[\"流亡者\"]"))));
-        var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper, catalog);
-        var session = service.session("lists", null);
+        var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper);
+        var session = service.session("lists");
         service.answer(session, "异世界");
         service.answer(session, "双月，魔法有代价");
         service.answer(session, "联盟守护双月");
@@ -81,12 +77,11 @@ class WorldbuildNarrationServiceTests {
             if (call == 1) return response();
             return response(update("type", "fantasy"));
         };
-        var service = new WorldbuildNarrationService(provider, mapper, catalog);
-        var session = service.session("retry", null);
+        var service = new WorldbuildNarrationService(provider, mapper);
+        var session = service.session("retry");
         assertThrows(NarrativeProviderException.class, () -> service.answer(session, "奇幻"));
         assertTrue(session.turn().collected().isEmpty());
         assertEquals("fantasy", service.answer(session, "奇幻").collected().get("type"));
-        assertEquals("", session.turn().templateId());
     }
 
     /** 验证非法列表声明不会进入配置，玩家明确跳过（空数组声明）后可以继续。 */
@@ -96,8 +91,8 @@ class WorldbuildNarrationServiceTests {
                 response(update("type", "isekai")),
                 response(update("factions", "[{\"name\":\"错误结构\"}]")),
                 response(update("factions", "[]"))));
-        var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper, catalog);
-        var session = service.session("invalid-lists", null);
+        var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper);
+        var session = service.session("invalid-lists");
         service.answer(session, "异世界");
         var rejected = service.answer(session, "错误势力格式");
         assertFalse(rejected.collected().containsKey("factions"));
@@ -110,8 +105,8 @@ class WorldbuildNarrationServiceTests {
         WorldbuildNarrationService service = new WorldbuildNarrationService(prompt ->
                 prompt.userInput().contains("steampunk")
                         ? response(update("type", "steampunk"))
-                        : response(update("name", "铜雾城")), mapper, catalog);
-        WorldbuildNarrationService.Session session = service.session("new-type", null);
+                        : response(update("name", "铜雾城")), mapper);
+        WorldbuildNarrationService.Session session = service.session("new-type");
         service.answer(session, "steampunk");
         WorldbuildNarrationService.Turn done = service.answer(session, "铜雾城");
         assertTrue(done.done());
@@ -122,8 +117,8 @@ class WorldbuildNarrationServiceTests {
     @Test
     void forwardsAiGeneratedOptionsToQuestion() {
         WorldbuildNarrationService service = new WorldbuildNarrationService(prompt ->
-                responseWithOptions(List.of("蒸汽朋克", "海洋殖民", "过长的推荐选项应该被过滤掉，因为超过二十字")), mapper, catalog);
-        WorldbuildNarrationService.Session session = service.session("ai-options", null);
+                responseWithOptions(List.of("蒸汽朋克", "海洋殖民", "过长的推荐选项应该被过滤掉，因为超过二十字")), mapper);
+        WorldbuildNarrationService.Session session = service.session("ai-options");
         assertEquals(List.of("蒸汽朋克", "海洋殖民"), session.turn().options());
     }
 
@@ -131,8 +126,8 @@ class WorldbuildNarrationServiceTests {
     @Test
     void skippedRequiredFieldIsNotAskedAgainImmediately() {
         WorldbuildNarrationService service = new WorldbuildNarrationService(prompt ->
-                prompt.userInput().contains("异世界") ? response(update("type", "异世界")) : response(), mapper, catalog);
-        WorldbuildNarrationService.Session session = service.session("skip-required", null);
+                prompt.userInput().contains("异世界") ? response(update("type", "isekai")) : response(), mapper);
+        WorldbuildNarrationService.Session session = service.session("skip-required");
         service.answer(session, "异世界");
         service.answer(session, "跳过");
         service.answer(session, "跳过");

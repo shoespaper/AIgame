@@ -3,9 +3,6 @@ import { onMounted, reactive, ref } from 'vue'
 import { deleteWorldbook, getWorldbook, loadGameCatalog, updateWorldbook } from '../api/client'
 import type { GameCatalog, WorldbookDetail } from '../api/types'
 
-const TYPE_LABELS: Record<string, string> = {
-  isekai: '异世界', cyberpunk: '赛博朋克', fantasy: '奇幻', cosmic_horror: '克苏鲁恐怖', noir: '黑色电影', wasteland: '末日废土',
-}
 const TONE_LABELS: Record<string, string> = { light: '轻松', balanced: '平衡', hardcore: '硬核' }
 
 const catalog = ref<GameCatalog | null>(null)
@@ -13,9 +10,9 @@ const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const editing = ref<WorldbookDetail | null>(null)
-const form = reactive({ name: '', type: 'isekai', tone: 'balanced', templateId: '', descriptionHint: '', worldTropesText: '', originContextsText: '', factionsText: '' })
+const form = reactive({ name: '', type: '', tone: 'balanced', templateId: '', descriptionHint: '', worldTropesText: '', originContextsText: '', factionsText: '' })
 
-/** 加载世界书与模板目录。 */
+/** 加载世界书列表。 */
 async function load() {
   try { catalog.value = await loadGameCatalog() } catch (cause) { error.value = cause instanceof Error ? cause.message : '无法读取世界书目录。' }
 }
@@ -56,7 +53,7 @@ async function saveEdit() {
   busy.value = true; error.value = ''; notice.value = ''
   try {
     await updateWorldbook(editing.value.id, {
-      id: editing.value.id, name: form.name, type: form.type, templateId: form.templateId,
+      id: editing.value.id, name: form.name, type: form.type, templateId: form.type === editing.value.type ? form.templateId : '',
       tone: form.tone as WorldbookDetail['tone'], descriptionHint: form.descriptionHint,
       factions: parseFactions(form.factionsText),
       originContexts: form.originContextsText.split('\n').map((line) => line.trim()).filter(Boolean),
@@ -94,13 +91,10 @@ onMounted(() => { void load() })
       <div class="form-grid">
         <label class="field"><span>世界名称</span><input v-model="form.name" maxlength="200" /></label>
         <label class="field"><span>世界类型</span>
-          <select v-model="form.type"><option v-for="(label, value) in TYPE_LABELS" :key="value" :value="value">{{ label }}</option></select>
+          <input v-model.trim="form.type" required maxlength="64" spellcheck="false" />
         </label>
         <label class="field"><span>故事基调</span>
           <select v-model="form.tone"><option v-for="(label, value) in TONE_LABELS" :key="value" :value="value">{{ label }}</option></select>
-        </label>
-        <label class="field"><span>引用模板</span>
-          <select v-model="form.templateId"><option value="">无模板</option><option v-for="template in catalog?.templates || []" :key="template.id" :value="template.id">{{ template.name }} · {{ TYPE_LABELS[template.type] || template.type }}</option></select>
         </label>
       </div>
       <label class="field wide"><span>世界背景</span><textarea v-model="form.descriptionHint" rows="3" placeholder="用几句话描述这个世界。" /></label>
@@ -117,7 +111,7 @@ onMounted(() => { void load() })
       <div v-for="world in catalog?.worlds || []" :key="world.id" class="save-row world-row">
         <div class="world-row-main">
           <strong>{{ world.name }}</strong>
-          <span>{{ TYPE_LABELS[world.type] || world.type }} · {{ world.templateId || '无模板' }}</span>
+          <span>{{ world.type }}</span>
           <small>{{ world.description || '暂无描述' }}</small>
         </div>
         <div class="world-row-actions">

@@ -94,7 +94,7 @@ public final class GameActionService {
      */
     private GameEngineRuntime<?, ?> runtimeFor(GameInstance<?> instance, WorldDefinition definition) {
         if (instance.rulesetId() == null) throw new IllegalArgumentException("engine_required");
-        return gameEngineFactory.create(instance.rulesetId(), definition);
+        return gameEngineFactory.createForGame(instance.rulesetId(), definition, instance.gameId());
     }
 
     /** 为叙事提供只读引擎运行时，不修改权威状态。
@@ -246,7 +246,7 @@ public final class GameActionService {
      */
     private WorldState advanceWorld(WorldState world, long revision, WorldDefinition definition) {
         long day = world.day() + 1;
-        long counter = world.threatCounter() + 1;
+        long counter = world.threatCounter();
         String level = world.threatLevel();
         List<String> history = new ArrayList<>(world.threatHistory());
         Map<PriceModifier.Category, PriceModifier> activePrices = new java.util.EnumMap<>(PriceModifier.Category.class);
@@ -254,28 +254,11 @@ public final class GameActionService {
         List<TimedEvent> deadlines = new ArrayList<>(world.deadlineEvents());
         List<WorldEvent> events = new ArrayList<>(world.worldEvents());
         var activeEffects = world.activeEffects();
-        if (counter >= Math.max(1, world.threatInterval())) {
-            counter = 0;
-            int index = threatIndex(level);
-            if (index < THREAT_LEVELS.length - 1 && world.mainPlotStage() <= index) {
-                level = THREAT_LEVELS[index + 1];
-                history.add("第" + day + "天：威胁升级至 " + level);
-                int nextLevel = index + 1;
-                var template = definition.eventTemplates().timed().stream().filter(e -> "threat_escalation".equals(e.type()) && e.level() == nextLevel).findFirst().orElse(null);
-                if (template != null) {
-                    applyPrices(activePrices, template.effects().priceModifiers());
-                    events.add(new WorldEvent("threat-" + day, day, WorldEvent.Type.THREAT_ESCALATION, WorldEvent.Category.WORLD_THREAT, template.description(), template.effects()));
-                    activeEffects = merge(activeEffects, template.effects());
-                }
-            }
-        }
         List<TimedEvent> advanced = deadlines.stream().map(event -> event.tick(day)).toList();
         for (int i = 0; i < advanced.size(); i++) if (deadlines.get(i).status() == TimedEvent.Status.ACTIVE && advanced.get(i).status() == TimedEvent.Status.EXPIRED) {
             TimedEvent event = advanced.get(i);
             events.add(new WorldEvent(event.id() + "-expired", day, WorldEvent.Type.DEADLINE, WorldEvent.Category.PLOT, event.consequence(), event.effects()));
             activeEffects = merge(activeEffects, event.effects());
-            int index = threatIndex(level);
-            if (index < THREAT_LEVELS.length - 1) { level = THREAT_LEVELS[index + 1]; history.add("第" + day + "天：期限事件未解决，威胁升至 " + level); }
         }
         if (day % 3 == 0 && !definition.eventTemplates().incidental().isEmpty()) {
             var templates = definition.eventTemplates().incidental();
@@ -359,9 +342,4 @@ public final class GameActionService {
      * @param value 待转换或验证的字段值
      */
     private static WorldEvent.Category parseCategory(String value) { try { return WorldEvent.Category.valueOf(value.toUpperCase(java.util.Locale.ROOT)); } catch (IllegalArgumentException exception) { return WorldEvent.Category.OTHER; } }
-    /** 返回威胁级别的顺序索引，未知值按初始级别处理。
-     * @param level 当前威胁级别标识
-     */
-    private int threatIndex(String level) { for (int i = 0; i < THREAT_LEVELS.length; i++) if (THREAT_LEVELS[i].equals(level)) return i; return 0; }
-    private static final String[] THREAT_LEVELS = {"Dormant", "Low", "Moderate", "High", "Severe", "Crisis"};
 }

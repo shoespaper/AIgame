@@ -18,12 +18,11 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     private final WorldDefinition world;
     private final ApRulesetRuntime runtime = new ApRulesetRuntime();
 
-    /** 创建绑定模板内容的 AP 运行时，并明确拒绝缺少机制定义的空白模板。
+    /** 为当前世界创建 AP 运行时，难度缺省时使用引擎默认配置。
      * @param world 世界书与模板合并后的内容
      */
     public ApGameEngineRuntime(WorldDefinition world) {
         if (world == null) throw new IllegalArgumentException("AP requires a world definition");
-        if (world.difficulties().isEmpty()) throw new IllegalArgumentException("该世界模板尚无 AP 规则，请选择纯叙事或使用包含规则的模板。");
         this.world = world;
     }
 
@@ -53,7 +52,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
 
                 难度选项与说明：
                 """);
-        world.difficulties().forEach((id, difficulty) -> prompt.append(id).append("（")
+        ApRulesetRuntime.difficultyPresets(world).forEach((id, difficulty) -> prompt.append(id).append("（")
                 .append(difficulty.label()).append("）：").append(difficulty.description()).append("\n"));
         return prompt.toString();
     }
@@ -80,7 +79,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                 new InitializationField("archetype", "职业", InitializationField.ValueType.TEXT, true,
                         List.of("swordsman", "mage", "ranger", "alchemist"), null, null, "请选择职业"),
                 new InitializationField("difficulty", "难度", InitializationField.ValueType.TEXT, true,
-                        world.difficulties().keySet().stream().sorted().toList(), null, null, "请选择难度")));
+                        ApRulesetRuntime.difficultyPresets(world).keySet().stream().sorted().toList(), null, null, "请选择难度")));
     }
 
     /** 校验并创建 AP 初始状态。
@@ -155,13 +154,18 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                         new SupportedAction.Parameter("deadlineDays", "integer", "期限天数", false))));
     }
 
+    /** 校验并结算 AP 动作，推进天数时应用有效难度的生命恢复加成。
+     * @param state 执行动作前的 AP 状态，包含所选难度标识
+     * @param intent 待结算的引擎中立动作意图
+     * @return AP 新状态及已确认的动作事件
+     */
     @Override
     public EngineResolution<ApRulesetRuntime.ApState> resolve(ApRulesetRuntime.ApState state, ActionIntent intent) {
         var action = toAction(intent);
         var validation = runtime.validate(state, action, world);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
-        int recovery = action instanceof ApRulesetRuntime.AdvanceDay advance
-                ? world.difficulties().get(state.difficulty()).hpRecoveryBonus() : 0;
+        int recovery = action instanceof ApRulesetRuntime.AdvanceDay
+                ? ApRulesetRuntime.difficultyPresets(world).get(state.difficulty()).hpRecoveryBonus() : 0;
         var result = runtime.resolve(state, action, recovery, world);
         var events = result.events().stream()
                 .map(event -> new com.gameneko.aigame.engine.ConfirmedEvent("ap", event.type(),

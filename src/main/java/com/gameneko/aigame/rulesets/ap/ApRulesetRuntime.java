@@ -1,6 +1,7 @@
 package com.gameneko.aigame.rulesets.ap;
 
 import com.gameneko.aigame.content.WorldDefinition;
+import com.gameneko.aigame.content.WorldDefinition.DifficultyDefinition;
 import com.gameneko.aigame.engine.ActionValidation;
 import com.gameneko.aigame.engine.GameState;
 import com.gameneko.aigame.engine.RulesetResolution;
@@ -15,7 +16,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 
-/** AP runtime. State transitions are immutable and every player-visible fact is typed. */
+/** 执行 AP 规则，使用不可变状态和类型化事件记录结算结果。 */
 public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.ApState, ApRulesetRuntime.ApAction,
         ApRulesetRuntime.ApEvent, ApRulesetRuntime.ApProjection> {
     private static final Map<String, Archetype> ARCHETYPES = Map.of(
@@ -24,6 +25,8 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             "ranger", new Archetype(11, 15, 10, 10, 12, 9, "短弓", "+1", "轻便布衣"),
             "alchemist", new Archetype(9, 10, 15, 9, 11, 13, "投石索", "+1", "工作围裙"));
     private static final Archetype DEFAULT = new Archetype(10, 10, 10, 10, 10, 10, "铁匕首", "+2", "旅行衫");
+    private static final Map<String, DifficultyDefinition> DEFAULT_DIFFICULTIES = Map.of(
+            "adventure", new DifficultyDefinition(7, 15, 3, 2, "冒险", "AP 标准难度。"));
     private static final String[] THREAT_LEVELS = {"Dormant", "Low", "Moderate", "High", "Severe", "Crisis"};
 
     @Override public String id() { return "ap"; }
@@ -33,14 +36,26 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         return initialize(request, null);
     }
 
+    /** 返回 AP 可用难度，优先复用已绑定模板提供的难度配置。
+     * @param world 世界书与模板的合并内容，未提供时使用 AP 默认配置
+     * @return 按难度标识索引的配置
+     */
+    static Map<String, DifficultyDefinition> difficultyPresets(WorldDefinition world) {
+        return world == null || world.difficulties().isEmpty() ? DEFAULT_DIFFICULTIES : world.difficulties();
+    }
+
+    /** 按职业和有效难度创建 AP 初始角色状态。
+     * @param request 角色身份、职业标识和难度标识
+     * @param world 世界书与模板的合并内容，可为空
+     * @return 初始 AP 角色状态
+     */
     public ApState initialize(ApInitializationRequest request, WorldDefinition world) {
         if (request == null) throw new IllegalArgumentException("AP initialization input is required");
         String archetype = request.archetype() == null ? "swordsman" : request.archetype().toLowerCase().trim();
         Archetype preset = ARCHETYPES.getOrDefault(archetype, DEFAULT);
         String difficulty = request.difficulty() == null ? "adventure" : request.difficulty().toLowerCase().trim();
-        WorldDefinition.DifficultyDefinition diff = world == null
-                ? new WorldDefinition.DifficultyDefinition(7, 15, 3, 2, "冒险", "")
-                : world.difficulties().get(difficulty);
+        DifficultyDefinition diff = world == null
+                ? DEFAULT_DIFFICULTIES.get("adventure") : difficultyPresets(world).get(difficulty);
         if (diff == null) throw new IllegalArgumentException("Unknown difficulty: " + difficulty);
         int hp = 20 + preset.constitution();
         int sp = 6 + Math.floorDiv(preset.intelligence(), 2);
@@ -324,6 +339,14 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         return new ApBattle.Combatant("player", state.characterName(), true, "", state.hpCurrent(), state.hpMax(), state.spCurrent(), state.spMax(), power, mitigation, state.dexterity() + state.level(), maxAp, maxAp, 0, 0, false, false, List.of(), 0, 0, List.of(), Set.of());
     }
 
+    /** 生成敌方战斗单位并应用所选难度的数值倍率。
+     * @param type 怪物类型标识
+     * @param index 用于生成战斗单位标识的敌方序号
+     * @param world 世界书与模板的合并内容，可为空
+     * @param difficulty AP 难度标识
+     * @param random 用于抽取怪物属性的随机数生成器
+     * @return 敌方战斗单位
+     */
     private ApBattle.Combatant monsterCombatant(String type, int index, WorldDefinition world, String difficulty, RandomGenerator random) {
         WorldDefinition.MonsterDefinition definition = world == null ? null : world.monsters().get(type);
         int hp = definition == null ? random.nextInt(8, 19) : definition.hpRange().roll(random);
@@ -333,8 +356,8 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         int ap = definition == null ? 4 : definition.actionPoints();
         int xp = definition == null ? 20 : definition.experienceRange().roll(random);
         int gold = definition == null ? random.nextInt(0, 9) : definition.lootCopperRange().roll(random);
-        if (world != null && world.difficulties().containsKey(difficulty)) {
-            var d = world.difficulties().get(difficulty);
+        DifficultyDefinition d = difficultyPresets(world).get(difficulty);
+        if (d != null) {
             hp = scale(hp, d.enemyHpMultiplierPercent()); power = scale(power, d.enemyPowerMultiplierPercent());
             mitigation = scale(mitigation, d.enemyMitigationMultiplierPercent()); ap = Math.max(1, scale(ap, d.enemyApMultiplierPercent()));
             xp = scale(xp, d.experienceMultiplierPercent()); gold = scale(gold, d.goldMultiplierPercent());

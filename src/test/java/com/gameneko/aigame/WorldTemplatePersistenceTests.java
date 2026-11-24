@@ -5,11 +5,13 @@ import com.gameneko.aigame.api.GameCatalogController;
 import com.gameneko.aigame.application.*;
 import com.gameneko.aigame.content.*;
 import com.gameneko.aigame.engine.InitializationValue;
+import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineCatalog;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.persistence.FileTemplateRepository;
 import com.gameneko.aigame.persistence.FileWorldbookRepository;
+import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ApState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -62,15 +64,17 @@ class WorldTemplatePersistenceTests {
         api.saveWorldbook(new GameCatalogController.WorldbookRequest("moon_world", "双月世界", "isekai", "moon_template", "hardcore",
                 "双月之下的世界", List.of(), List.of(), List.of("魔法有代价"), Map.of()));
         var fresh = catalog(worldFiles, templateFiles);
-        var instance = new GameInstanceService(new WorldInitializationService(fresh), fresh, new ClasspathGameEngineFactory())
+        GameInstance<?> instance = new GameInstanceService(new WorldInitializationService(fresh), fresh, new ClasspathGameEngineFactory())
                 .initialize("moon_game", InitializeWorldRequest.defaults("moon_world"), "ap", Map.of(
                         "characterName", new InitializationValue.Text("旅者"), "age", new InitializationValue.IntegerNumber(20),
-                        "archetype", new InitializationValue.Text("mage"), "difficulty", new InitializationValue.Text("adventure")));
+                        "archetype", new InitializationValue.Text("mage"), "difficulty", new InitializationValue.Text("hard")));
         assertEquals("ap", instance.rulesetId());
+        assertEquals(template.difficulties().get("hard").startingCopper(),
+                assertInstanceOf(ApState.class, instance.rulesetState()).resources().copper());
         assertEquals("hardcore", fresh.worldBook("moon_world").tone());
     }
 
-    /** 验证无内置模板的世界类型能够保存为空白模板并创建纯叙事实例。 */
+    /** 验证空白模板可复用，并支持纯叙事和使用默认难度的 AP 实例。 */
     @Test
     void blankTypeCreatesNarrativeWorldAndReusableEmptyTemplate() {
         var templateFiles = new FileTemplateRepository(mapper, temporary.resolve("templates"));
@@ -87,7 +91,8 @@ class WorldTemplatePersistenceTests {
                 Map.of("characterName", new InitializationValue.Text("旅者"), "age", new InitializationValue.IntegerNumber(20)));
         assertNull(instance.rulesetId());
         assertEquals("neon", fresh.worldBook("neon_world").templateId());
-        assertThrows(IllegalArgumentException.class, () -> new ClasspathGameEngineFactory().create("ap", fresh.world("neon_world")));
+        GameInstance<?> apInstance = service.initializeWithDefaults("neon_ap", InitializeWorldRequest.defaults("neon_world"), "ap");
+        assertEquals("adventure", assertInstanceOf(ApState.class, apInstance.rulesetState()).difficulty());
         api.saveWorldbook(new GameCatalogController.WorldbookRequest("no_template", "黑街", "noir", "", "light", "侦探故事", List.of(), List.of(), List.of(), Map.of()));
         assertNotNull(new WorldInitializationService(fresh).initialize("no_template"));
     }

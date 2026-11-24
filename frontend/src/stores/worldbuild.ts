@@ -1,13 +1,12 @@
 import { defineStore } from 'pinia'
 import { answerWorldbuild, createWorldbuildSession } from '../api/client'
-import type { InitializationQuestion, WorldbuildTurn } from '../api/types'
+import type { WorldbuildTurn } from '../api/types'
 
-/** 世界构建对话中的玩家回答或带服务端问题的 GM 回合。 */
+/** 世界构建对话中的玩家回答或 GM 回合。 */
 export interface WorldbuildMessage {
   id: number
   role: 'gm' | 'player'
   text: string
-  question?: InitializationQuestion | null
 }
 
 /** 保存独立于角色初始化的世界构建对话和当前结构化配置。 */
@@ -23,20 +22,20 @@ export const useWorldbuildStore = defineStore('worldbuild', {
         const session = await createWorldbuildSession(templateId)
         this.sessionId = session.id
         this.turn = session.turn
-        this.history = [{ id: 1, role: 'gm', text: session.turn.narration, question: session.turn.question }]
+        this.history = [{ id: 1, role: 'gm', text: session.turn.narration }]
       } finally { this.busy = false }
     },
     /** 提交玩家回答，成功后追加两条对话记录。
      * @param answer 玩家自然语言回答
      */
     async answer(answer: string) {
-      if (!this.sessionId || this.busy || this.turn?.done) return
+      if (!this.sessionId || this.busy) return
       this.busy = true
       try {
         const result = await answerWorldbuild(this.sessionId, answer)
         this.turn = result.turn
         this.history.push({ id: this.history.length + 1, role: 'player', text: answer })
-        this.history.push({ id: this.history.length + 1, role: 'gm', text: result.turn.narration, question: result.turn.question })
+        this.history.push({ id: this.history.length + 1, role: 'gm', text: result.turn.narration })
       } finally { this.busy = false }
     },
     /** 清理世界构建状态以开始新的配置。 */

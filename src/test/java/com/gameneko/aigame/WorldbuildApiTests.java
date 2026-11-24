@@ -28,14 +28,14 @@ class WorldbuildApiTests {
         var service = new WorldbuildNarrationService(prompt -> {
             String input = prompt.userInput();
             if (input.contains("异世界")) return response(update("type", "异世界"));
+            if (input.contains("改名")) return response(update("name", "灰烬王座"));
             if (input.contains("双月")) return response(update("name", "双月世界"));
-            if (input.contains("平衡")) return response(update("tone", "平衡"));
             return response();
         }, mapper, catalog);
         var mvc = MockMvcBuilders.standaloneSetup(new WorldbuildSessionController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         var created = mvc.perform(post("/api/initialization/worldbuild/sessions"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.turn.question.fieldId").value("type"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.turn.options").isArray())
                 .andReturn().getResponse().getContentAsString();
         String id = mapper.readTree(created).path("id").asText();
         String answerUrl = "/api/initialization/worldbuild/sessions/" + id + "/answer";
@@ -43,11 +43,11 @@ class WorldbuildApiTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.turn.templateId").value("isekai"))
                 .andExpect(jsonPath("$.turn.collected.type").value("isekai"));
         mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\"双月世界\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.done").value(false));
-        mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\"平衡\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.done").value(true))
-                .andExpect(jsonPath("$.turn.collected.name").value("双月世界"))
-                .andExpect(jsonPath("$.turn.collected.tone").value("balanced"));
+                .andExpect(jsonPath("$.turn.collected.name").value("双月世界"));
+        mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\"我想改名\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.done").value(true))
+                .andExpect(jsonPath("$.turn.collected.name").value("灰烬王座"));
         mvc.perform(post("/api/initialization/worldbuild/sessions/missing/answer").contentType(APPLICATION_JSON).content("{\"answer\":\"异世界\"}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\" \"}"))

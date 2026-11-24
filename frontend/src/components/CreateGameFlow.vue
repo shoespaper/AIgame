@@ -26,13 +26,12 @@ const customWorld = computed<WorldbookDraft>(() => {
   const values = worldbuild.turn?.collected || {}
   return {
     name: String(values.name || ''), type: String(values.type || ''), templateId: worldbuild.turn?.templateId || '',
-    tone: (values.tone || 'balanced') as WorldbookDraft['tone'], descriptionHint: String(values.description_hint || ''),
+    tone: 'balanced', descriptionHint: String(values.description_hint || ''),
     factions: Array.isArray(values.factions) ? values.factions as WorldbookDraft['factions'] : [],
     originContexts: Array.isArray(values.origin_contexts) ? values.origin_contexts as string[] : [],
     worldTropes: Array.isArray(values.world_tropes) ? values.world_tropes as string[] : [],
   }
 })
-const worldEntries = computed(() => Object.entries(worldbuild.turn?.collected || {}))
 
 /** 新消息和等待状态变化后显示对话底部。 */
 watch(() => [worldbuild.history.length, worldbuild.busy], async () => {
@@ -120,14 +119,6 @@ async function finishCustomWorld() {
   finally { busy.value = false }
 }
 
-/** 显示世界字段的中文标题。
- * @param key 结构化配置字段标识
- */
-function worldFieldLabel(key: string): string {
-  return ({ type: '世界类型', name: '世界名称', tone: '故事基调', world_tropes: '世界规则',
-    factions: '主要势力', origin_contexts: '出身起点', description_hint: '世界背景' } as Record<string, string>)[key] || key
-}
-
 /** 将结构化世界配置格式化为供玩家检查的文字。
  * @param value 配置中的枚举、文本或列表
  */
@@ -190,14 +181,6 @@ async function createGame() {
   }
 }
 
-/** 判断 GM 话术是否未包含具体提问，避免重复展示同一问题。
- * @param message 初始化对话中的一条消息
- */
-function showsSeparateQuestion(message: { text: string; question?: { prompt?: string } | null }): boolean {
-  const prompt = message.question?.prompt?.trim()
-  return !!prompt && !message.text.includes(prompt)
-}
-
 /** 返回上一步；从规则步骤进入角色步骤时会重新建立初始化会话。 */
 async function goBack() {
   if (customMode.value) {
@@ -246,7 +229,7 @@ onMounted(() => { void loadCatalog() })
       <div class="onboarding-pane">
         <template v-if="step === 1">
           <template v-if="customMode">
-            <div class="worldbuild-heading"><div><div class="onboarding-label">和 GM 一起构建世界</div><p>用对话确认世界类型、背景与故事基调，完成后进入规则选择。</p></div>
+            <div class="worldbuild-heading"><div><div class="onboarding-label">和 GM 一起构建世界</div><p>用对话确认世界类型和背景，完成后进入规则选择。</p></div>
               <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="exitCustomWorld">返回世界书</button></div>
             <div class="worldbuild-template-picker">
               <label for="world-template">优先复用模板</label>
@@ -254,25 +237,20 @@ onMounted(() => { void loadCatalog() })
               <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="restartWorldbuild">重新构建</button>
             </div>
             <p v-if="worldbuild.turn?.templateName" class="onboarding-ready">已复用「{{ worldbuild.turn.templateName }}」模板</p>
-            <p v-else-if="worldbuild.turn?.collected.type" class="onboarding-empty">该类型暂无模板，已从空白世界设定开始。</p>
+            <p v-else-if="worldbuild.turn && !worldbuild.turn.templateName" class="onboarding-empty">该类型暂无模板，已从空白世界设定开始。</p>
             <div ref="worldChat" class="onboarding-chat" aria-live="polite" :aria-busy="worldbuild.busy">
               <div v-for="message in worldbuild.history" :key="message.id" class="onboarding-message" :class="message.role">
                 <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span><p>{{ message.text }}</p>
-                <p v-if="message.role === 'gm' && showsSeparateQuestion(message)" class="onboarding-question">{{ message.question?.prompt }}</p>
               </div>
               <div v-if="worldbuild.busy" class="onboarding-message gm thinking"><span class="loader small" />GM 正在思考…</div>
             </div>
-            <div v-if="!worldbuild.turn?.done && worldbuild.turn?.question?.options.length" class="onboarding-options">
-              <button v-for="option in worldbuild.turn.question.options" :key="option" type="button" class="onboarding-option" :disabled="worldbuild.busy || busy" @click="submitWorldAnswer(option)">{{ option }}</button>
+            <div v-if="worldbuild.turn?.options?.length" class="onboarding-options">
+              <button v-for="option in worldbuild.turn.options" :key="option" type="button" class="onboarding-option" :disabled="worldbuild.busy || busy" @click="submitWorldAnswer(option)">{{ option }}</button>
             </div>
-            <form v-if="worldbuild.turn && !worldbuild.turn.done" class="onboarding-composer" @submit.prevent="submitWorldAnswer()">
+            <form v-if="worldbuild.turn" class="onboarding-composer" @submit.prevent="submitWorldAnswer()">
               <input v-model="worldAnswer" aria-label="回答世界构建 GM" placeholder="描述你希望的世界" :disabled="worldbuild.busy || busy" maxlength="8000" />
               <button type="submit" class="onboarding-primary" :disabled="worldbuild.busy || busy || !worldAnswer.trim()">{{ worldbuild.busy ? '发送中…' : '回答' }}</button>
             </form>
-            <template v-if="worldbuild.turn?.done">
-              <p class="onboarding-ready">世界设定已确认，下一步进入规则选择。</p>
-              <dl class="review-list"><div v-for="([key, value]) in worldEntries" :key="key"><dt>{{ worldFieldLabel(key) }}</dt><dd>{{ worldValueLabel(value) }}</dd></div></dl>
-            </template>
           </template>
           <template v-else>
           <div class="onboarding-field">

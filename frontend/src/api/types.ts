@@ -55,7 +55,7 @@ export interface InitializationFinalizeResult { game: GameInstanceResponse; open
 /** 世界构建回合；配置中的列表保持结构化。 */
 export interface WorldbuildTurn {
   narration: string
-  question: InitializationQuestion | null
+  options: string[]
   collected: Record<string, JsonValue>
   done: boolean
   templateId: string

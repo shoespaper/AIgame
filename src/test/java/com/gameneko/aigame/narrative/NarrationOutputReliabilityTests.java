@@ -30,7 +30,7 @@ class NarrationOutputReliabilityTests {
         NarrativeProvider provider = prompt -> new NarrativeResponse("x".repeat(6001));
         var service = new DefaultNarrationService(provider);
 
-        assertThrows(IllegalArgumentException.class, () -> service.narrate(request(), List.of()));
+        assertThrows(NarrativeProviderException.class, () -> service.narrate(request(), List.of()));
     }
 
     /** 验证服务端保留合法纯叙事响应。 */

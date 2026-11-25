@@ -2,10 +2,13 @@ package com.gameneko.aigame.persistence;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
 import com.gameneko.aigame.engine.GameStateTypeResolver;
+import com.gameneko.aigame.application.GameRequestException;
+import com.gameneko.aigame.logging.DiagnosticLog;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -20,7 +23,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import java.util.regex.Pattern;
 
-/** JSON file adapter for the current in-memory world state. */
+/** 将当前游戏状态读写到本地 JSON 存档。 */
 @Component
 public final class FileGameRepository implements GameRepository {
     private static final int SCHEMA_VERSION = 2;
@@ -42,12 +45,18 @@ public final class FileGameRepository implements GameRepository {
         this.stateTypes = stateTypes;
     }
 
+    /** 读取指定游戏的存档，并区分文件读取与解析失败。
+     * @param gameId 游戏存档标识
+     */
     @Override
     public Optional<GameInstance<?>> load(String gameId) {
         Path path = savePath(gameId);
-        if (!Files.exists(path)) return Optional.empty();
+        if (Files.notExists(path)) return Optional.empty();
+        String stage = "read_file";
         try {
-            JsonNode envelope = objectMapper.readTree(Files.readString(path));
+            String document = Files.readString(path);
+            stage = "parse_json";
+            JsonNode envelope = objectMapper.readTree(document);
             validateEnvelope(envelope, gameId);
             JsonNode state = envelope.get("state");
             String rulesetId = state.path("rulesetId").asText("");
@@ -58,20 +67,26 @@ public final class FileGameRepository implements GameRepository {
             Class<?> rulesetStateType = stateTypes.stateType(rulesetId);
             return Optional.of(objectMapper.treeToValue(state,
                     objectMapper.getTypeFactory().constructParametricType(GameInstance.class, rulesetStateType)));
-        } catch (IOException | RuntimeException exception) {
-            if (exception instanceof GamePersistenceException persistenceException) throw persistenceException;
-            throw new GamePersistenceException("Unable to read save: " + gameId, exception);
+        } catch (IOException | IllegalArgumentException | GamePersistenceException exception) {
+            String message = exception instanceof GamePersistenceException
+                    ? exception.getMessage() : "Unable to read save: " + gameId;
+            throw new GamePersistenceException(message, exception, "game_save", gameId, "read", stage);
         }
     }
 
+    /** 先写入临时文件，再替换指定游戏存档。
+     * @param instance 待持久化的权威游戏实例
+     */
     @Override
     public void save(GameInstance<?> instance) {
         if (instance == null) throw new IllegalArgumentException("game instance must not be null");
         Path path = savePath(instance.gameId());
+        Path temporary = null;
+        String stage = "create_directory";
         try {
             Files.createDirectories(saveRoot);
-            Path temporary = Files.createTempFile(saveRoot, "." + instance.gameId() + ".", ".tmp");
-            var envelope = objectMapper.createObjectNode();
+            stage = "encode_json";
+            ObjectNode envelope = objectMapper.createObjectNode();
             envelope.put("schemaVersion", SCHEMA_VERSION);
             envelope.put("gameId", instance.gameId());
             envelope.put("worldId", instance.worldId());
@@ -84,16 +99,22 @@ public final class FileGameRepository implements GameRepository {
                 envelope.putNull("engineVersion");
             }
             envelope.set("state", objectMapper.valueToTree(instance));
-            Files.writeString(temporary, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(envelope),
-                    StandardOpenOption.TRUNCATE_EXISTING);
+            String document = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(envelope);
+            stage = "write_temp";
+            temporary = Files.createTempFile(saveRoot, "." + instance.gameId() + ".", ".tmp");
+            Files.writeString(temporary, document, StandardOpenOption.TRUNCATE_EXISTING);
+            stage = "replace_file";
             try {
                 Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException atomicMoveUnavailable) {
                 Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
             }
-        } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to write save: " + instance.gameId(), exception);
+        } catch (IOException | IllegalArgumentException exception) {
+            TemporaryFiles.deleteAfterFailure(temporary, exception);
+            throw new GamePersistenceException("Unable to write save: " + instance.gameId(), exception,
+                    "game_save", instance.gameId(), "write", stage);
         }
+        DiagnosticLog.saveCommitted(instance.gameId(), instance.worldId(), instance.rulesetId(), instance.revision());
     }
 
     /** 读取保存目录中的全部有效游戏实例，供存档列表接口使用。 */
@@ -107,13 +128,13 @@ public final class FileGameRepository implements GameRepository {
                     .flatMap(Optional::stream)
                     .toList();
         } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to list saves", exception);
+            throw new GamePersistenceException("Unable to list saves", exception, "game_save", null, "list", "list_directory");
         }
     }
 
     private Path savePath(String gameId) {
         if (gameId == null || !SAFE_GAME_ID.matcher(gameId).matches()) {
-            throw new IllegalArgumentException("gameId must contain only letters, digits, '_' or '-'");
+            throw GameRequestException.invalid("gameId must contain only letters, digits, '_' or '-'");
         }
         return saveRoot.resolve(gameId + ".json").normalize();
     }

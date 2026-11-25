@@ -59,7 +59,10 @@ public final class GameActionService {
      */
     public AppliedAction applyNarrativeTurn(String gameId, long expectedRevision, ActionIntent intent,
                                             Map<String, InitializationValue> updates) {
-        GameInstance<?> loaded = checkedLoad(gameId, expectedRevision);
+        GameInstance<?> loaded = repository.load(gameId)
+                .orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
+        String actionType = intent == null ? null : intent.type();
+        GameRequestException.checkRevision(loaded, expectedRevision, actionType);
         var definition = contentCatalog.world(loaded.worldId());
         var accepted = WorldUpdatePolicy.accepted(updates, definition);
         if (intent == null) {
@@ -71,8 +74,12 @@ public final class GameActionService {
             repository.save(next);
             return new AppliedAction(next, List.of(), List.of());
         }
-        var runtime = runtimeFor(loaded, definition);
-        var resolution = resolveRuntime(runtime, loaded, intent);
+        if (loaded.rulesetId() == null) {
+            throw GameRequestException.action(GameRequestException.Code.ENGINE_REQUIRED, "engine_required",
+                    loaded, actionType, expectedRevision);
+        }
+        GameEngineRuntime<?, ?> runtime = runtimeFor(loaded, definition);
+        EngineResolution<?> resolution = resolveRuntime(runtime, loaded, intent);
         long nextRevision = loaded.revision() + 1;
         var world = loaded.worldState();
         var nextWorld = resolution.advancesDay()
@@ -93,7 +100,7 @@ public final class GameActionService {
      * @param definition 当前世界模板定义
      */
     private GameEngineRuntime<?, ?> runtimeFor(GameInstance<?> instance, WorldDefinition definition) {
-        if (instance.rulesetId() == null) throw new IllegalArgumentException("engine_required");
+        if (instance.rulesetId() == null) throw new GameRequestException(GameRequestException.Code.ENGINE_REQUIRED, "engine_required");
         return gameEngineFactory.createForGame(instance.rulesetId(), definition, instance.gameId());
     }
 
@@ -103,16 +110,6 @@ public final class GameActionService {
      */
     public GameEngineRuntime<?, ?> runtimeForNarration(GameInstance<?> instance, WorldDefinition definition) {
         return runtimeFor(instance, definition);
-    }
-
-    /** 读取存档并校验客户端观察到的修订号。
-     * @param gameId 游戏存档标识
-     * @param expectedRevision 客户端观察到的权威修订号
-     */
-    private GameInstance<?> checkedLoad(String gameId, long expectedRevision) {
-        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
-        if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
-        return loaded;
     }
 
     // The engine factory selects the runtime for the state stored with this engine ID.
@@ -132,9 +129,13 @@ public final class GameActionService {
      * @param intent 交由选中引擎解释的结构化动作
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static EngineResolution<?> resolveRuntime(GameEngineRuntime runtime, GameInstance<?> instance, ActionIntent intent) {
-        var validation = validateRuntime(runtime, instance, intent);
-        if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
+    private static EngineResolution<?> resolveRuntime(GameEngineRuntime runtime, GameInstance<?> instance,
+                                                       ActionIntent intent) {
+        ActionValidation validation = validateRuntime(runtime, instance, intent);
+        if (!validation.accepted()) {
+            throw GameRequestException.action(GameRequestException.Code.ENGINE_ACTION_REJECTED, validation.reason(),
+                    instance, intent.type(), instance.revision());
+        }
         return runtime.resolve(instance.rulesetState(), intent, instance.worldState().day());
     }
 
@@ -231,8 +232,8 @@ public final class GameActionService {
      */
     private GameInstance<?> updateWorld(String gameId, long expectedRevision,
                                         java.util.function.UnaryOperator<WorldState> update) {
-        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
-        if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
+        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
+        GameRequestException.checkRevision(loaded, expectedRevision, null);
         WorldState changed = update.apply(loaded.worldState()).withRevision(loaded.revision() + 1);
         GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(), loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, loaded.revision() + 1, changed, loaded.rulesetState());
         repository.save(next);

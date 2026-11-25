@@ -1,5 +1,7 @@
 package com.gameneko.aigame.api;
 
+import com.gameneko.aigame.application.GameRequestException;
+
 import com.gameneko.aigame.content.WorldBookCatalog;
 import com.gameneko.aigame.content.TemplateCatalog;
 import com.gameneko.aigame.content.WorldTemplate;
@@ -75,12 +77,12 @@ public final class GameCatalogController {
      */
     @PutMapping("/worldbooks/{id}")
     public WorldbookResponse updateWorldbook(@PathVariable String id, @RequestBody WorldbookRequest request) {
-        if (request == null) throw new IllegalArgumentException("Worldbook is required");
+        if (request == null) throw GameRequestException.invalid("Worldbook is required");
         requireEditable(id);
         validateConfiguration(request.type(), request.name(), request.tone());
         if (request.templateId() != null && !request.templateId().isBlank()
                 && !templates.template(request.templateId()).type().equals(request.type())) {
-            throw new IllegalArgumentException("Template type mismatch");
+            throw GameRequestException.invalid("Template type mismatch");
         }
         WorldbookDefinition worldbook = new WorldbookDefinition(id, "1.0", request.name(), request.type(), request.templateId(),
                 request.tone(), request.descriptionHint(), request.factions(), request.originContexts(),
@@ -104,7 +106,7 @@ public final class GameCatalogController {
      * @param id 世界书标识
      */
     private void requireEditable(String id) {
-        if (!isEditable(id)) throw new IllegalArgumentException("Built-in worldbook is read-only: " + id);
+        if (!isEditable(id)) throw new GameRequestException(GameRequestException.Code.CONTENT_READ_ONLY, "Built-in worldbook is read-only: " + id);
     }
 
     /** 判断世界书是否为用户自定义（可编辑删除）。
@@ -121,15 +123,15 @@ public final class GameCatalogController {
      */
     @PostMapping("/worldbooks")
     public WorldbookResponse saveWorldbook(@RequestBody WorldbookRequest request) {
-        if (request == null) throw new IllegalArgumentException("Worldbook is required");
+        if (request == null) throw GameRequestException.invalid("Worldbook is required");
         validateConfiguration(request.type(), request.name(), request.tone());
         String id = newId("custom_", request.id());
         if (worlds.available().stream().anyMatch(book -> book.id().equals(id)) || "isekai_grey".equals(id)) {
-            throw new IllegalArgumentException("Worldbook already exists: " + id);
+            throw new GameRequestException(GameRequestException.Code.CONTENT_ALREADY_EXISTS, "Worldbook already exists: " + id);
         }
         if (request.templateId() != null && !request.templateId().isBlank()
                 && !templates.template(request.templateId()).type().equals(request.type())) {
-            throw new IllegalArgumentException("Template type mismatch");
+            throw GameRequestException.invalid("Template type mismatch");
         }
         WorldbookDefinition worldbook = new WorldbookDefinition(id, "1.0", request.name(), request.type(), request.templateId(),
                 request.tone(), request.descriptionHint(), request.factions(), request.originContexts(),
@@ -144,14 +146,14 @@ public final class GameCatalogController {
      */
     @PostMapping("/templates")
     public TemplateResponse saveTemplate(@RequestBody TemplateRequest request) {
-        if (request == null) throw new IllegalArgumentException("Template is required");
+        if (request == null) throw GameRequestException.invalid("Template is required");
         validateIdentity(request.type(), request.name());
         WorldTemplate base = request.baseTemplateId() == null || request.baseTemplateId().isBlank()
                 ? WorldTemplate.empty(request.type(), request.name()) : templates.template(request.baseTemplateId());
-        if (!base.type().equals(request.type())) throw new IllegalArgumentException("Template type mismatch");
+        if (!base.type().equals(request.type())) throw GameRequestException.invalid("Template type mismatch");
         String id = newId("template_", request.id());
         if (templates.availableTemplates().stream().anyMatch(template -> template.id().equals(id))) {
-            throw new IllegalArgumentException("Template already exists: " + id);
+            throw new GameRequestException(GameRequestException.Code.CONTENT_ALREADY_EXISTS, "Template already exists: " + id);
         }
         templateRepository.save(base.copyAs(id, request.type(), request.name().trim(), request.tags()));
         return new TemplateResponse(id);
@@ -165,7 +167,7 @@ public final class GameCatalogController {
     private void validateConfiguration(String type, String name, String tone) {
         validateIdentity(type, name);
         if (tone == null || !List.of("light", "balanced", "hardcore").contains(tone)) {
-            throw new IllegalArgumentException("Invalid story tone");
+            throw GameRequestException.invalid("Invalid story tone");
         }
     }
 
@@ -175,9 +177,9 @@ public final class GameCatalogController {
      */
     private void validateIdentity(String type, String name) {
         if (!WorldbookDefinition.isValidTypeId(type)) {
-            throw new IllegalArgumentException("世界类型须以小写字母开头，使用小写字母、数字、下划线或连字符，共 2 至 64 个字符");
+            throw GameRequestException.invalid("世界类型须以小写字母开头，使用小写字母、数字、下划线或连字符，共 2 至 64 个字符");
         }
-        if (name == null || name.isBlank() || name.length() > 200) throw new IllegalArgumentException("World name is required (maximum 200 characters)");
+        if (name == null || name.isBlank() || name.length() > 200) throw GameRequestException.invalid("World name is required (maximum 200 characters)");
     }
 
     /** 生成或校验新内容的安全标识。
@@ -188,7 +190,7 @@ public final class GameCatalogController {
     private String newId(String prefix, String supplied) {
         String id = supplied == null || supplied.isBlank()
                 ? prefix + java.util.UUID.randomUUID().toString().replace("-", "") : supplied.trim();
-        if (!id.matches("[A-Za-z0-9_-]{1,100}")) throw new IllegalArgumentException("Invalid content id");
+        if (!id.matches("[A-Za-z0-9_-]{1,100}")) throw GameRequestException.invalid("Invalid content id");
         return id;
     }
 

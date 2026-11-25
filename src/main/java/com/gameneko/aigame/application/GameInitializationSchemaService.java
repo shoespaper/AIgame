@@ -45,7 +45,7 @@ public final class GameInitializationSchemaService {
             engineFields = runtime.initializationSchema().fields();
             enginePrompt = runtime.initializationPrompt();
             if (enginePrompt == null || enginePrompt.isBlank()) {
-                throw new IllegalArgumentException("Selected engine initialization prompt is required");
+                throw new IllegalStateException("Selected engine initialization prompt is required");
             }
         }
         Set<String> engineFieldIds = engineFields.stream().map(InitializationField::id).collect(Collectors.toSet());

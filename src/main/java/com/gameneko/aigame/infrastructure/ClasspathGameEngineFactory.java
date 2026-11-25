@@ -1,6 +1,7 @@
 package com.gameneko.aigame.infrastructure;
 
 import com.gameneko.aigame.application.GameEngineFactory;
+import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.content.WorldDefinition;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.rulesets.ap.ApGameEngineRuntime;
@@ -32,10 +33,10 @@ public final class ClasspathGameEngineFactory implements GameEngineFactory {
      */
     @Override
     public GameEngineRuntime<?, ?> createForGame(String engineId, WorldDefinition world, String gameId) {
-        if (engineId == null || engineId.isBlank()) throw new IllegalArgumentException("Game engine is not selected");
+        if (engineId == null || engineId.isBlank()) throw new GameRequestException(GameRequestException.Code.ENGINE_REQUIRED, "Game engine is not selected");
         return switch (engineId.trim().toLowerCase(java.util.Locale.ROOT)) {
             case "ap" -> registry == null || gameId == null ? new ApGameEngineRuntime(world) : ApTemplateContent.runtime(world, registry.world(gameId), registry.rules("ap"));
-            default -> throw new IllegalArgumentException("Unsupported game engine: " + engineId);
+            default -> throw new GameRequestException(GameRequestException.Code.UNSUPPORTED_ENGINE, "Unsupported game engine: " + engineId);
         };
     }
 }

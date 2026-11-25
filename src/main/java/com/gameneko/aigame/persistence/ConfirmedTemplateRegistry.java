@@ -12,6 +12,8 @@ import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.EngineTemplatePolicy;
 import com.gameneko.aigame.engine.InitializationValue;
+import com.gameneko.aigame.logging.DiagnosticLog;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativePrompt;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.narrative.NarrativeSnapshot;
@@ -102,7 +104,7 @@ public final class ConfirmedTemplateRegistry {
         bindings.set(gameId, binding);
         next.set("bindings", bindings);
         if (!ready) completeTemplate(next, book, id, engine, world);
-        persist(next);
+        persist(next, id);
     }
 
     /** 只为缺少世界素材或所选引擎资料的模板查目录和生成提案。
@@ -325,7 +327,10 @@ public final class ConfirmedTemplateRegistry {
             try {
                 return validate.apply(readProposal(response));
             } catch (IllegalArgumentException exception) {
-                if (--remainingAttempts == 0) throw exception;
+                if (--remainingAttempts == 0) {
+                    throw NarrativeProviderException.invalidOutput("模型未能生成有效的模板提案", exception);
+                }
+                DiagnosticLog.templateRetry(id, PROPOSAL_ATTEMPTS - remainingAttempts);
                 feedback = "\n上一次提案未通过校验。原因：" + exception.getMessage() + "。请修正后重新返回完整提案。";
             }
         }
@@ -554,20 +559,23 @@ public final class ConfirmedTemplateRegistry {
 
     /** 原子替换磁盘目录并发布内存快照。
      * @param next 已通过全部校验的注册目录
+     * @param templateId 本次写入的模板标识
      */
-    private void persist(ObjectNode next) {
+    private void persist(ObjectNode next, String templateId) {
+        Path temporary = null;
+        String stage = "create_directory";
         try {
             Files.createDirectories(file.getParent());
-            Path temporary = Files.createTempFile(file.getParent(), "register-", ".tmp");
-            try {
-                mapper.writeValue(temporary.toFile(), next);
-                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-                registry = next;
-            } finally {
-                Files.deleteIfExists(temporary);
-            }
+            stage = "write_temp";
+            temporary = Files.createTempFile(file.getParent(), "register-", ".tmp");
+            mapper.writeValue(temporary.toFile(), next);
+            stage = "replace_file";
+            Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            registry = next;
         } catch (IOException exception) {
-            throw new IllegalStateException("无法保存模板注册目录", exception);
+            TemporaryFiles.deleteAfterFailure(temporary, exception);
+            throw new GamePersistenceException("无法保存模板注册目录", exception,
+                    "template_registry", templateId, "write", stage);
         }
     }
 

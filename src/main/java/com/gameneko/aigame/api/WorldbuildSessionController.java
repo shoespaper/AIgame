@@ -1,5 +1,7 @@
 package com.gameneko.aigame.api;
 
+import com.gameneko.aigame.application.GameRequestException;
+
 import com.gameneko.aigame.application.WorldbuildNarrationService;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,7 +45,7 @@ public final class WorldbuildSessionController {
      */
     @PostMapping("/{id}/answer")
     public AnswerResponse answer(@PathVariable String id, @RequestBody AnswerRequest request) {
-        if (request == null || request.answer() == null) throw new IllegalArgumentException("Answer is required");
+        if (request == null || request.answer() == null) throw GameRequestException.invalid("Answer is required");
         var session = require(id);
         var turn = worldbuild.answer(session, request.answer());
         return new AnswerResponse(turn.done(), turn);
@@ -55,7 +57,7 @@ public final class WorldbuildSessionController {
      */
     private WorldbuildNarrationService.Session require(String id) {
         var session = sessions.get(id);
-        if (session == null) throw new IllegalArgumentException("Worldbuild session not found: " + id);
+        if (session == null) throw new GameRequestException(GameRequestException.Code.SESSION_NOT_FOUND, "Worldbuild session not found: " + id);
         return session;
     }
 

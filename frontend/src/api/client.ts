@@ -1,15 +1,37 @@
+import { ref } from 'vue'
 import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, InitializationAnswerResult, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn, ConversationMessage } from './types'
 
 const apiRoot = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
+export const lastFailedRequestId = ref<string | null>(null)
+
+const apiErrorMessages: Readonly<Record<string, string>> = Object.freeze({
+  ENGINE_REQUIRED: '当前游戏未选择引擎，无法执行该动作。',
+  MODEL_CONFIGURATION_REQUIRED: '请在设置中启用并配置叙事模型。',
+  PERSISTENCE_FAILED: '读取或写入游戏数据失败。',
+  WORLD_CONTENT_UNAVAILABLE: '服务器无法读取世界内容。',
+  INTERNAL_ERROR: '服务器处理请求时出现错误。',
+})
+
+/** 保存 API 错误的 HTTP 状态与可用于排障的响应字段。 */
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  /** @param message 界面显示的错误提示
+   * @param status HTTP 状态码，未收到响应时为 0
+   * @param code 后端返回的稳定错误码，可空
+   * @param requestId 后端生成的请求 ID，可空
+   */
+  constructor(message: string, public readonly status: number,
+              public readonly code?: string, public readonly requestId?: string) {
     super(message)
     this.name = 'ApiError'
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** 发送 HTTP 请求，并将网络错误和失败响应统一转换为 ApiError。
+ * @param path 相对 API 基址的请求路径
+ * @param init 可选的请求方法、请求头和请求体
+ */
+async function fetchApi(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   let response: Response
@@ -18,18 +40,50 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   } catch {
     throw new ApiError('无法连接到游戏服务器，请确认 Spring Boot 服务正在运行。', 0)
   }
+  if (response.ok) return response
+
+  const data = await response.json().catch(() => null) as ApiErrorPayload | null
+  const requestId = data?.requestId || response.headers.get('X-Request-Id') || undefined
+  if (requestId) lastFailedRequestId.value = requestId
+  if (!data?.error && !requestId && [500, 502, 503, 504].includes(response.status)) {
+    throw new ApiError('无法连接到游戏服务器，请确认 Spring Boot 服务正在运行。', response.status)
+  }
+  const message = data?.code && Object.hasOwn(apiErrorMessages, data.code) ? apiErrorMessages[data.code] : data?.error
+  throw new ApiError(message || `请求失败（${response.status}）`, response.status, data?.code, requestId)
+}
+
+/** 读取普通 API 的 JSON 或空响应。
+ * @param path 相对 API 基址的请求路径
+ * @param init 可选的请求方法、请求头和请求体
+ */
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetchApi(path, init)
   const text = await response.text()
-  let data: unknown = null
-  if (text) {
-    try { data = JSON.parse(text) as unknown } catch { data = text }
+  if (!text) return null as T
+  try { return JSON.parse(text) as T } catch { return text as T }
+}
+
+/** 从日志导出接口下载后端生成的 .log 附件。 */
+export async function downloadLogs(): Promise<void> {
+  const response = await fetchApi('/settings/logs/export')
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const fileName = disposition.match(/filename="?([a-zA-Z0-9.-]+\.log)"?(?:;|$)/i)?.[1]
+  if (!response.headers.get('Content-Type')?.toLowerCase().startsWith('text/plain')) {
+    const requestId = response.headers.get('X-Request-Id') || undefined
+    if (requestId) lastFailedRequestId.value = requestId
+    throw new ApiError('服务器返回的日志格式无效。', response.status, undefined, requestId)
   }
-  if (!response.ok) {
-    const message = typeof data === 'object' && data !== null && 'error' in data
-      ? String((data as ApiErrorPayload).error || '请求失败')
-      : typeof data === 'string' && data ? data : `请求失败（${response.status}）`
-    throw new ApiError(message, response.status)
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName || 'aigame-logs.log'
+  document.body.append(link)
+  try {
+    link.click()
+  } finally {
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  return data as T
 }
 
 function gamePath(gameId: string): string { return `/games/${encodeURIComponent(gameId)}` }

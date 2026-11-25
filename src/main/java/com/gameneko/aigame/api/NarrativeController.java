@@ -1,5 +1,7 @@
 package com.gameneko.aigame.api;
 
+import com.gameneko.aigame.application.GameRequestException;
+
 import com.gameneko.aigame.application.NarrativeApplicationService;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +25,7 @@ public final class NarrativeController {
     @PostMapping("/{gameId}/narration")
     public NarrationHttpResponse narrate(@PathVariable String gameId,
                                          @RequestBody NarrationHttpRequest request) {
-        if (request == null) throw new IllegalArgumentException("Narrative request is required");
+        if (request == null) throw GameRequestException.invalid("Narrative request is required");
         return NarrationHttpResponse.from(narrativeService.narrate(gameId, request.expectedRevision(),
                 request.playerInput(), request.locale(), request.history().stream()
                         .map(message -> new com.gameneko.aigame.narrative.NarrativeRequest.ConversationMessage(message.role(), message.text())).toList()));

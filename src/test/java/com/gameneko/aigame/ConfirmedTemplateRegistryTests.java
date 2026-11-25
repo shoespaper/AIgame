@@ -8,6 +8,7 @@ import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.NarrativePrompt;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 import com.gameneko.aigame.rulesets.ap.ApTemplatePolicy;
@@ -191,7 +192,7 @@ class ConfirmedTemplateRegistryTests {
         Path file = temporary.resolve("registry.json");
         String prior = Files.readString(file);
 
-        assertThrows(IllegalArgumentException.class, () -> registry.confirm("ap-game", book, "ap"));
+        assertThrows(NarrativeProviderException.class, () -> registry.confirm("ap-game", book, "ap"));
         assertEquals(prior, Files.readString(file));
         assertTrue(registry.rules("ap").isMissingNode());
         assertTrue(registry.world("ap-game").isMissingNode());

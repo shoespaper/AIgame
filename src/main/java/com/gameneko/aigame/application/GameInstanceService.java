@@ -101,7 +101,9 @@ public final class GameInstanceService {
             validationSchema = GameInitializationSchemaService.compose(validationSchema, runtime.initializationSchema());
         }
         InitializationSchema.ValidationResult validation = validationSchema.validate(answers);
-        if (!validation.accepted()) throw new IllegalArgumentException("Invalid initialization answers: " + validation.errors());
+        if (!validation.accepted()) {
+            throw new GameRequestException(GameRequestException.Code.INVALID_INITIALIZATION_ANSWERS, "Invalid initialization answers: " + validation.errors());
+        }
         if (confirmedTemplates != null) {
             confirmedTemplates.confirm(gameId, contentCatalog.worldBook(request.worldId()).narrative(), engineId);
             if (runtime != null) runtime = gameEngineFactory.createForGame(engineId, definition, gameId);

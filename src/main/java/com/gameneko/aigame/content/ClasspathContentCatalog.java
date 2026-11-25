@@ -144,7 +144,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
             if (root == null || !root.isObject() || parser.nextToken() != null) throw invalid(id, "definition must contain one JSON object");
             return root;
         } catch (IOException exception) {
-            throw new WorldContentException("Unable to read content: " + id, exception);
+            throw WorldContentException.unavailable("Unable to read content: " + id, exception);
         }
     }
 
@@ -160,7 +160,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 if (!templateId.equals(result.id())) throw invalid(templateId, "template identity mismatch");
                 return result;
             } catch (IOException exception) {
-                throw new WorldContentException("Invalid template: " + templateId, exception);
+                throw WorldContentException.unavailable("Invalid template: " + templateId, exception);
             }
         }
         String resource = TEMPLATE_RESOURCES.get(templateId);
@@ -222,7 +222,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
     }
 
     private static WorldContentException invalid(String worldId, String reason) {
-        return new WorldContentException("Invalid world definition " + worldId + ": " + reason);
+        return WorldContentException.unavailable("Invalid world definition " + worldId + ": " + reason, null);
     }
 
     private static List<String> textArray(JsonNode parent, String field) {

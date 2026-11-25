@@ -20,6 +20,6 @@ public interface GameEngineFactory {
     }
 
     static GameEngineFactory unsupported() {
-        return (engineId, world) -> { throw new IllegalArgumentException("Unsupported game engine: " + engineId); };
+        return (engineId, world) -> { throw new GameRequestException(GameRequestException.Code.UNSUPPORTED_ENGINE, "Unsupported game engine: " + engineId); };
     }
 }

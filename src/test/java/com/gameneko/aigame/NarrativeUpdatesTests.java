@@ -1,5 +1,7 @@
 package com.gameneko.aigame;
 
+import com.gameneko.aigame.narrative.NarrativeProviderException;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.application.*;
@@ -237,8 +239,8 @@ class NarrativeUpdatesTests {
     void updatesRejectInvalidIdentifiersAndExcessiveFields() {
         var updates = new java.util.LinkedHashMap<String, InitializationValue>();
         for (int i = 0; i < 17; i++) updates.put("field" + i, text("值"));
-        assertThrows(IllegalArgumentException.class, () -> response(updates).validateUpdates());
-        assertThrows(IllegalArgumentException.class, () -> response(Map.of("bad-field", text("值"))).validateUpdates());
+        assertThrows(NarrativeProviderException.class, () -> response(updates).validateUpdates());
+        assertThrows(NarrativeProviderException.class, () -> response(Map.of("bad-field", text("值"))).validateUpdates());
     }
 
     /** 创建使用临时目录的真实 JSON 存档适配器。 */

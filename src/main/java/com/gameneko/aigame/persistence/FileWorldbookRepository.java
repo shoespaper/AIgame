@@ -4,13 +4,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.content.WorldbookDefinition;
+import com.gameneko.aigame.application.GameRequestException;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 
@@ -56,7 +59,7 @@ public final class FileWorldbookRepository {
                     .map(path -> path.getFileName().toString().replaceFirst("\\.json$", ""))
                     .sorted().toList();
         } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to list worldbooks", exception);
+            throw new GamePersistenceException("Unable to list worldbooks", exception, "worldbook", null, "list", "list_directory");
         }
     }
 
@@ -66,11 +69,14 @@ public final class FileWorldbookRepository {
      */
     public JsonNode readDocument(String id) {
         Path file = safePath(id);
-        if (!Files.isRegularFile(file)) return null;
+        if (Files.notExists(file)) return null;
+        String stage = "read_file";
         try {
-            return objectMapper.readTree(Files.readString(file));
+            String document = Files.readString(file);
+            stage = "parse_json";
+            return objectMapper.readTree(document);
         } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to read worldbook: " + id, exception);
+            throw new GamePersistenceException("Unable to read worldbook: " + id, exception, "worldbook", id, "read", stage);
         }
     }
 
@@ -88,10 +94,12 @@ public final class FileWorldbookRepository {
     public synchronized void save(WorldbookDefinition worldbook, boolean overwrite) {
         if (worldbook == null) throw new IllegalArgumentException("Worldbook is required");
         Path file = safePath(worldbook.id());
-        if (!overwrite && Files.exists(file)) throw new IllegalArgumentException("Worldbook already exists: " + worldbook.id());
+        if (!overwrite && Files.exists(file)) throw new GameRequestException(GameRequestException.Code.CONTENT_ALREADY_EXISTS, "Worldbook already exists: " + worldbook.id());
         Path temporary = null;
+        String stage = "create_directory";
         try {
             Files.createDirectories(root);
+            stage = "encode_json";
             ObjectNode document = objectMapper.createObjectNode();
             document.set("_meta", objectMapper.valueToTree(Map.of(
                     "version", worldbook.contentVersion(), "worldbook_id", worldbook.id(),
@@ -107,19 +115,20 @@ public final class FileWorldbookRepository {
             setting.set("world_tropes", objectMapper.valueToTree(worldbook.worldTropes()));
             setting.set("adventurer_guild", objectMapper.valueToTree(worldbook.adventurerGuild()));
             document.set("world_setting", setting);
+            String encoded = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(document);
+            stage = "write_temp";
             temporary = Files.createTempFile(root, ".worldbook-", ".tmp");
-            Files.writeString(temporary, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(document));
+            Files.writeString(temporary, encoded);
+            stage = "replace_file";
             try {
-                Files.move(temporary, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
                 Files.move(temporary, file);
             }
-        } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to save worldbook: " + worldbook.id(), exception);
-        } finally {
-            if (temporary != null) {
-                try { Files.deleteIfExists(temporary); } catch (IOException ignored) { /* 不覆盖原始写入异常。 */ }
-            }
+        } catch (IOException | IllegalArgumentException exception) {
+            TemporaryFiles.deleteAfterFailure(temporary, exception);
+            throw new GamePersistenceException("Unable to save worldbook: " + worldbook.id(), exception,
+                    "worldbook", worldbook.id(), "write", stage);
         }
     }
 
@@ -129,9 +138,9 @@ public final class FileWorldbookRepository {
     public synchronized void delete(String id) {
         Path file = safePath(id);
         try {
-            if (!Files.deleteIfExists(file)) throw new IllegalArgumentException("Worldbook not found: " + id);
+            if (!Files.deleteIfExists(file)) throw new GameRequestException(GameRequestException.Code.CONTENT_NOT_FOUND, "Worldbook not found: " + id);
         } catch (IOException exception) {
-            throw new GamePersistenceException("Unable to delete worldbook: " + id, exception);
+            throw new GamePersistenceException("Unable to delete worldbook: " + id, exception, "worldbook", id, "delete", "delete_file");
         }
     }
 
@@ -141,7 +150,7 @@ public final class FileWorldbookRepository {
      */
     private Path safePath(String id) {
         if (id == null || id.isBlank() || !id.matches("[A-Za-z0-9_-]+")) {
-            throw new IllegalArgumentException("Invalid worldbook id");
+            throw GameRequestException.invalid("Invalid worldbook id");
         }
         Path file = root.resolve(id + ".json").normalize();
         if (!file.startsWith(root)) throw new IllegalArgumentException("Invalid worldbook path");

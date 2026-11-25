@@ -3,13 +3,24 @@ package com.gameneko.aigame.narrative;
 import com.gameneko.aigame.application.NarrativeRuntimeSettingsService;
 import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.ActionIntent;
+import com.gameneko.aigame.logging.DiagnosticLog;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.gameneko.aigame.engine.InitializationValue;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.ResourceAccessException;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /** OpenAI Chat Completions 兼容服务的结构化叙事适配器，带瞬时错误重试、截断自动扩容与明确失败。 */
 public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvider {
@@ -44,95 +55,129 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     }
 
     /**
-     * 请求结构化叙事结果，对瞬时错误重试，输出被截断时提高预算重试，最终失败抛出明确异常。
+     * 请求结构化叙事结果，记录每次重试和最终结果。
      * @param prompt 已确认快照、用户输入及叙事约束组成的提示
      */
     @Override
     public NarrativeResponse respond(NarrativePrompt prompt) {
-        NarrativeProviderException failure = null;
         int budget = maxTokens;
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        for (int attempt = 1; ; attempt++) {
+            CallAttempt call = new CallAttempt(attempt, budget, System.nanoTime());
             try {
-                return doRespond(prompt, budget);
-            } catch (TruncatedOutputException exception) {
-                // 截断说明 JSON 未闭合，用相同预算重试必然再次失败，只有在预算确实还能变大时才重试
-                int escalated = Math.min(budget * 2, NarrativeRuntimeSettingsService.MAX_ALLOWED_MAX_TOKENS);
-                if (escalated <= budget || attempt == MAX_ATTEMPTS) {
-                    throw new NarrativeProviderException("模型输出达到 " + budget + " tokens 上限仍被截断："
-                            + exception.getMessage() + "，请提高 maxTokens 配置或缩短叙事提示", false, exception);
-                }
-                budget = escalated;
+                NarrativeResponse result = doRespond(prompt, call);
+                String actionType = result.action() == null ? null : result.action().type();
+                DiagnosticLog.modelAttempt(metrics(call, actionType), "success", null, null);
+                return result;
             } catch (NarrativeProviderException exception) {
-                failure = exception;
-                if (!exception.retryable() || attempt == MAX_ATTEMPTS) break;
-                sleep(backoffMillis(attempt));
+                String reason = exception.reasonCode();
+                boolean truncated = "output_truncated".equals(reason);
+                int nextBudget = truncated
+                        ? Math.min(budget * 2, NarrativeRuntimeSettingsService.MAX_ALLOWED_MAX_TOKENS) : budget;
+                if (attempt < MAX_ATTEMPTS && (exception.retryable() || truncated && nextBudget > budget)) {
+                    long delay = truncated ? 0 : backoffMillis(attempt);
+                    DiagnosticLog.modelAttempt(metrics(call, null), "retry", reason, delay);
+                    if (truncated) DiagnosticLog.modelBudgetChanged(budget, nextBudget);
+                    budget = nextBudget;
+                    if (delay > 0) sleep(delay);
+                    continue;
+                }
+                DiagnosticLog.modelAttempt(metrics(call, null), "failed", reason, null);
+                String message = exception.getMessage();
+                if (truncated) {
+                    message = "模型输出达到 " + budget + " tokens 上限仍被截断：" + message
+                            + "，请提高 maxTokens 配置或缩短叙事提示";
+                } else if (exception.retryable() && attempt > 1) {
+                    message += "（已重试 " + (attempt - 1) + " 次）";
+                }
+                throw new NarrativeProviderException(message, exception.retryable(), exception, reason, call.status);
             }
         }
-        String suffix = failure != null && failure.retryable() ? "（已重试 " + (MAX_ATTEMPTS - 1) + " 次）" : "";
-        throw new NarrativeProviderException(failure == null ? "叙事模型调用失败" : failure.getMessage() + suffix,
-                failure != null && failure.retryable(), failure);
     }
 
-    /**
-     * 执行一次模型调用并解析响应，将各类失败统一转换为可读异常。
-     * @param prompt 叙事提示
-     * @param outputTokens 本次请求允许的最大输出 token 数
+    /** 执行一次模型调用，采集状态和用量，并将响应转换为叙事结果。
+     * @param prompt 本次叙事提示
+     * @param call 本次调用的诊断数据与输出 token 预算
      */
-    private NarrativeResponse doRespond(NarrativePrompt prompt, int outputTokens) {
+    private NarrativeResponse doRespond(NarrativePrompt prompt, CallAttempt call) {
         String userContent;
         try {
-        userContent = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
-        } catch (java.io.IOException exception) {
-            throw new NarrativeProviderException("无法编码叙事请求", false, exception);
+            userContent = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
+        } catch (IOException exception) {
+            throw call.failure("无法编码叙事请求", false, exception, "request_encoding_failed");
         }
-        var request = new ChatRequest(model, List.of(
+        ChatRequest request = new ChatRequest(model, List.of(
                 new ChatMessage("system", prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION),
-                new ChatMessage("user", userContent)), outputTokens,
+                new ChatMessage("user", userContent)), call.budget,
                 NarrativeProviderConfiguration.jsonObjectResponseFormat(objectMapper));
         ChatResponse response;
+        long upstreamStarted = System.nanoTime();
         try {
-            response = client.post().uri("/chat/completions").body(request).retrieve().body(ChatResponse.class);
+            ResponseEntity<ChatResponse> upstream = client.post().uri("/chat/completions").body(request)
+                    .retrieve().toEntity(ChatResponse.class);
+            call.status = upstream.getStatusCode().value();
+            response = upstream.getBody();
         } catch (RestClientResponseException exception) {
-            int status = exception.getStatusCode().value();
-            boolean retryable = status == 429 || status >= 500;
-            throw new NarrativeProviderException("模型服务返回 HTTP " + status + "：" + brief(exception), retryable, exception);
+            call.status = exception.getStatusCode().value();
+            boolean retryable = call.status == 429 || call.status >= 500;
+            throw call.failure("模型服务返回 HTTP " + call.status, retryable, exception,
+                    call.status == 429 ? "rate_limited" : "upstream_http_error");
         } catch (ResourceAccessException exception) {
-            throw new NarrativeProviderException("无法连接模型服务（连接超时或网络不可用）", true, exception);
+            Throwable cause = exception.getMostSpecificCause();
+            boolean timeout = cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException;
+            throw call.failure("无法连接模型服务（连接超时或网络不可用）", true, exception,
+                    timeout ? "timeout" : "connection_failed");
+        } catch (RestClientException exception) {
+            throw call.failure("无法解析模型服务响应", false, exception, "response_decoding_failed");
+        } finally {
+            DiagnosticLog.modelUpstream(call.number, call.status,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - upstreamStarted));
         }
+        if (response != null) call.usage = response.usage();
         if (response == null || response.choices() == null || response.choices().isEmpty()
-                || response.choices().getFirst().message() == null) {
-            throw new NarrativeProviderException("模型服务未返回有效候选结果", false);
+                || response.choices().getFirst() == null || response.choices().getFirst().message() == null) {
+            throw call.failure("模型服务未返回有效候选结果", false, null, "missing_choice");
         }
         Choice choice = response.choices().getFirst();
         if ("length".equals(choice.finish_reason())) {
-            throw new TruncatedOutputException("finish_reason=length，本次请求 max_tokens=" + outputTokens
-                    + "，服务端实际输出 " + completionTokens(response) + " tokens");
+            throw call.failure("finish_reason=length，本次请求 max_tokens=" + call.budget
+                    + "，服务端实际输出 " + completionTokens(response) + " tokens", false, null, "output_truncated");
         }
         if (!"stop".equals(choice.finish_reason())) {
-            throw new NarrativeProviderException("模型未完整生成结果（finish_reason=" + choice.finish_reason() + "）", false);
+            throw call.failure("模型未完整生成结果", false, null, "incomplete_output");
         }
         if (choice.message().refusal() != null && !choice.message().refusal().isBlank()) {
-            throw new NarrativeProviderException("模型拒绝了本次请求", false);
+            throw call.failure("模型拒绝了本次请求", false, null, "model_refusal");
         }
         String content = choice.message().content();
-        if (content == null || content.isBlank()) throw new NarrativeProviderException("模型返回了空内容", false);
+        if (content == null || content.isBlank()) throw call.failure("模型返回了空内容", false, null, "empty_output");
         try {
             return toResponse(readStrict(content));
-        } catch (java.io.IOException | IllegalArgumentException exception) {
-            throw new NarrativeProviderException("模型返回的内容无法解析：" + brief(exception), false, exception);
+        } catch (IOException | IllegalArgumentException exception) {
+            throw call.failure("模型返回的内容无法解析", false, exception, "output_parse_failed");
         }
+    }
+
+    /** 提取允许记录的模型指标。
+     * @param call 单次模型尝试的状态
+     * @param actionType 可空的模型提议动作类型
+     */
+    private DiagnosticLog.ModelAttempt metrics(CallAttempt call, String actionType) {
+        Usage usage = call.usage;
+        return new DiagnosticLog.ModelAttempt(model, call.number, call.status, call.budget,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - call.started),
+                usage == null ? null : usage.prompt_tokens(), usage == null ? null : usage.completion_tokens(), actionType);
     }
 
     /** 解析模型 JSON：剥离代码围栏并截取首个对象，容忍未知字段但拒绝重复键。 */
     /** @param content 模型返回的文本 */
-    WireResponse readStrict(String content) throws java.io.IOException {
+    WireResponse readStrict(String content) throws IOException {
         String json = extractJson(content);
-        try (var parser = objectMapper.getFactory().createParser(json)) {
-            parser.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        try (JsonParser parser = objectMapper.getFactory().createParser(json)) {
+            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
             JsonNode tree = objectMapper.readTree(parser);
             if (tree == null || parser.nextToken() != null) throw new IllegalArgumentException("叙事 JSON 必须且只能包含一个根对象");
             return objectMapper.readerFor(WireResponse.class)
-                    .without(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                     .readValue(tree);
         }
     }
@@ -153,14 +198,6 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         int end = text.lastIndexOf('}');
         if (start < 0 || end < start) return text.trim();
         return text.substring(start, end + 1).trim();
-    }
-
-    /** 返回异常的简短描述，避免把大段响应体暴露给前端。 */
-    /** @param exception 待描述异常 */
-    private static String brief(Throwable exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
-        return message.length() > 200 ? message.substring(0, 200) + "…" : message;
     }
 
     /**
@@ -207,20 +244,39 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         return intent.arguments().stream().map(argument -> new ActionIntent.Argument(argument.name(), argument.value())).toList();
     }
 
-    /**
-     * 模型输出因子句上限被截断时的内部控制异常，仅用于触发提高预算后的重试，不会直接暴露给调用方。
-     */
-    private static final class TruncatedOutputException extends RuntimeException {
-        /**
-         * 创建截断控制异常。
-         * @param message 描述本次截断的预算与实际用量
+    /** 保存一次模型调用的预算、计时与可用的上游元数据。 */
+    private static final class CallAttempt {
+        private final int number;
+        private final int budget;
+        private final long started;
+        private Integer status;
+        private Usage usage;
+
+        /** 创建一次模型调用的诊断状态。
+         * @param number 从 1 开始的调用次数
+         * @param budget 本次调用的输出 token 上限
+         * @param started 本次调用开始时的单调时钟纳秒数
          */
-        TruncatedOutputException(String message) { super(message); }
+        private CallAttempt(int number, int budget, long started) {
+            this.number = number;
+            this.budget = budget;
+            this.started = started;
+        }
+
+        /** 创建携带本次调用状态的叙事异常。
+         * @param message 用户可读的错误提示
+         * @param retryable 是否允许退避重试
+         * @param cause 底层异常，可为空
+         * @param reason 稳定的失败原因码
+         */
+        private NarrativeProviderException failure(String message, boolean retryable, Throwable cause, String reason) {
+            return new NarrativeProviderException(message, retryable, cause, reason, status);
+        }
     }
 
     /** 模型调用中的用户文本与只读世界快照。 */
     private record UserInput(String playerInput, String locale, NarrativeSnapshot confirmedSnapshot,
-                             java.util.List<NarrativeRequest.ConversationMessage> history) {}
+                             List<NarrativeRequest.ConversationMessage> history) {}
     /** Chat Completions 请求体。 */
     private record ChatRequest(String model, List<ChatMessage> messages, int max_tokens, JsonNode response_format) {}
     /** Chat Completions 消息。 */
@@ -235,9 +291,9 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     private record CompletionMessage(String content, String refusal) {}
     /** 结构化输出的根 DTO。 */
     record WireResponse(String narration, IntentWire action, List<String> options,
-                        java.util.Map<String, com.gameneko.aigame.engine.InitializationValue> updates) {}
+                        Map<String, InitializationValue> updates) {}
     /** 引擎中立的行动意图。 */
     private record IntentWire(String type, String target, List<ArgumentWire> arguments) {}
     /** 行动意图中的类型化参数。 */
-    private record ArgumentWire(String name, com.gameneko.aigame.engine.InitializationValue value) {}
+    private record ArgumentWire(String name, InitializationValue value) {}
 }

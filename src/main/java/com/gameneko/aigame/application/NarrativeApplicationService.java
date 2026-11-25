@@ -116,8 +116,8 @@ public final class NarrativeApplicationService {
      * @param expectedRevision 客户端观察到的权威修订号
      */
     private GameInstance<?> load(String gameId, long expectedRevision) {
-        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new IllegalArgumentException("Save not found: " + gameId));
-        if (expectedRevision != loaded.revision()) throw new IllegalArgumentException("Revision mismatch: expected " + expectedRevision + ", current " + loaded.revision());
+        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
+        GameRequestException.checkRevision(loaded, expectedRevision, null);
         return loaded;
     }
 

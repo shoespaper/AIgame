@@ -96,6 +96,55 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .onboarding-nav nav button, .onboarding-nav nav .active { border: 0; padding: 0; color: inherit; background: transparent; }
 .onboarding-nav nav button:hover { color: var(--accent-strong); }
 .onboarding-nav nav .active { color: var(--text); font-weight: 600; }
+
+.nav-settings { position: relative; }
+.nav-settings-options {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 5;
+  min-width: 124px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.onboarding-nav nav .nav-settings-options button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  text-align: left;
+  white-space: nowrap;
+}
+.onboarding-nav nav .nav-settings-options button:focus-visible,
+.onboarding-nav nav .nav-settings-options button:hover {
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+.onboarding-nav nav .nav-settings-options button:disabled { opacity: .65; }
+.nav-export-error { margin: 0 0 12px; }
+.request-diagnostic {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+.request-diagnostic input {
+  width: min(100%, 29ch);
+  padding: 5px 8px;
+  font-family: ui-monospace, monospace;
+}
+.request-diagnostic .quiet-button { min-height: 30px; padding: 0 8px; }
 .onboarding-status { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .onboarding-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); }
 .onboarding-card { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }

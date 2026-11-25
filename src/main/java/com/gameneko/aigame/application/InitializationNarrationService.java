@@ -9,6 +9,7 @@ import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.NarrativePrompt;
 import com.gameneko.aigame.narrative.NarrativeRequest;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.narrative.NarrativeSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,7 +81,7 @@ public final class InitializationNarrationService {
      */
     public Turn answer(Session session, String input) {
         if (session == null) throw new IllegalArgumentException("Initialization session is required");
-        if (input == null || input.isBlank()) throw new IllegalArgumentException("Initialization answer is required");
+        if (input == null || input.isBlank()) throw GameRequestException.invalid("Initialization answer is required");
         if (session.done) return session.turn;
         return respond(session, input.trim());
     }
@@ -98,7 +99,7 @@ public final class InitializationNarrationService {
      * @return 只包含世界书所属世界字段的请求
      */
     public InitializeWorldRequest request(Session session) {
-        if (!ready(session)) throw new IllegalArgumentException("Initialization confirmation is required");
+        if (!ready(session)) throw GameRequestException.invalid("Initialization confirmation is required");
         return new InitializeWorldRequest(session.selection.worldId(), text(session.worldValues, "name"),
                 text(session.worldValues, "description"), text(session.worldValues, "location"),
                 text(session.worldValues, "region"), text(session.worldValues, "time"),
@@ -110,7 +111,7 @@ public final class InitializationNarrationService {
      * @return 世界书和可选引擎共享的类型化初始化字段
      */
     public Map<String, InitializationValue> answers(Session session) {
-        if (!ready(session)) throw new IllegalArgumentException("Initialization confirmation is required");
+        if (!ready(session)) throw GameRequestException.invalid("Initialization confirmation is required");
         return Map.copyOf(allAnswers(session));
     }
 
@@ -283,7 +284,7 @@ public final class InitializationNarrationService {
     private static void validate(NarrativeResponse response) {
         if (response == null || response.action() != null || response.narration().length() > 6000 || response.options().size() > 6
                 || response.options().stream().anyMatch(option -> option == null || option.isBlank() || option.length() > 40)) {
-            throw new IllegalArgumentException("Invalid initialization narrative response");
+            throw NarrativeProviderException.invalidOutput("Invalid initialization narrative response", null);
         }
         response.validateUpdates();
     }

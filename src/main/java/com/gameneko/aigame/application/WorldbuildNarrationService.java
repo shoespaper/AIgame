@@ -57,7 +57,7 @@ public final class WorldbuildNarrationService {
      */
     public Turn answer(Session session, String input) {
         if (session == null) throw new IllegalArgumentException("Worldbuild session is required");
-        if (input == null || input.isBlank() || input.length() > 8000) throw new IllegalArgumentException("Worldbuild answer must contain 1 to 8000 characters");
+        if (input == null || input.isBlank() || input.length() > 8000) throw GameRequestException.invalid("Worldbuild answer must contain 1 to 8000 characters");
         synchronized (session) {
             Session next = session.copy();
             Turn turn = respond(next, input.trim(), false);
@@ -83,7 +83,7 @@ public final class WorldbuildNarrationService {
         NarrativeResponse response = provider.respond(new NarrativePrompt(context, input,
                 new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null,
                         "Dormant", List.of(), List.of(), List.of()), null, List.of()), "zh-CN"));
-        if (response == null || response.narration().length() > 6000) throw new IllegalArgumentException("Invalid worldbuild response");
+        if (response == null || response.narration().length() > 6000) throw NarrativeProviderException.invalidOutput("Invalid worldbuild response", null);
         response.validateUpdates();
         if (!opening) {
             String currentField = ORDER.stream().filter(id -> !session.values.containsKey(id)
@@ -212,7 +212,7 @@ public final class WorldbuildNarrationService {
      */
     private String json(Object value) {
         try { return mapper.writeValueAsString(value); }
-        catch (java.io.IOException exception) { throw new IllegalArgumentException("Invalid worldbuild context", exception); }
+        catch (java.io.IOException exception) { throw new IllegalStateException("Unable to encode worldbuild context", exception); }
     }
 
     /** 保存尚未落盘的世界构建会话。 */

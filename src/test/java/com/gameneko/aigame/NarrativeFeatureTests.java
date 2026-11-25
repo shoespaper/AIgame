@@ -1,5 +1,7 @@
 package com.gameneko.aigame;
 
+import com.gameneko.aigame.narrative.NarrativeProviderException;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
 import com.gameneko.aigame.engine.ActionIntent;
@@ -38,7 +40,7 @@ class NarrativeFeatureTests {
         var actions = engine.supportedActions();
         var service = new DefaultNarrationService(prompt -> new NarrativeResponse(
                 "就绪。", new ActionIntent("socialize", "", List.of()), List.of("继续前进")));
-        assertThrows(IllegalArgumentException.class, () -> service.narrate(request(), actions));
+        assertThrows(NarrativeProviderException.class, () -> service.narrate(request(), actions));
     }
 
     @Test

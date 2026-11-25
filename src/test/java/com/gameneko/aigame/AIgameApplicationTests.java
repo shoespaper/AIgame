@@ -150,7 +150,8 @@ class AIgameApplicationTests {
         mockMvc.perform(post("/api/games/stale/save")
                         .contentType(APPLICATION_JSON)
                         .content("{\"expectedRevision\":1}"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("REVISION_MISMATCH"))
                 .andExpect(jsonPath("$.error").value("Revision mismatch: expected 1, current 0"));
     }
 

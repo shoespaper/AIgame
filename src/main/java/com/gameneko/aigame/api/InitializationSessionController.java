@@ -1,5 +1,7 @@
 package com.gameneko.aigame.api;
 
+import com.gameneko.aigame.application.GameRequestException;
+
 import com.gameneko.aigame.application.GameInstanceService;
 import com.gameneko.aigame.application.GameSaveService;
 import com.gameneko.aigame.application.InitializeWorldRequest;
@@ -48,7 +50,7 @@ public final class InitializationSessionController {
      */
     @PostMapping
     public SessionResponse create(@RequestBody SelectionRequest request) {
-        if (request == null) throw new IllegalArgumentException("Selection is required");
+        if (request == null) throw GameRequestException.invalid("Selection is required");
         var selection = new GameSelection(request.worldId(), request.engineId());
         String id = UUID.randomUUID().toString();
         var session = narration.session(id, selection);
@@ -63,7 +65,7 @@ public final class InitializationSessionController {
      */
     @PostMapping("/{id}/answer")
     public AnswerResponse answer(@PathVariable String id, @RequestBody AnswerRequest request) {
-        if (request == null) throw new IllegalArgumentException("Answer is required");
+        if (request == null) throw GameRequestException.invalid("Answer is required");
         var session = require(id);
         var turn = narration.answer(session, request.answer());
         return new AnswerResponse(turn.done(), turn);
@@ -74,7 +76,7 @@ public final class InitializationSessionController {
     @PostMapping("/{id}/finalize")
     public FinalizeResponse finalizeSession(@PathVariable String id) {
         var session = require(id);
-        if (!narration.ready(session)) throw new IllegalArgumentException("Initialization confirmation is required");
+        if (!narration.ready(session)) throw GameRequestException.invalid("Initialization confirmation is required");
         String gameId = "game-" + UUID.randomUUID().toString().substring(0, 8);
         InitializeWorldRequest request = narration.request(session);
         var instance = instances.initialize(gameId, request, session.selection().engineId(), narration.answers(session));
@@ -90,7 +92,7 @@ public final class InitializationSessionController {
      */
     private InitializationNarrationService.Session require(String id) {
         var session = sessions.get(id);
-        if (session == null) throw new IllegalArgumentException("Initialization session not found: " + id);
+        if (session == null) throw new GameRequestException(GameRequestException.Code.SESSION_NOT_FOUND, "Initialization session not found: " + id);
         return session;
     }
 

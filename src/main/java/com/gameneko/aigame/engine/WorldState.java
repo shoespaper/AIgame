@@ -153,8 +153,8 @@ public record WorldState(
      */
     public WorldState schedule(TimedEvent event) {
         var next = new java.util.ArrayList<>(deadlineEvents);
-        if (next.stream().anyMatch(value -> value.id().equals(event.id()))) throw new IllegalArgumentException("Timed event already exists");
-        if (event.status() != TimedEvent.Status.ACTIVE || event.registeredDay() > day) throw new IllegalArgumentException("Timed event must be active and registered no later than today");
+        if (next.stream().anyMatch(value -> value.id().equals(event.id()))) throw new WorldActionRejected("Timed event already exists");
+        if (event.status() != TimedEvent.Status.ACTIVE || event.registeredDay() > day) throw new WorldActionRejected("Timed event must be active and registered no later than today");
         next.add(event);
         return withTyped(next, worldEvents, activePriceModifiers, activeEffects);
     }
@@ -175,9 +175,19 @@ public record WorldState(
      * @param outcome 事件解决结果
      */
     public WorldState resolveTimedEvent(String eventId, String outcome) {
-        if (deadlineEvents.stream().noneMatch(event -> event.id().equals(eventId) && event.status() == TimedEvent.Status.ACTIVE)) throw new IllegalArgumentException("Active timed event not found");
+        if (deadlineEvents.stream().noneMatch(event -> event.id().equals(eventId) && event.status() == TimedEvent.Status.ACTIVE)) throw new WorldActionRejected("Active timed event not found");
         var next = deadlineEvents.stream().map(event -> event.id().equals(eventId) ? event.resolve(day, outcome) : event).toList();
         return withTyped(next, worldEvents, activePriceModifiers, activeEffects);
+    }
+
+    /** 表示当前世界状态拒绝玩家提交的世界动作。 */
+    public static final class WorldActionRejected extends IllegalArgumentException {
+        /** 创建世界动作拒绝。
+         * @param message 可反馈给玩家的拒绝原因
+         */
+        private WorldActionRejected(String message) {
+            super(message);
+        }
     }
 
     /** 依次应用全局和分类价格百分比计算最终价格。

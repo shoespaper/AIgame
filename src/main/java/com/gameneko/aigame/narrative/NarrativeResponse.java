@@ -47,15 +47,15 @@ public record NarrativeResponse(String narration, ActionIntent action, List<Stri
 
     /** 校验声明数量、标识符及四种有限值类型，防止无界或无效输出。 */
     public void validateUpdates() {
-        if (updates.size() > 16) throw new IllegalArgumentException("Too many narrative updates");
+        if (updates.size() > 16) throw NarrativeProviderException.invalidOutput("Too many narrative updates", null);
         updates.forEach((field, value) -> {
-            if (!field.matches("[a-zA-Z][a-zA-Z0-9_]{0,63}")) throw new IllegalArgumentException("Invalid update field");
+            if (!field.matches("[a-zA-Z][a-zA-Z0-9_]{0,63}")) throw NarrativeProviderException.invalidOutput("Invalid update field", null);
             if (!(value instanceof InitializationValue.Text || value instanceof InitializationValue.IntegerNumber
                     || value instanceof InitializationValue.DecimalNumber || value instanceof InitializationValue.Flag)) {
-                throw new IllegalArgumentException("Invalid update value type");
+                throw NarrativeProviderException.invalidOutput("Invalid update value type", null);
             }
             if (value instanceof InitializationValue.Text text && text.value().length() > 8000) {
-                throw new IllegalArgumentException("Update text too long");
+                throw NarrativeProviderException.invalidOutput("Update text too long", null);
             }
         });
     }

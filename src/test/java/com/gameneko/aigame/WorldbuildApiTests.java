@@ -24,6 +24,7 @@ class WorldbuildApiTests {
         ObjectMapper mapper = new ObjectMapper();
         var service = new WorldbuildNarrationService(prompt -> {
             String input = prompt.userInput();
+            if (input.contains("触发内部错误")) throw new IllegalArgumentException("internal provider detail");
             if (input.contains("异世界")) return response(update("type", "isekai"));
             if (input.contains("改名")) return response(update("name", "灰烬王座"));
             if (input.contains("双月")) return response(update("name", "双月世界"));
@@ -46,9 +47,13 @@ class WorldbuildApiTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.done").value(true))
                 .andExpect(jsonPath("$.turn.collected.name").value("灰烬王座"));
         mvc.perform(post("/api/initialization/worldbuild/sessions/missing/answer").contentType(APPLICATION_JSON).content("{\"answer\":\"异世界\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
         mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\" \"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mvc.perform(post(answerUrl).contentType(APPLICATION_JSON).content("{\"answer\":\"触发内部错误\"}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.error").value("Internal server error"));
     }
 
     /** 创建一个类型化确定字段声明。

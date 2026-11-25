@@ -109,11 +109,11 @@ public final class DefaultNarrationService implements NarrationService {
      * @param engineActions 引擎动作清单，用于校验 action.type 是否可执行
      */
     private static void validate(NarrativeResponse response, List<SupportedAction> engineActions) {
-        if (response == null) throw new IllegalArgumentException("叙事响应不能为空");
-        if (response.narration().isBlank() || response.narration().length() > 6000) throw new IllegalArgumentException("叙述文本长度无效");
-        if (response.options().isEmpty()) throw new IllegalArgumentException("叙事响应缺少候选行动");
+        if (response == null) throw NarrativeProviderException.invalidOutput("叙事响应不能为空", null);
+        if (response.narration().isBlank() || response.narration().length() > 6000) throw NarrativeProviderException.invalidOutput("叙述文本长度无效", null);
+        if (response.options().isEmpty()) throw NarrativeProviderException.invalidOutput("叙事响应缺少候选行动", null);
         if (response.options().size() > 4 || response.options().stream().anyMatch(option -> option == null || option.isBlank() || option.length() > 12)) {
-            throw new IllegalArgumentException("候选行动字段无效");
+            throw NarrativeProviderException.invalidOutput("候选行动字段无效", null);
         }
         response.validateUpdates();
         if (response.action() != null) validateAction(response.action(), engineActions);
@@ -122,15 +122,15 @@ public final class DefaultNarrationService implements NarrationService {
     /** 校验引擎调用意图：type 必须在当前引擎动作清单内，参数名与取值类型合法。 */
     /** @param intent 待校验的行动意图 @param engineActions 引擎动作清单 */
     private static void validateAction(ActionIntent intent, List<SupportedAction> engineActions) {
-        if (!identifier(intent.type(), 64)) throw new IllegalArgumentException("行动意图类型无效");
+        if (!identifier(intent.type(), 64)) throw NarrativeProviderException.invalidOutput("行动意图类型无效", null);
         Set<String> allowed = engineActions == null ? Set.of()
                 : engineActions.stream().map(SupportedAction::type).collect(Collectors.toSet());
-        if (!allowed.contains(intent.type())) throw new IllegalArgumentException("Unsupported engine action: " + intent.type());
-        if (intent.target().length() > 256 || intent.arguments().size() > 32) throw new IllegalArgumentException("行动意图无效");
+        if (!allowed.contains(intent.type())) throw NarrativeProviderException.invalidOutput("Unsupported engine action: " + intent.type(), null);
+        if (intent.target().length() > 256 || intent.arguments().size() > 32) throw NarrativeProviderException.invalidOutput("行动意图无效", null);
         intent.arguments().forEach(argument -> {
-            if (!identifier(argument.name(), 64)) throw new IllegalArgumentException("行动参数名无效");
+            if (!identifier(argument.name(), 64)) throw NarrativeProviderException.invalidOutput("行动参数名无效", null);
             if (argument.value() instanceof com.gameneko.aigame.engine.InitializationValue.Text text
-                    && text.value().length() > 1000) throw new IllegalArgumentException("行动文本参数过长");
+                    && text.value().length() > 1000) throw NarrativeProviderException.invalidOutput("行动文本参数过长", null);
         });
     }
 

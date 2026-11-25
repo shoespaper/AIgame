@@ -33,8 +33,8 @@ public final class NarrativeRuntimeSettingsService {
     }
     /** 校验并持久化运行时配置。 @param settings 用户提交的模型配置 */
     public Settings write(Settings settings) {
-        if (settings == null) throw new IllegalArgumentException("settings is required");
-        if (settings.enabled() && settings.apiKey().isBlank()) throw new IllegalArgumentException("API key is required when external model is enabled");
+        if (settings == null) throw GameRequestException.invalid("settings is required");
+        if (settings.enabled() && settings.apiKey().isBlank()) throw GameRequestException.invalid("API key is required when external model is enabled");
         try { Files.createDirectories(path.getParent()); Files.writeString(path, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(settings)); return settings; }
         catch (IOException exception) { throw new IllegalStateException("Unable to write narrative settings", exception); }
     }

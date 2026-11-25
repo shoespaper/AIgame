@@ -1,5 +1,7 @@
 package com.gameneko.aigame.api;
 
+import com.gameneko.aigame.application.GameRequestException;
+
 import com.gameneko.aigame.application.GameInstanceService;
 import com.gameneko.aigame.application.GameSaveService;
 import com.gameneko.aigame.application.InitializeWorldRequest;
@@ -38,7 +40,7 @@ public final class WorldInitializationController {
      */
     @PostMapping("/worlds/initialize")
     public WorldInitializationResponse initializeWorld(@RequestBody InitializeWorldRequest request) {
-        if (request == null || request.worldId() == null) throw new IllegalArgumentException("worldId is required");
+        if (request == null || request.worldId() == null) throw GameRequestException.invalid("worldId is required");
         return WorldInitializationResponse.from(worlds.initialize(request));
     }
 
@@ -49,7 +51,7 @@ public final class WorldInitializationController {
      */
     @PostMapping("/games/{gameId}/initialize")
     public GameInstanceResponse initializeGame(@PathVariable String gameId, @RequestBody GameInitializationRequest request) {
-        if (request == null || request.worldId() == null) throw new IllegalArgumentException("worldId is required");
+        if (request == null || request.worldId() == null) throw GameRequestException.invalid("worldId is required");
         var world = request.worldRequest();
         var instance = instances.initializeWithDefaults(gameId, world, request.engineId(),
                 request.answers() == null ? Map.of() : request.answers());

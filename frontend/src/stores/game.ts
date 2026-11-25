@@ -133,7 +133,7 @@ export const useGameStore = defineStore('game', {
         await saveGame(this.game.gameId, this.game.revision)
         this.notice = '存档已确认。'
         this.events.push(event('system', '存档完成', `修订号 ${this.game.revision} 已写入服务器。`))
-      } catch (cause) { if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(this.game.gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '保存失败'; throw cause
+      } catch (cause) { if (cause instanceof ApiError && cause.code === 'REVISION_MISMATCH') { await this.load(this.game.gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '保存失败'; throw cause
       } finally { this.saving = false }
     },
     /** 将自由输入交给 GM 叙事接口；服务端可能返回纯叙事或附带一次引擎结算。 */
@@ -153,7 +153,7 @@ export const useGameStore = defineStore('game', {
         result.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
         return result
       }
-      catch (cause) { this.conversation = transcript; if (cause instanceof ApiError && cause.message.toLowerCase().includes('revision mismatch')) { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
+      catch (cause) { this.conversation = transcript; if (cause instanceof ApiError && cause.code === 'REVISION_MISMATCH') { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
       finally { this.acting = false }
     },
     reset() { this.game = null; this.events = []; this.narration = null; this.conversation = []; this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []; this.clearMessages() },

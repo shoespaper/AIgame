@@ -42,7 +42,8 @@ export interface NarrativeResponse { game: GameInstanceResponse; narration: stri
 export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; threatLevel: string; threatCounter: number; threatInterval: number; threatHistory: string[]; timedEvents: string[]; incidentalEvents: string[]; lastTickDay: number; crisisTriggered: boolean; mainPlotStage: number; mainPlotStages: string[]; priceModifiers: Record<string, number>; originScene: string }
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; rulesetState: { [key: string]: JsonValue } | null }
-export interface ApiErrorPayload { error?: string }
+/** 后端错误响应的提示、稳定错误码和可选请求 ID。 */
+export interface ApiErrorPayload { error?: string; code?: string; requestId?: string }
 export interface NarrativeSettings { apiKey: string; enabled: boolean; baseUrl: string; model: string; maxTokens: number }
 export interface SaveMetadata { gameId: string; worldId: string; engineId: string | null; day: number; revision: number; updatedAt: string }
 export interface InitializationQuestion { fieldId: string; prompt: string; options: string[] }

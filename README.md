@@ -53,17 +53,17 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 
 ## 自定义世界与模板
 
-创建新冒险的第一步可选择「自定义世界」，与 GM 对话确认类型、背景、名称、规则、势力和故事基调。类型匹配时复用已有模板；也可通过「优先复用模板」选择已保存的自定义模板。没有匹配模板的类型从空白设定开始，可使用纯叙事模式。
+创建新冒险时可选择「自定义世界」，与 GM 对话确认类型、背景、名称、规则、势力和故事基调。世界书保存后可选择纯叙事或 AP，再完成角色初始化。
 
-对话完成后，「保存为模板」将完整机制骨架、type、tags 和本次世界配置的创建默认值写入模板库，保留当前页面；「下一步」保存独立世界书并进入规则选择，再进入原有角色初始化。世界书背景、势力、规则和故事基调也会传给角色创建及后续叙事。
+确认开局时，服务端按世界书引用的模板 ID 精确匹配。世界书未指定模板时，使用世界类型作为模板 ID。已登记的素材及规则可跨局复用，所选引擎缺少引用或规则时才生成补充提案。纯叙事模式只使用叙事素材。
 
-内置内容分别位于 `src/main/resources/world/templates/isekai.json` 和 `src/main/resources/world/worldbooks/cinder_continent.json`；用户内容保存至 `data/templates/` 和 `data/worldbooks/`，目录会合并两处内容。`aigame.content.root` 可覆盖用户内容根目录。旧 `isekai_grey` 标识仍用于读取既有存档，新建目录展示「残烬大陆」（`cinder_continent`）。
+内置世界模板、世界书和 AP 预置规则分别位于 `src/main/resources/world/templates/isekai.json`、`src/main/resources/world/worldbooks/cinder_continent.json` 和 `src/main/resources/rulesets/ap/template-rules.json`。用户模板、世界书和开局确认的模板目录分别写入 `data/templates/`、`data/worldbooks/` 和 `data/confirmed-templates/registry.json`。`aigame.content.root` 可覆盖用户内容根目录。
 
 新增接口：
 
-- `POST /api/initialization/worldbuild/sessions`：创建 AI 世界构建会话，可选 `{ "templateId": "..." }`。
+- `POST /api/initialization/worldbuild/sessions` 创建 AI 世界构建会话。
 - `POST /api/initialization/worldbuild/sessions/{id}/answer`：提交 `{ "answer": "..." }`，返回结构化配置和 `done`。
-- `POST /api/games/initialization/templates`：保存完整模板，返回 `templateId`。
+- `POST /api/games/initialization/templates` 保存模板，接收 `id`、`name`、`type`、`tags` 和可选的 `baseTemplateId`，返回 `templateId`。
 - `POST /api/games/initialization/worldbooks`：保存世界书实例，返回后续角色初始化使用的 `worldbookId`。
 
 ## 叙事边界

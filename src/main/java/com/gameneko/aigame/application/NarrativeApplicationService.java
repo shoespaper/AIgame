@@ -7,6 +7,8 @@ import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.SupportedAction;
 import com.gameneko.aigame.narrative.NarrativeRequest;
 import com.gameneko.aigame.narrative.NarrativeResponse;
+import com.gameneko.aigame.narrative.NarrativeSnapshot;
+import com.gameneko.aigame.narrative.NarrativeSnapshot.ConfirmedEvent;
 import com.gameneko.aigame.narrative.NarrativeSnapshotFactory;
 import com.gameneko.aigame.narrative.NarrationService;
 import org.springframework.stereotype.Service;
@@ -63,36 +65,46 @@ public final class NarrativeApplicationService {
     public NarratedTurn narrate(String gameId, long expectedRevision, String playerInput, String locale,
                                 List<NarrativeRequest.ConversationMessage> history) {
         GameInstance<?> instance = load(gameId, expectedRevision);
-        var snapshot = NarrativeSnapshotFactory.from(instance, List.of(), instance.worldState().worldEvents(), projection(instance))
-                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
-                .withMaterials(templates == null ? null : templates.world(instance.gameId()));
-        var response = narrationService.narrate(new NarrativeRequest(gameId, expectedRevision, playerInput, locale, snapshot, history),
+        NarrativeResponse response = narrationService.narrate(
+                new NarrativeRequest(gameId, expectedRevision, playerInput, locale, snapshot(instance), history),
                 supportedActions(instance));
-        return settle(instance, response);
-    }
-
-    /** 生成游戏开局的首段叙事；action 非空时结算并持久化。 */
-    /** @param gameId 当前游戏标识 */
-    /** @param revision 保存版本 */
-    /** @param locale 叙事语言标识 */
-    public NarratedTurn opening(String gameId, long revision, String locale) {
-        GameInstance<?> instance = load(gameId, revision);
-        var snapshot = NarrativeSnapshotFactory.from(instance, List.of(), instance.worldState().worldEvents(), projection(instance))
-                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
-                .withMaterials(templates == null ? null : templates.world(instance.gameId()));
-        var response = narrationService.opening(new NarrativeRequest(gameId, revision, "", locale, snapshot),
-                supportedActions(instance));
-        return settle(instance, response);
-    }
-
-    /** 合并模型世界声明与可空引擎动作，返回最新权威实例和确认事件。 */
-    /** @param instance 结算前的权威游戏实例 @param response 模型叙事响应 */
-    private NarratedTurn settle(GameInstance<?> instance, NarrativeResponse response) {
         if (response.action() == null && response.updates().isEmpty()) {
             return new NarratedTurn(instance, response.narration(), response.options(), List.of());
         }
-        var applied = gameActionService.applyNarrativeTurn(instance.gameId(), instance.revision(), response.action(), response.updates());
-        var confirmed = NarrativeSnapshotFactory.fromConfirmed(applied.instance(), applied.events(),
+        GameActionService.AppliedAction applied = gameActionService.applyNarrativeTurn(
+                instance.gameId(), instance.revision(), response.action(), response.updates());
+        return toTurn(applied, response);
+    }
+
+    /** 在尚未存档的初始实例上生成并结算开场，返回可一次性持久化的结果。
+     * @param instance 按确认答案建立的初始游戏实例
+     * @param locale 开场叙事语言标识
+     */
+    public NarratedTurn prepareOpening(GameInstance<?> instance, String locale) {
+        NarrativeResponse response = narrationService.opening(
+                new NarrativeRequest(instance.gameId(), instance.revision(), "", locale, snapshot(instance)), supportedActions(instance));
+        if (response.action() == null && response.updates().isEmpty()) {
+            return new NarratedTurn(instance, response.narration(), response.options(), List.of());
+        }
+        GameActionService.AppliedAction applied = gameActionService.resolveNarrativeTurn(instance, response.action(), response.updates());
+        return toTurn(applied, response);
+    }
+
+    /** 将权威实例、世界书和已登记素材转换为只读的模型快照。
+     * @param instance 当前权威游戏实例
+     */
+    private NarrativeSnapshot snapshot(GameInstance<?> instance) {
+        return NarrativeSnapshotFactory.from(instance, List.of(), instance.worldState().worldEvents(), projection(instance))
+                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
+                .withMaterials(templates == null ? null : templates.world(instance.gameId()));
+    }
+
+    /** 将已结算的动作和模型响应组合成可返回的叙事回合。
+     * @param applied 结算后的权威实例及确认事件
+     * @param response 模型生成的叙事文本与候选动作
+     */
+    private NarratedTurn toTurn(GameActionService.AppliedAction applied, NarrativeResponse response) {
+        List<ConfirmedEvent> confirmed = NarrativeSnapshotFactory.fromConfirmed(applied.instance(), applied.events(),
                 applied.worldEvents(), projection(applied.instance())).confirmedEvents();
         return new NarratedTurn(applied.instance(), response.narration(), response.options(), confirmed);
     }
@@ -103,7 +115,7 @@ public final class NarrativeApplicationService {
     /** @param options 引导玩家下一步的纯文本候选行动 */
     /** @param confirmedEvents 本次引擎与世界层确认事件 */
     public record NarratedTurn(GameInstance<?> instance, String narration, List<String> options,
-                               List<com.gameneko.aigame.narrative.NarrativeSnapshot.ConfirmedEvent> confirmedEvents) {
+                               List<ConfirmedEvent> confirmedEvents) {
         /** 复制选项和确认事件，保持返回快照不可变。 */
         public NarratedTurn {
             options = List.copyOf(options);

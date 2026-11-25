@@ -12,6 +12,7 @@ import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver;
 import com.gameneko.aigame.narrative.*;
 import com.gameneko.aigame.persistence.FileGameRepository;
+import com.gameneko.aigame.persistence.GamePersistenceException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -21,6 +22,12 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -63,20 +70,67 @@ class NarrativeUpdatesTests {
     @Test
     void invalidFieldsAreIgnoredIndependentlyAndOpeningCanSetLocation() {
         var repository = repository();
-        var world = new WorldInitializationService(catalog).initialize("isekai_grey");
-        repository.save(GameInstance.narrativeOnly("opening", world));
+        WorldState world = new WorldInitializationService(catalog).initialize("isekai_grey");
+        GameInstance<?> initial = GameInstance.narrativeOnly("opening", world);
         var responses = new ArrayDeque<>(List.of(
                 response(Map.of("location", text("石桥镇"), "region", text("town"))),
                 response(Map.of("region", text("石桥镇"), "weather", text("雨"), "season", text("冬"),
                         "unknown", text("无效")))));
         var service = service(repository, responses);
-        var opening = service.opening("opening", 0, "zh-CN");
+        NarrativeApplicationService.NarratedTurn opening = service.prepareOpening(initial, "zh-CN");
         assertEquals(1, opening.instance().revision());
         assertEquals(List.of("石桥镇"), opening.instance().worldState().visitedLocations());
+        assertTrue(repository.load("opening").isEmpty());
+        repository.save(opening.instance());
         var turn = service.narrate("opening", 1, "观察", "zh-CN");
         assertEquals(opening.instance(), turn.instance());
         assertEquals("town", turn.instance().worldState().currentRegion());
         assertEquals(opening.instance().worldState(), turn.instance().worldState());
+    }
+
+    /** 验证开场和首次写档分别失败后，同一会话可以恢复，且并发确认只提交一次。
+     * @throws Exception 并发确认没有在测试时限内完成
+     */
+    @Test
+    void initializationRetriesOpeningThenSaveWithoutCreatingDuplicateGames() throws Exception {
+        CountingRepository repository = new CountingRepository(null);
+        AtomicInteger openingCalls = new AtomicInteger();
+        InitializationNarrationService interview = new InitializationNarrationService(prompt -> response(Map.of(
+                "characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(19))),
+                new GameInitializationSchemaService(catalog, engines), catalog);
+        NarrativeApplicationService narratives = new NarrativeApplicationService(repository, catalog,
+                new DefaultNarrationService(prompt -> {
+                    if (openingCalls.incrementAndGet() == 1) throw new NarrativeProviderException("模型暂时不可用", true);
+                    return response(Map.of("location", text("石桥镇"), "region", text("town")));
+                }), new GameActionService(repository, catalog, engines));
+        GameInitializationFlow flow = new GameInitializationFlow(interview,
+                new GameInstanceService(new WorldInitializationService(catalog), catalog, engines),
+                narratives, new GameSaveService(repository));
+        GameInitializationFlow.StartedSession started = flow.start(new GameSelection("isekai_grey", null));
+        assertTrue(started.turn().done());
+
+        assertThrows(NarrativeProviderException.class, () -> flow.confirm(started.id()));
+        assertEquals(0, repository.writes);
+        assertNull(repository.lastAttempt);
+
+        repository.failNextSave = true;
+        assertThrows(GamePersistenceException.class, () -> flow.confirm(started.id()));
+        assertEquals(0, repository.writes);
+        GameInstance<?> prepared = repository.lastAttempt;
+        assertEquals(1, prepared.revision());
+
+        Callable<NarrativeApplicationService.NarratedTurn> confirm = () -> flow.confirm(started.id());
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            List<Future<NarrativeApplicationService.NarratedTurn>> responses =
+                    executor.invokeAll(List.of(confirm, confirm), 5, TimeUnit.SECONDS);
+            NarrativeApplicationService.NarratedTurn first = responses.getFirst().get();
+            assertSame(first, responses.getLast().get());
+            assertSame(first, flow.confirm(started.id()));
+            assertSame(prepared, first.instance());
+            assertEquals("石桥镇", repository.load(prepared.gameId()).orElseThrow().worldState().location());
+            assertEquals(2, openingCalls.get());
+            assertEquals(1, repository.writes);
+        }
     }
 
     /** 验证引擎动作与世界更新共用一次 revision 和一次保存，错误动作不产生部分写入。 */
@@ -283,18 +337,31 @@ class NarrativeUpdatesTests {
     /** 记录保存次数，验证同轮结算只有一次持久化。 */
     private static final class CountingRepository implements GameRepository {
         private GameInstance<?> saved;
+        private GameInstance<?> lastAttempt;
+        private boolean failNextSave;
         private int writes;
         /** 创建具有初始实例的存档桩。
-         * @param initial 初始权威实例
+         * @param initial 初始权威实例，尚无存档时为空
          */
         private CountingRepository(GameInstance<?> initial) { saved = initial; }
         /** 读取唯一存档。
          * @param gameId 待读取的游戏标识
          */
-        @Override public Optional<GameInstance<?>> load(String gameId) { return Optional.of(saved); }
-        /** 记录本次写入及保存结果。
+        @Override public Optional<GameInstance<?>> load(String gameId) {
+            return Optional.ofNullable(saved).filter(instance -> instance.gameId().equals(gameId));
+        }
+
+        /** 记录本次保存尝试与成功写入次数。
          * @param instance 待保存的权威实例
          */
-        @Override public void save(GameInstance<?> instance) { saved = instance; writes++; }
+        @Override public void save(GameInstance<?> instance) {
+            lastAttempt = instance;
+            if (failNextSave) {
+                failNextSave = false;
+                throw new GamePersistenceException("模拟首次写档失败");
+            }
+            saved = instance;
+            writes++;
+        }
     }
 }

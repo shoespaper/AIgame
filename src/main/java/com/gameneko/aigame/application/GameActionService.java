@@ -63,35 +63,44 @@ public final class GameActionService {
                 .orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
         String actionType = intent == null ? null : intent.type();
         GameRequestException.checkRevision(loaded, expectedRevision, actionType);
-        var definition = contentCatalog.world(loaded.worldId());
-        var accepted = WorldUpdatePolicy.accepted(updates, definition);
+        AppliedAction result = resolveNarrativeTurn(loaded, intent, updates);
+        if (result.instance().revision() != loaded.revision()) repository.save(result.instance());
+        return result;
+    }
+
+    /** 在给定权威实例上计算叙事结算，由调用者决定何时提交存档。
+     * @param loaded 结算前的权威实例，可为尚未保存的开局游戏
+     * @param intent 可空的引擎动作
+     * @param updates 模型声明的世界字段
+     */
+    AppliedAction resolveNarrativeTurn(GameInstance<?> loaded, ActionIntent intent, Map<String, InitializationValue> updates) {
+        WorldDefinition definition = contentCatalog.world(loaded.worldId());
+        Map<String, InitializationValue> accepted = WorldUpdatePolicy.accepted(updates, definition);
         if (intent == null) {
             if (accepted.isEmpty()) return new AppliedAction(loaded, List.of(), List.of());
             long revision = loaded.revision() + 1;
-            var world = loaded.worldState().applyWorldUpdates(accepted).withRevision(revision);
-            var next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
+            WorldState world = loaded.worldState().applyWorldUpdates(accepted).withRevision(revision);
+            GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
                     loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, revision, world, loaded.rulesetState());
-            repository.save(next);
             return new AppliedAction(next, List.of(), List.of());
         }
         if (loaded.rulesetId() == null) {
             throw GameRequestException.action(GameRequestException.Code.ENGINE_REQUIRED, "engine_required",
-                    loaded, actionType, expectedRevision);
+                    loaded, intent.type(), loaded.revision());
         }
         GameEngineRuntime<?, ?> runtime = runtimeFor(loaded, definition);
         EngineResolution<?> resolution = resolveRuntime(runtime, loaded, intent);
         long nextRevision = loaded.revision() + 1;
-        var world = loaded.worldState();
-        var nextWorld = resolution.advancesDay()
+        WorldState world = loaded.worldState();
+        WorldState nextWorld = resolution.advancesDay()
                 ? advanceWorld(world, nextRevision, definition) : world.withRevision(nextRevision);
-        var newEvents = nextWorld.worldEvents().subList(world.worldEvents().size(), nextWorld.worldEvents().size());
+        List<WorldEvent> newEvents = nextWorld.worldEvents().subList(world.worldEvents().size(), nextWorld.worldEvents().size());
         GameState nextState = resolution.advancesDay()
-                ? afterWorldAdvance(runtime, resolution.nextState(), nextWorld.day(), gameId.hashCode() ^ nextRevision, newEvents)
+                ? afterWorldAdvance(runtime, resolution.nextState(), nextWorld.day(), loaded.gameId().hashCode() ^ nextRevision, newEvents)
                 : resolution.nextState();
         nextWorld = nextWorld.applyWorldUpdates(accepted);
-        var next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
+        GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
                 loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, nextRevision, nextWorld, nextState);
-        repository.save(next);
         return new AppliedAction(next, resolution.events(), newEvents);
     }
 

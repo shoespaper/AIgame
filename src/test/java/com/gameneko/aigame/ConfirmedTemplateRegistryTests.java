@@ -85,7 +85,9 @@ class ConfirmedTemplateRegistryTests {
         when(provider.respond(any())).thenReturn(response("{}"));
         ConfirmedTemplateRegistry registry = registry();
 
-        assertThrows(IllegalArgumentException.class, () -> registry.confirm("story", book(""), null));
+        NarrativeProviderException failure = assertThrows(NarrativeProviderException.class,
+                () -> registry.confirm("story", book(""), null));
+        assertEquals("invalid_model_output", failure.reasonCode());
 
         verify(provider, times(3)).respond(any());
         assertTrue(registry.world("story").isMissingNode());
@@ -111,7 +113,7 @@ class ConfirmedTemplateRegistryTests {
         assertTrue(registry.world("story").path("regions").isEmpty());
     }
 
-    /** 验证首次以 AP 开局时，引用失败的草稿规则不会流入同一次确认的下一轮。 */
+    /** 验证首次以 AP 开局时，无效引用和无关新规则都不会流入下一轮。 */
     @Test
     void retriesFullApProposalWithoutRetainingFailedRule() throws IOException {
         when(catalog.findTemplate("dusk")).thenReturn(Optional.empty());
@@ -124,23 +126,28 @@ class ConfirmedTemplateRegistryTests {
                 """;
         String wrongReference = proposal.replace("\"template_id\":\"dusk_guard\"}}",
                 "\"template_id\":\"missing_guard\"}}").replace("\"guard\":3", "\"guard\":9");
-        when(provider.respond(any())).thenReturn(response(wrongReference), response(proposal));
+        String unusedRule = proposal.replace("\"template_id\":\"dusk_guard\"}}", "\"template_id\":\"skill_guard\"}}")
+                .replace("\"guard\":3", "\"guard\":8");
+        when(provider.respond(any())).thenReturn(response(wrongReference), response(unusedRule), response(proposal));
         ConfirmedTemplateRegistry registry = registry();
 
         registry.confirm("ap-game", book(""), "ap");
 
         ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
-        verify(provider, times(2)).respond(prompts.capture());
+        verify(provider, times(3)).respond(prompts.capture());
         assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("引用了未定义的引擎规则 missing_guard"));
+        assertTrue(prompts.getAllValues().get(2).systemInstruction().contains("本轮新增的引擎规则未被世界素材引用：dusk_guard"));
         assertEquals(3, registry.rules("ap").at("/dusk_guard/parameters/guard").asInt());
         assertEquals("dusk_guard", registry.world("ap-game").at("/skill_types/0/engines/ap/template_id").asText());
     }
 
-    /** 验证自定义世界先登记叙事素材，再补 AP 引用，重启后直接按已登记 ID 复用。 */
+    /** 验证自定义世界先登记叙事素材，再补齐 AP 引用，重启后直接按已登记 ID 复用。 */
     @Test
     void registeredWorldReusesMaterialAndOnlyAddsSelectedEngine() throws IOException {
         when(catalog.findTemplate("dusk")).thenReturn(Optional.empty());
-        when(provider.respond(any())).thenReturn(response(WORLD), response(SUPPLEMENT));
+        String unusedRule = SUPPLEMENT.replace("\"template_id\":\"skill_guard\",\"entity_type\"",
+                "\"template_id\":\"unused_guard\",\"entity_type\"");
+        when(provider.respond(any())).thenReturn(response(WORLD), response(unusedRule), response(SUPPLEMENT));
         ConfirmedTemplateRegistry registry = registry();
         WorldbookDefinition book = book("");
 
@@ -152,8 +159,11 @@ class ConfirmedTemplateRegistryTests {
         assertEquals("dusk_guard", registry.world("ap-game").at("/skill_types/0/engines/ap/template_id").asText());
         assertEquals(3, registry.rules("ap").at("/dusk_guard/parameters/guard").asInt());
         assertEquals(4, registry.rules("ap").at("/skill_guard/parameters/guard").asInt());
+        assertTrue(registry.rules("ap").path("unused_guard").isMissingNode());
         verify(catalog, times(2)).findTemplate("dusk");
-        verify(provider, times(2)).respond(any());
+        ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
+        verify(provider, times(3)).respond(prompts.capture());
+        assertTrue(prompts.getAllValues().get(2).systemInstruction().contains("本轮新增的引擎规则未被世界素材引用：unused_guard"));
         verifyNoMoreInteractions(catalog, provider);
 
         clearInvocations(catalog, provider);

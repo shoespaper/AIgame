@@ -171,7 +171,9 @@ public final class ConfirmedTemplateRegistry {
         if (policy == null) return new TemplateDefinitions(world, known);
         ObjectNode proposedRules = copyIndex(known);
         registerProposedRules(policy, proposal, proposedRules);
-        return completeEngine(book, id, policy, source, world, proposedRules, false);
+        TemplateDefinitions definitions = completeEngine(book, id, policy, source, world, proposedRules, false);
+        validateNewRuleReferences(policy, definitions.world(), known, definitions.rules());
+        return definitions;
     }
 
     /** 校验待登记世界的身份和素材，并创建可接收所选引擎引用的副本。
@@ -271,7 +273,30 @@ public final class ConfirmedTemplateRegistry {
             }
         }
         validateEngineReferences(policy, proposedWorld, proposedRules);
+        validateNewRuleReferences(policy, proposedWorld, known, proposedRules);
         return new TemplateDefinitions(proposedWorld, proposedRules);
+    }
+
+    /** 拒绝模型为当前世界新增未被素材引用的规则，避免占用其他模板的规则标识。
+     * @param policy 所选引擎的注册策略
+     * @param world 已通过引擎引用校验的待登记世界素材
+     * @param known 本轮提案前已可用的规则索引，包含预置和目录规则
+     * @param proposedRules 合入本轮模型提案后的规则索引
+     */
+    private static void validateNewRuleReferences(EngineTemplatePolicy policy, ObjectNode world, ObjectNode known,
+                                                 ObjectNode proposedRules) {
+        Set<String> referenced = new HashSet<>();
+        for (String group : policy.referenceTypes().keySet()) {
+            for (JsonNode item : world.path(group)) {
+                referenced.add(item.path("engines").path(policy.id()).path("template_id").asText());
+            }
+        }
+        for (Map.Entry<String, JsonNode> rule : proposedRules.properties()) {
+            String ruleId = rule.getKey();
+            if (!known.has(ruleId) && !referenced.contains(ruleId)) {
+                throw new IllegalArgumentException("本轮新增的引擎规则未被世界素材引用：" + ruleId);
+            }
+        }
     }
 
     /** 校验素材引用均指向所选引擎中类别正确的规则。
@@ -447,7 +472,7 @@ public final class ConfirmedTemplateRegistry {
         } else {
             instruction += "\n所选引擎：" + policy.id() + "。素材池对应的实体类型：" + policy.referenceTypes()
                     + "。优先按 template_id 复用已有规则。只在 " + RULE_PROPOSALS + "." + policy.id()
-                    + " 数组中提交缺失的规则，规则类型和参数字段须与该类型的预置规则一致。"
+                    + " 数组中提交当前世界素材引用但尚未定义的规则，规则类型和参数字段须与该类型的预置规则一致。"
                     + "\n可复用的规则：" + known;
         }
         NarrativeSnapshot snapshot = new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "", "", "", "",

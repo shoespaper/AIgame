@@ -348,7 +348,7 @@ class NarrativeUpdatesTests {
          * @param gameId 待读取的游戏标识
          */
         @Override public Optional<GameInstance<?>> load(String gameId) {
-            return Optional.ofNullable(saved).filter(instance -> instance.gameId().equals(gameId));
+            return Optional.<GameInstance<?>>ofNullable(saved).filter(instance -> instance.gameId().equals(gameId));
         }
 
         /** 记录本次保存尝试与成功写入次数。

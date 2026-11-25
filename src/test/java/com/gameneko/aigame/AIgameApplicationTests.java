@@ -1,22 +1,32 @@
 package com.gameneko.aigame;
 
+import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "aigame.persistence.root=${java.io.tmpdir}/aigame-tests")
+/** 验证应用装配和游戏 API 的初始化、持久化与回合入口。 */
+@SpringBootTest(properties = {
+        "aigame.persistence.root=${java.io.tmpdir}/aigame-tests",
+        "aigame.templates.registry=${java.io.tmpdir}/aigame-templates-${random.uuid}/registry.json"
+})
 @AutoConfigureMockMvc
 class AIgameApplicationTests {
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ConfirmedTemplateRegistry templates;
 
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     private com.gameneko.aigame.application.port.NarrativeProvider narrativeProvider;
@@ -31,6 +41,25 @@ class AIgameApplicationTests {
 
     @Test
     void contextLoads() {
+    }
+
+    /** 验证同一内置世界书可用纯叙事和 AP 开局，并复用内置规则与素材。 */
+    @Test
+    void sameWorldbookOpensWithOrWithoutAp() throws Exception {
+        mockMvc.perform(post("/api/games/template-story/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"cinder_continent\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rulesetId").doesNotExist());
+        mockMvc.perform(post("/api/games/template-ap/initialize")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"worldId\":\"cinder_continent\",\"engineId\":\"ap\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rulesetId").value("ap"));
+
+        assertTrue(templates.world("template-story").at("/skill_types/0/engines").isMissingNode());
+        assertTrue(templates.world("template-ap").at("/skill_types/0/engines/ap/template_id").isTextual());
+        verifyNoInteractions(narrativeProvider);
     }
 
     @Test

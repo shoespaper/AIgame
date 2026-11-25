@@ -14,7 +14,7 @@ public final class NarrativeRuntimeSettingsService {
     /** 未配置时使用的输出 token 上限，足够容纳一回合完整结构化叙事。 */
     public static final int DEFAULT_MAX_TOKENS = 2048;
     /** 允许配置的输出 token 上限，避免超出模型能力的取值被服务端直接拒绝。 */
-    public static final int MAX_ALLOWED_MAX_TOKENS = 16384;
+    public static final int MAX_ALLOWED_MAX_TOKENS = 65536;
     /** 允许配置的输出 token 下限，过小的取值必然导致结构化 JSON 被截断。 */
     public static final int MIN_ALLOWED_MAX_TOKENS = 256;
     private final ObjectMapper mapper;

@@ -98,7 +98,7 @@ class NarrationOutputReliabilityTests {
                 "k", true, "", "", 10).maxTokens());
         assertEquals(4096, new com.gameneko.aigame.application.NarrativeRuntimeSettingsService.Settings(
                 "k", true, "", "", 4096).maxTokens());
-        assertEquals(16384, new com.gameneko.aigame.application.NarrativeRuntimeSettingsService.Settings(
+        assertEquals(65536, new com.gameneko.aigame.application.NarrativeRuntimeSettingsService.Settings(
                 "k", true, "", "", 99999).maxTokens());
     }
 

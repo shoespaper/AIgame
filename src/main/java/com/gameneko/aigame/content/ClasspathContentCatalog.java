@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** 读取并校验内置及用户世界书，并通过模板目录提供机制骨架。 */
@@ -65,17 +66,14 @@ public final class ClasspathContentCatalog implements ContentCatalog {
         return ids.stream().sorted().map(this::template).toList();
     }
 
-    /** 读取一个 classpath 世界模板。
+    /** 按精确标识读取一个内置或用户世界模板。
      * @param templateId 模板稳定标识
-     * @return 模板骨架
+     * @return 匹配的模板，标识无效或模板不存在时为空
      */
     @Override
-    public WorldTemplate template(String templateId) {
-        if (templateId == null || !templateId.matches("[A-Za-z0-9_-]+") ||
-                (!TEMPLATE_RESOURCES.containsKey(templateId) && !templateFiles.available().contains(templateId))) {
-            throw new WorldContentException("Unsupported template: " + templateId);
-        }
-        return templateCache.computeIfAbsent(templateId, this::loadTemplate);
+    public Optional<WorldTemplate> findTemplate(String templateId) {
+        if (templateId == null || !templateId.matches("[A-Za-z0-9_-]+")) return Optional.empty();
+        return Optional.ofNullable(templateCache.computeIfAbsent(templateId, this::loadTemplate));
     }
 
     @Override
@@ -152,7 +150,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
 
     /** 读取完整用户模板或解析 classpath 内置模板。
      * @param templateId 模板稳定标识
-     * @return 完整模板骨架
+     * @return 完整模板骨架，不存在时返回 null
      */
     private WorldTemplate loadTemplate(String templateId) {
         JsonNode root = templateFiles.readDocument(templateId);
@@ -165,10 +163,14 @@ public final class ClasspathContentCatalog implements ContentCatalog {
                 throw new WorldContentException("Invalid template: " + templateId, exception);
             }
         }
-        root = readJson(TEMPLATE_RESOURCES.get(templateId), templateId);
+        String resource = TEMPLATE_RESOURCES.get(templateId);
+        if (resource == null) return null;
+        root = readJson(resource, templateId);
         JsonNode materials = root.path("world_template");
+        JsonNode registrations = root.path("engine_template_registrations");
         return new WorldTemplate(templateId, materials.path("world_type").asText(), textArray(materials, "tags"),
-                materials.path("name").asText(), materials, root.path("engine_template_registrations"));
+                materials.path("name").asText(), materials,
+                registrations.isMissingNode() ? objectMapper.createObjectNode() : registrations);
     }
 
     /** 从内置资源或用户仓储读取独立的世界书叙事内容。

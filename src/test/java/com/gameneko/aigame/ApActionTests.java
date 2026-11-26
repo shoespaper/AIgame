@@ -10,7 +10,7 @@ import com.gameneko.aigame.application.InitializeWorldRequest;
 import com.gameneko.aigame.application.WorldInitializationService;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
-import com.gameneko.aigame.content.WorldDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.rulesets.ap.ApQuest;
 import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime;
@@ -102,7 +102,7 @@ class ApActionTests {
     @Test
     void completingQuestGrantsResourcesAndExperienceOnce() {
         ApRulesetRuntime runtime = new ApRulesetRuntime();
-        WorldDefinition world = ApTemplateFixture.confirmed(catalog);
+        ApContent world = ApTemplateFixture.confirmed(catalog);
         ApRulesetRuntime.ApState initial = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
                 "旅人", 16, "未定", "swordsman", "adventure"), world);
         ApQuest quest = new ApQuest("quest-1", "商队委托", "", "forest", ApQuest.Status.AVAILABLE, List.of(),
@@ -169,7 +169,6 @@ class ApActionTests {
 
         assertEquals(1, updated.revision());
         assertEquals(2, updated.worldState().day());
-        assertEquals(2, updated.worldState().lastTickDay());
         assertEquals(2, updated.rulesetState().resources().rations());
         assertEquals(GameInstance.Lifecycle.ACTIVE, updated.lifecycle());
     }

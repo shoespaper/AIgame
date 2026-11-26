@@ -31,7 +31,7 @@ public final class GameActionMapper {
                 if (day > Long.MAX_VALUE - deadlineDays) throw GameRequestException.invalid("Deadline is out of range");
                 TimedEvent event = new TimedEvent(eventId(r), "foreshadow", text(r, "eventDescription"),
                         text(r, "eventAnswer"), text(r, "eventConsequence"), day, day + deadlineDays,
-                        deadlineDays, TimedEvent.Status.ACTIVE, WorldEffects.none());
+                        deadlineDays, TimedEvent.Status.ACTIVE, text(r, "materialId"));
                 yield MappedGameAction.world(new WorldAction.ScheduleEvent(event));
             }
             case "resolve_timed_event" -> MappedGameAction.world(new WorldAction.ResolveEvent(eventId(r), text(r, "outcome")));

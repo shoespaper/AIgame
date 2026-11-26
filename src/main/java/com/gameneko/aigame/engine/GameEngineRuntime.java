@@ -43,9 +43,14 @@ public interface GameEngineRuntime<S extends GameState, P> {
         return resolve(state, intent);
     }
 
-    /** Applies the selected engine's response to a confirmed world day transition. */
-    default S afterWorldAdvance(S state, long worldDay, long seed, java.util.List<WorldEvent> newEvents) {
-        return state;
+    /** 接收世界推进后的事实并执行引擎自己的规则。
+     * @param state 推进动作结算后的引擎状态
+     * @param worldDay 推进后的世界天数
+     * @param seed 本轮确定性随机种子
+     * @param newEvents 本轮新增的世界事实
+     */
+    default EngineResolution<S> afterWorldAdvance(S state, long worldDay, long seed, List<WorldEvent> newEvents) {
+        return new EngineResolution<>(state, List.of());
     }
 
     P project(S state);

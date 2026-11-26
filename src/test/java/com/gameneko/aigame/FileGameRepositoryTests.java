@@ -4,12 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
 import com.gameneko.aigame.persistence.FileGameRepository;
-import com.gameneko.aigame.persistence.GamePersistenceException;
+import com.gameneko.aigame.application.port.GamePersistenceException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,7 +72,6 @@ class FileGameRepositoryTests {
     private static WorldState state() {
         return new WorldState("isekai_grey", "1.0", 0, "灰烬界", null,
                 "白栎镇", "forest", null, 1, "清晨",
-                Map.of(), "Dormant", 0, 7, java.util.List.of(), java.util.List.of(),
-                java.util.List.of(), 0, false, 0, java.util.List.of(), Map.of(), "", java.util.List.of());
+                Map.of(), "", List.of(), List.of(), Map.of(), List.of());
     }
 }

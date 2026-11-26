@@ -4,7 +4,6 @@ import com.gameneko.aigame.application.GameInstanceService;
 import com.gameneko.aigame.application.InitializeWorldRequest;
 import com.gameneko.aigame.application.WorldInitializationService;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
-import com.gameneko.aigame.content.WorldDefinition;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
@@ -43,8 +42,7 @@ class GameEngineSelectionTests {
                 worldbooks, new FileTemplateRepository(mapper, directory.resolve("templates")));
         ClasspathGameEngineFactory engines = new ClasspathGameEngineFactory();
         GameInstanceService service = new GameInstanceService(new WorldInitializationService(catalog), catalog, engines);
-        WorldDefinition world = catalog.world("custom");
-        ApGameEngineRuntime runtime = new ApGameEngineRuntime(world);
+        ApGameEngineRuntime runtime = new ApGameEngineRuntime();
 
         assertTrue(runtime.initializationPrompt().contains("adventure（冒险）"));
         GameInstance<?> game = service.initializeWithDefaults("ap-custom", InitializeWorldRequest.defaults("custom"), "ap");
@@ -82,8 +80,7 @@ class GameEngineSelectionTests {
 
     @Test
     void apAdapterAcceptsSharedWorldBookInitializationFields() {
-        var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var runtime = new ApGameEngineRuntime(catalog.world("isekai_grey"));
+        ApGameEngineRuntime runtime = new ApGameEngineRuntime();
         var state = runtime.initialize(Map.of(
                 "characterName", new InitializationValue.Text("测试角色"),
                 "age", new InitializationValue.IntegerNumber(20),
@@ -95,8 +92,7 @@ class GameEngineSelectionTests {
 
     @Test
     void apAdapterValidatesAndResolvesGenericIntent() {
-        var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var runtime = new ApGameEngineRuntime(catalog.world("isekai_grey"));
+        ApGameEngineRuntime runtime = new ApGameEngineRuntime();
         var state = runtime.initialize(Map.of(
                 "characterName", new InitializationValue.Text("测试角色"),
                 "age", new InitializationValue.IntegerNumber(20),

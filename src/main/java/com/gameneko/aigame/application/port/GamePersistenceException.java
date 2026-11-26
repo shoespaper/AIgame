@@ -1,4 +1,4 @@
-package com.gameneko.aigame.persistence;
+package com.gameneko.aigame.application.port;
 
 /** 表示本地游戏数据无效或不可用，并携带可安全记录的资源与操作阶段。 */
 public class GamePersistenceException extends RuntimeException {

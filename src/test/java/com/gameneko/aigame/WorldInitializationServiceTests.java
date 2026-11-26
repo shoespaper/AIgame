@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,24 +27,16 @@ class WorldInitializationServiceTests {
         assertEquals(0, state.revision());
         assertEquals(1, state.day());
         assertEquals("清晨", state.time());
-        assertEquals("Dormant", state.threatLevel());
-        assertEquals(7, state.threatInterval());
         assertEquals("", state.originScene());
         assertNull(state.setting());
         assertNull(state.settingDescription());
         assertNull(state.location());
         assertNull(state.currentRegion());
         assertNull(state.mainQuest());
-        assertEquals(0, state.threatCounter());
-        assertEquals(0, state.lastTickDay());
-        assertEquals(0, state.mainPlotStage());
-        assertFalse(state.crisisTriggered());
         assertTrue(state.flags().isEmpty());
-        assertTrue(state.threatHistory().isEmpty());
-        assertTrue(state.timedEvents().isEmpty());
-        assertTrue(state.incidentalEvents().isEmpty());
-        assertTrue(state.mainPlotStages().isEmpty());
-        assertTrue(state.priceModifiers().isEmpty());
+        assertTrue(state.deadlineEvents().isEmpty());
+        assertTrue(state.worldEvents().isEmpty());
+        assertTrue(state.activePriceModifiers().isEmpty());
     }
 
     @Test

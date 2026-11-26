@@ -24,8 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 class GameInitializationSchemaTests {
     @Test
     void worldAndOptionalEngineFieldsAreComposed() {
-        WorldDefinition definition = new WorldDefinition("world", "1", "name", "desc", 1,
-                Map.of(), Map.of());
+        WorldDefinition definition = new WorldDefinition("world", "1", "name", "desc");
         var engineField = new InitializationField("dicePool", "Dice pool", InitializationField.ValueType.INTEGER,
                 true, List.of(), 1L, 20L, "");
         WorldBook book = new WorldBook(definition, new InitializationSchema(List.of(
@@ -40,8 +39,7 @@ class GameInitializationSchemaTests {
 
     @Test
     void duplicateWorldAndEngineFieldUsesEngineDefinition() {
-        WorldBook book = new WorldBook(new WorldDefinition("world", "1", "name", "desc", 1,
-                Map.of(), Map.of()),
+        WorldBook book = new WorldBook(new WorldDefinition("world", "1", "name", "desc"),
                 new InitializationSchema(List.of(new InitializationField("name", "Name", InitializationField.ValueType.TEXT, true, List.of(), null, null, ""))));
         WorldBookCatalog worlds = new WorldBookCatalog() {
             @Override public List<WorldBook> available() { return List.of(book); }
@@ -58,8 +56,7 @@ class GameInitializationSchemaTests {
 
     @Test
     void worldBookDoesNotRequireEngineDifficulty() {
-        WorldDefinition definition = new WorldDefinition("world", "1", "name", "desc", 1,
-                Map.of("story", new WorldDefinition.DifficultyDefinition(1, 0, 0, 0, "Story", "")), Map.of());
+        WorldDefinition definition = new WorldDefinition("world", "1", "name", "desc");
         var ids = definition.initializationSchema().fields().stream().map(InitializationField::id).toList();
         org.junit.jupiter.api.Assertions.assertTrue(ids.contains("gender"));
         org.junit.jupiter.api.Assertions.assertFalse(ids.contains("difficulty"));

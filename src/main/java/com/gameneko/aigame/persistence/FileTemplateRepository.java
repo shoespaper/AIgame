@@ -1,5 +1,7 @@
 package com.gameneko.aigame.persistence;
 
+import com.gameneko.aigame.application.port.GamePersistenceException;
+import com.gameneko.aigame.application.port.TemplateRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.content.WorldTemplate;
@@ -17,7 +19,7 @@ import java.io.IOException;
 
 /** 负责读写 data/templates 下的用户模板。 */
 @Component
-public final class FileTemplateRepository {
+public final class FileTemplateRepository implements TemplateRepository {
     private final ObjectMapper objectMapper;
     private final Path root;
     /** 创建模板仓储。
@@ -63,6 +65,7 @@ public final class FileTemplateRepository {
     /** 原子写入完整用户模板，创建时拒绝覆盖同名文件。
      * @param template 包含机制骨架和创建默认值的模板
      */
+    @Override
     public synchronized void save(WorldTemplate template) {
         if (template == null || !template.id().matches("[A-Za-z0-9_-]+")) throw new IllegalArgumentException("Invalid template id");
         Path destination = root.resolve(template.id() + ".json");

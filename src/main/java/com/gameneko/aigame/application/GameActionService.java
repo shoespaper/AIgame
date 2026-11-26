@@ -8,10 +8,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.random.RandomGenerator;
+import java.util.function.UnaryOperator;
 
 /** 结算引擎动作和世界字段声明，统一推进权威修订号并持久化。 */
 @Service
@@ -93,15 +94,20 @@ public final class GameActionService {
         long nextRevision = loaded.revision() + 1;
         WorldState world = loaded.worldState();
         WorldState nextWorld = resolution.advancesDay()
-                ? advanceWorld(world, nextRevision, definition) : world.withRevision(nextRevision);
+                ? world.advanceDay().withRevision(nextRevision) : world.withRevision(nextRevision);
         List<WorldEvent> newEvents = nextWorld.worldEvents().subList(world.worldEvents().size(), nextWorld.worldEvents().size());
-        GameState nextState = resolution.advancesDay()
-                ? afterWorldAdvance(runtime, resolution.nextState(), nextWorld.day(), loaded.gameId().hashCode() ^ nextRevision, newEvents)
-                : resolution.nextState();
+        GameState nextState = resolution.nextState();
+        List<ConfirmedEvent> confirmed = new ArrayList<>(resolution.events());
+        if (resolution.advancesDay()) {
+            EngineResolution<?> afterAdvance = afterWorldAdvance(runtime, nextState, nextWorld.day(),
+                    loaded.gameId().hashCode() ^ nextRevision, newEvents);
+            nextState = afterAdvance.nextState();
+            confirmed.addAll(afterAdvance.events());
+        }
         nextWorld = nextWorld.applyWorldUpdates(accepted);
         GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
                 loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, nextRevision, nextWorld, nextState);
-        return new AppliedAction(next, resolution.events(), newEvents);
+        return new AppliedAction(next, confirmed, newEvents);
     }
 
     /** 获取实例选中的引擎运行时。
@@ -137,7 +143,7 @@ public final class GameActionService {
         }
     }
 
-    /** 将世界推进后的效果委托给选中引擎。
+    /** 将新的一天和已确认的事件事实交给所选引擎。
      * @param runtime 选中引擎的运行时
      * @param state 当前引擎类型化状态
      * @param day 当前世界天数，以天为单位
@@ -145,7 +151,7 @@ public final class GameActionService {
      * @param events 本轮世界事件列表
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static GameState afterWorldAdvance(GameEngineRuntime runtime, GameState state, long day, long seed, List<WorldEvent> events) {
+    private static EngineResolution<?> afterWorldAdvance(GameEngineRuntime runtime, GameState state, long day, long seed, List<WorldEvent> events) {
         return runtime.afterWorldAdvance(state, day, seed, events);
     }
 
@@ -179,16 +185,10 @@ public final class GameActionService {
         if (action instanceof WorldAction.ResolveEvent resolve) return resolveEvent(gameId, expectedRevision, resolve.eventId(), resolve.outcome());
         if (action instanceof WorldAction.SetPriceModifier set) return setPriceModifier(gameId, expectedRevision, set.modifier());
         if (action instanceof WorldAction.RemovePriceModifier remove) return updateWorld(gameId, expectedRevision, world -> {
-            var next = new java.util.EnumMap<PriceModifier.Category, PriceModifier>(PriceModifier.Category.class);
+            Map<PriceModifier.Category, PriceModifier> next = new EnumMap<>(PriceModifier.Category.class);
             next.putAll(world.activePriceModifiers());
             next.remove(remove.category());
-            return new WorldState(world.worldId(), world.contentVersion(), world.revision(), world.setting(),
-                    world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(),
-                    world.day(), world.time(), world.flags(), world.threatLevel(),
-                    world.threatCounter(), world.threatInterval(), world.threatHistory(), world.timedEvents(),
-                    world.incidentalEvents(), world.lastTickDay(), world.crisisTriggered(), world.mainPlotStage(),
-                    world.mainPlotStages(), world.priceModifiers(), world.originScene(), world.deadlineEvents(),
-                    world.worldEvents(), next, world.activeEffects(), world.visitedLocations());
+            return world.withPriceModifiers(next);
         });
         throw new IllegalArgumentException("Unsupported world action");
     }
@@ -210,16 +210,10 @@ public final class GameActionService {
      */
     public GameInstance<?> setPriceModifier(String gameId, long expectedRevision, PriceModifier modifier) {
         return updateWorld(gameId, expectedRevision, world -> {
-            Map<PriceModifier.Category, PriceModifier> next = new java.util.EnumMap<>(PriceModifier.Category.class);
+            Map<PriceModifier.Category, PriceModifier> next = new EnumMap<>(PriceModifier.Category.class);
             next.putAll(world.activePriceModifiers());
             next.put(modifier.category(), modifier);
-            return new WorldState(world.worldId(), world.contentVersion(), world.revision(), world.setting(),
-                    world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(),
-                    world.day(), world.time(), world.flags(), world.threatLevel(),
-                    world.threatCounter(), world.threatInterval(), world.threatHistory(), world.timedEvents(),
-                    world.incidentalEvents(), world.lastTickDay(), world.crisisTriggered(), world.mainPlotStage(),
-                    world.mainPlotStages(), world.priceModifiers(), world.originScene(), world.deadlineEvents(),
-                    world.worldEvents(), next, world.activeEffects(), world.visitedLocations());
+            return world.withPriceModifiers(next);
         });
     }
 
@@ -229,7 +223,7 @@ public final class GameActionService {
      * @param update 对世界快照执行的纯变换
      */
     private GameInstance<?> updateWorld(String gameId, long expectedRevision,
-                                        java.util.function.UnaryOperator<WorldState> update) {
+                                        UnaryOperator<WorldState> update) {
         GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
         GameRequestException.checkRevision(loaded, expectedRevision, null);
         WorldState changed = update.apply(loaded.worldState()).withRevision(loaded.revision() + 1);
@@ -238,107 +232,4 @@ public final class GameActionService {
         return next;
     }
 
-    /** 推进一天并处理威胁、期限、随机事件与持续效果。
-     * @param world 当前权威世界状态
-     * @param revision 目标世界修订号
-     * @param definition 当前世界模板定义
-     */
-    private WorldState advanceWorld(WorldState world, long revision, WorldDefinition definition) {
-        long day = world.day() + 1;
-        long counter = world.threatCounter();
-        String level = world.threatLevel();
-        List<String> history = new ArrayList<>(world.threatHistory());
-        Map<PriceModifier.Category, PriceModifier> activePrices = new java.util.EnumMap<>(PriceModifier.Category.class);
-        activePrices.putAll(world.activePriceModifiers());
-        List<TimedEvent> deadlines = new ArrayList<>(world.deadlineEvents());
-        List<WorldEvent> events = new ArrayList<>(world.worldEvents());
-        var activeEffects = world.activeEffects();
-        List<TimedEvent> advanced = deadlines.stream().map(event -> event.tick(day)).toList();
-        for (int i = 0; i < advanced.size(); i++) if (deadlines.get(i).status() == TimedEvent.Status.ACTIVE && advanced.get(i).status() == TimedEvent.Status.EXPIRED) {
-            TimedEvent event = advanced.get(i);
-            events.add(new WorldEvent(event.id() + "-expired", day, WorldEvent.Type.DEADLINE, WorldEvent.Category.PLOT, event.consequence(), event.effects()));
-            activeEffects = merge(activeEffects, event.effects());
-        }
-        if (day % 3 == 0 && !definition.eventTemplates().incidental().isEmpty()) {
-            var templates = definition.eventTemplates().incidental();
-            var template = chooseWeighted(templates, new java.util.SplittableRandom(day ^ revision));
-            applyPrices(activePrices, template.effects().priceModifiers());
-            events.add(new WorldEvent(template.type() + "-" + day, day, parseType(template.type()), parseCategory(template.category()), template.description(), template.effects()));
-            activeEffects = merge(activeEffects, template.effects());
-        }
-        activePrices.values().removeIf(modifier -> modifier.expiresDay() > 0 && day >= modifier.expiresDay());
-        boolean crisis = "Crisis".equals(level) || world.crisisTriggered();
-        return copyWorld(world, revision, day, counter, level, history, world.timedEvents(), world.incidentalEvents(), day, crisis, activePrices, activeEffects, advanced, events);
-    }
-
-    /** 复制世界计时和事件状态并保留访问记录。
-     * @param world 当前权威世界状态
-     * @param revision 目标世界修订号
-     * @param day 当前世界天数，以天为单位
-     * @param counter 当前威胁计数，单位为天
-     * @param level 当前威胁级别标识
-     * @param history 按发生顺序排列的威胁历史
-     * @param timed 兼容的期限事件文本列表
-     * @param incidental 兼容的偶发事件文本列表
-     * @param lastTick 最后推进世界的天数
-     * @param crisis 是否已触发危机
-     * @param activePrices 按分类索引的有效价格修正
-     * @param activeEffects 当前持续世界效果
-     * @param deadlines 类型化期限事件列表
-     * @param events 本轮世界事件列表
-     */
-    private WorldState copyWorld(WorldState world, long revision, long day, long counter, String level,
-                                 List<String> history, List<String> timed, List<String> incidental,
-                                 long lastTick, boolean crisis, Map<PriceModifier.Category, PriceModifier> activePrices,
-                                 WorldEffects activeEffects,
-                                 List<TimedEvent> deadlines, List<WorldEvent> events) {
-        return new WorldState(world.worldId(), world.contentVersion(), revision, world.setting(), world.settingDescription(), world.location(), world.currentRegion(), world.mainQuest(), day, world.time(), world.flags(), level, counter, world.threatInterval(), history, timed, incidental, lastTick, crisis, world.mainPlotStage(), world.mainPlotStages(), world.priceModifiers(), world.originScene(), deadlines, events, activePrices, activeEffects, world.visitedLocations());
-    }
-
-    /** 按价格分类合并修正值。
-     * @param target 待合并的价格修正映射
-     * @param modifiers 本轮新增或覆盖的价格修正
-     */
-    private void applyPrices(Map<PriceModifier.Category, PriceModifier> target, List<PriceModifier> modifiers) { for (PriceModifier modifier : modifiers) target.put(modifier.category(), modifier); }
-    /** 按模板权重选出一个世界事件。
-     * @param templates 带正权重的事件模板列表
-     * @param random 用于加权选择的随机源
-     */
-    private WorldDefinition.EventTemplate chooseWeighted(List<WorldDefinition.EventTemplate> templates, RandomGenerator random) {
-        int totalWeight = templates.stream().mapToInt(WorldDefinition.EventTemplate::weight).sum();
-        int draw = random.nextInt(totalWeight);
-        for (WorldDefinition.EventTemplate template : templates) {
-            draw -= template.weight();
-            if (draw < 0) return template;
-        }
-        return templates.getLast();
-    }
-
-    /** 合并世界持续效果并对整数溢出进行检查。
-     * @param current 当前持续世界效果
-     * @param addition 需要叠加的世界效果
-     */
-    private WorldEffects merge(WorldEffects current,
-                                                           WorldEffects addition) {
-        var prices = new java.util.ArrayList<>(current.priceModifiers()); prices.addAll(addition.priceModifiers());
-        var npcPool = new java.util.ArrayList<>(current.npcPoolAdditions()); npcPool.addAll(addition.npcPoolAdditions());
-        return new WorldEffects(prices,
-                Math.addExact(current.threatCounterDelta(), addition.threatCounterDelta()),
-                Math.addExact(current.npcMoodShift(), addition.npcMoodShift()),
-                current.travelPenalty() || addition.travelPenalty(),
-                addition.outdoorSpeedModifier() == 0 ? current.outdoorSpeedModifier() : addition.outdoorSpeedModifier(),
-                npcPool, current.shopRefresh() || addition.shopRefresh(), current.spawnThreat() || addition.spawnThreat(),
-                Math.addExact(current.rationsBonus(), addition.rationsBonus()),
-                Math.max(current.questHookChancePercent(), addition.questHookChancePercent()),
-                Math.max(current.rumorChancePercent(), addition.rumorChancePercent()),
-                current.gameOverRisk() || addition.gameOverRisk(), current.custom() || addition.custom());
-    }
-    /** 将事件类型标识转换为枚举，未知类型回退为 OTHER。
-     * @param value 待转换或验证的字段值
-     */
-    private static WorldEvent.Type parseType(String value) { try { return WorldEvent.Type.valueOf(value.toUpperCase(java.util.Locale.ROOT)); } catch (IllegalArgumentException exception) { return WorldEvent.Type.OTHER; } }
-    /** 将事件分类标识转换为枚举，未知分类回退为 OTHER。
-     * @param value 待转换或验证的字段值
-     */
-    private static WorldEvent.Category parseCategory(String value) { try { return WorldEvent.Category.valueOf(value.toUpperCase(java.util.Locale.ROOT)); } catch (IllegalArgumentException exception) { return WorldEvent.Category.OTHER; } }
 }

@@ -5,7 +5,7 @@ import com.gameneko.aigame.content.WorldContentException;
 import com.gameneko.aigame.engine.WorldState.WorldActionRejected;
 import com.gameneko.aigame.logging.DiagnosticLog;
 import com.gameneko.aigame.narrative.NarrativeProviderException;
-import com.gameneko.aigame.persistence.GamePersistenceException;
+import com.gameneko.aigame.application.port.GamePersistenceException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.MDC;
 import org.springframework.http.CacheControl;

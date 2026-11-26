@@ -8,8 +8,8 @@ import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.GameEngineCatalog;
 import com.gameneko.aigame.engine.GameEngineDescriptor;
-import com.gameneko.aigame.persistence.FileWorldbookRepository;
-import com.gameneko.aigame.persistence.FileTemplateRepository;
+import com.gameneko.aigame.application.port.WorldbookRepository;
+import com.gameneko.aigame.application.port.TemplateRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,20 +29,20 @@ public final class GameCatalogController {
     private final WorldBookCatalog worlds;
     private final TemplateCatalog templates;
     private final GameEngineCatalog engines;
-    private final FileWorldbookRepository worldbookRepository;
-    private final FileTemplateRepository templateRepository;
+    private final WorldbookRepository worldbookRepository;
+    private final TemplateRepository templateRepository;
 
     /** 创建目录控制器。
      * @param worlds 已注册世界书目录
      * @param templates 内置与用户模板目录
      * @param engines 已注册可选引擎目录
-     * @param worldbookRepository 用户世界书文件仓储
-     * @param templateRepository 用户模板文件仓储
+     * @param worldbookRepository 用户世界书仓储
+     * @param templateRepository 用户模板仓储
      */
     @Autowired
     public GameCatalogController(WorldBookCatalog worlds, TemplateCatalog templates,
-                                 GameEngineCatalog engines, FileWorldbookRepository worldbookRepository,
-                                 FileTemplateRepository templateRepository) {
+                                 GameEngineCatalog engines, WorldbookRepository worldbookRepository,
+                                 TemplateRepository templateRepository) {
         this.worlds = worlds;
         this.templates = templates;
         this.engines = engines;

@@ -1,7 +1,9 @@
 package com.gameneko.aigame.engine;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -17,25 +19,12 @@ import java.util.Map;
  * @param day 当前世界天数，以天为单位
  * @param time 当前时间描述，可空
  * @param flags 世界布尔标记映射
- * @param threatLevel 当前威胁级别标识
- * @param threatCounter 威胁计数，单位为天
- * @param threatInterval 威胁升级间隔，单位为天
- * @param threatHistory 威胁变化历史
- * @param timedEvents 兼容的期限事件描述列表
- * @param incidentalEvents 兼容的偶发事件描述列表
- * @param lastTickDay 最后推进的世界天数
- * @param crisisTriggered 是否已触发危机
- * @param mainPlotStage 当前主线阶段索引
- * @param mainPlotStages 主线阶段描述列表
- * @param priceModifiers 兼容的价格百分比映射
  * @param originScene 开场场景描述
  * @param visitedLocations 去重且保持访问顺序的地点列表，可空时按空列表处理
  * @param deadlineEvents 类型化期限事件列表，可空
  * @param worldEvents 历史世界事件列表，可空
  * @param activePriceModifiers 有效价格百分比映射，可空
- * @param activeEffects 世界持续效果，可空
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record WorldState(
         String worldId,
         String contentVersion,
@@ -48,94 +37,35 @@ public record WorldState(
         long day,
         String time,
         Map<String, Boolean> flags,
-        String threatLevel,
-        long threatCounter,
-        long threatInterval,
-        List<String> threatHistory,
-        List<String> timedEvents,
-        List<String> incidentalEvents,
-        long lastTickDay,
-        boolean crisisTriggered,
-        int mainPlotStage,
-        List<String> mainPlotStages,
-        Map<String, Integer> priceModifiers,
         String originScene,
         List<TimedEvent> deadlineEvents,
         List<WorldEvent> worldEvents,
         Map<PriceModifier.Category, PriceModifier> activePriceModifiers,
-        WorldEffects activeEffects,
         List<String> visitedLocations
 ) implements GameState {
-    /** 复制集合并为空缺的事件、效果与地点记录提供默认值。 */
+    /** 复制集合并为空缺的事件与地点记录提供默认值。 */
     public WorldState {
-        visitedLocations = visitedLocations == null ? List.of() : List.copyOf(new java.util.LinkedHashSet<>(visitedLocations));
+        visitedLocations = visitedLocations == null ? List.of() : List.copyOf(new LinkedHashSet<>(visitedLocations));
         flags = Map.copyOf(flags);
-        threatHistory = List.copyOf(threatHistory);
-        timedEvents = List.copyOf(timedEvents);
-        incidentalEvents = List.copyOf(incidentalEvents);
-        mainPlotStages = List.copyOf(mainPlotStages);
-        priceModifiers = Map.copyOf(priceModifiers);
         deadlineEvents = deadlineEvents == null ? List.of() : List.copyOf(deadlineEvents);
         worldEvents = worldEvents == null ? List.of() : List.copyOf(worldEvents);
         activePriceModifiers = activePriceModifiers == null ? Map.of() : Map.copyOf(activePriceModifiers);
-        activeEffects = activeEffects == null ? WorldEffects.none() : activeEffects;
-    }
-
-    /** 创建带访问记录的世界初始快照。
-     * @param worldId 世界书稳定标识
-     * @param contentVersion 世界内容版本
-     * @param revision 目标世界修订号
-     * @param setting 世界展示名称，可空
-     * @param settingDescription 世界描述，可空
-     * @param location 具体地点自由文本，可空
-     * @param currentRegion GM 给出的当前区域叙事文本，可空
-     * @param mainQuest 主线方向，可空
-     * @param day 当前世界天数，以天为单位
-     * @param time 当前时间描述，可空
-     * @param flags 世界布尔标记映射
-     * @param threatLevel 当前威胁级别标识
-     * @param threatCounter 威胁计数，单位为天
-     * @param threatInterval 威胁升级间隔，单位为天
-     * @param threatHistory 威胁变化历史
-     * @param timedEvents 兼容的期限事件描述列表
-     * @param incidentalEvents 兼容的偶发事件描述列表
-     * @param lastTickDay 最后推进的世界天数
-     * @param crisisTriggered 是否已触发危机
-     * @param mainPlotStage 当前主线阶段索引
-     * @param mainPlotStages 主线阶段描述列表
-     * @param priceModifiers 兼容的价格百分比映射
-     * @param originScene 开场场景描述
-     * @param visitedLocations 去重且保持访问顺序的地点列表，可空时按空列表处理
-     */
-    public WorldState(String worldId, String contentVersion, long revision, String setting,
-                      String settingDescription, String location, String currentRegion, String mainQuest,
-                      long day, String time, Map<String, Boolean> flags,
-                      String threatLevel, long threatCounter, long threatInterval, List<String> threatHistory,
-                      List<String> timedEvents, List<String> incidentalEvents, long lastTickDay,
-                      boolean crisisTriggered, int mainPlotStage, List<String> mainPlotStages,
-                      Map<String, Integer> priceModifiers, String originScene, List<String> visitedLocations) {
-        this(worldId, contentVersion, revision, setting, settingDescription, location, currentRegion, mainQuest,
-                day, time, flags, threatLevel, threatCounter, threatInterval, threatHistory,
-                timedEvents, incidentalEvents, lastTickDay, crisisTriggered, mainPlotStage, mainPlotStages,
-                priceModifiers, originScene, List.of(), List.of(), Map.of(), WorldEffects.none(), visitedLocations);
     }
 
     /** 纯合并已由应用层校验的世界声明，不推进修订号；地点自动去重新增到访问记录。
-     * @param updates 已校验的类型化世界字段，region 为稳定区域标识，visitedLocations 的 text 值为一个地点
+     * @param updates 已校验的类型化世界字段，region 为区域叙事文本，visitedLocations 的 text 值为一个地点
      * @return 合并后的世界快照
      */
     public WorldState applyWorldUpdates(Map<String, InitializationValue> updates) {
         String nextLocation = updatedText(updates, "location", location);
-        var visited = new java.util.LinkedHashSet<>(visitedLocations);
+        LinkedHashSet<String> visited = new LinkedHashSet<>(visitedLocations);
         if (updates.get("location") instanceof InitializationValue.Text text && !text.value().isBlank()) visited.add(text.value());
         if (updates.get("visitedLocations") instanceof InitializationValue.Text text && !text.value().isBlank()) visited.add(text.value());
         return new WorldState(worldId, contentVersion, revision, updatedText(updates, "name", setting),
                 updatedText(updates, "description", settingDescription), nextLocation,
                 updatedText(updates, "region", currentRegion), updatedText(updates, "mainQuest", mainQuest),
-                day, updatedText(updates, "time", time), flags, threatLevel, threatCounter, threatInterval,
-                threatHistory, timedEvents, incidentalEvents, lastTickDay, crisisTriggered, mainPlotStage,
-                mainPlotStages, priceModifiers, updatedText(updates, "originScene", originScene),
-                deadlineEvents, worldEvents, activePriceModifiers, activeEffects, List.copyOf(visited));
+                day, updatedText(updates, "time", time), flags, updatedText(updates, "originScene", originScene),
+                deadlineEvents, worldEvents, activePriceModifiers, List.copyOf(visited));
     }
 
     /** 读取声明中的文本标量，缺失或类型不符时保留当前值。
@@ -152,11 +82,11 @@ public record WorldState(
      * @param event 待注册的有效期限事件
      */
     public WorldState schedule(TimedEvent event) {
-        var next = new java.util.ArrayList<>(deadlineEvents);
+        List<TimedEvent> next = new ArrayList<>(deadlineEvents);
         if (next.stream().anyMatch(value -> value.id().equals(event.id()))) throw new WorldActionRejected("Timed event already exists");
         if (event.status() != TimedEvent.Status.ACTIVE || event.registeredDay() > day) throw new WorldActionRejected("Timed event must be active and registered no later than today");
         next.add(event);
-        return withTyped(next, worldEvents, activePriceModifiers, activeEffects);
+        return withTimeline(day, next, worldEvents, activePriceModifiers);
     }
 
     /** 更新修订号并保留其余世界事实和访问记录。
@@ -164,10 +94,8 @@ public record WorldState(
      */
     public WorldState withRevision(long nextRevision) {
         return new WorldState(worldId, contentVersion, nextRevision, setting, settingDescription, location,
-                currentRegion, mainQuest, day, time, flags, threatLevel, threatCounter,
-                threatInterval, threatHistory, timedEvents, incidentalEvents, lastTickDay, crisisTriggered,
-                mainPlotStage, mainPlotStages, priceModifiers, originScene, deadlineEvents, worldEvents,
-                activePriceModifiers, activeEffects, visitedLocations);
+                currentRegion, mainQuest, day, time, flags, originScene, deadlineEvents, worldEvents,
+                activePriceModifiers, visitedLocations);
     }
 
     /** 解决指定有效事件并记录结果。
@@ -176,8 +104,8 @@ public record WorldState(
      */
     public WorldState resolveTimedEvent(String eventId, String outcome) {
         if (deadlineEvents.stream().noneMatch(event -> event.id().equals(eventId) && event.status() == TimedEvent.Status.ACTIVE)) throw new WorldActionRejected("Active timed event not found");
-        var next = deadlineEvents.stream().map(event -> event.id().equals(eventId) ? event.resolve(day, outcome) : event).toList();
-        return withTyped(next, worldEvents, activePriceModifiers, activeEffects);
+        List<TimedEvent> next = deadlineEvents.stream().map(event -> event.id().equals(eventId) ? event.resolve(day, outcome) : event).toList();
+        return withTimeline(day, next, worldEvents, activePriceModifiers);
     }
 
     /** 表示当前世界状态拒绝玩家提交的世界动作。 */
@@ -196,27 +124,50 @@ public record WorldState(
      */
     public long price(long basePrice, PriceModifier.Category category) {
         if (basePrice < 0) throw new IllegalArgumentException("Base price must not be negative");
-        java.math.BigInteger percent = java.math.BigInteger.valueOf(100);
+        BigInteger percent = BigInteger.valueOf(100);
         PriceModifier global = activePriceModifiers.get(PriceModifier.Category.ALL);
-        if (global != null) percent = percent.multiply(java.math.BigInteger.valueOf(global.percent())).divide(java.math.BigInteger.valueOf(100));
+        if (global != null) percent = percent.multiply(BigInteger.valueOf(global.percent())).divide(BigInteger.valueOf(100));
         PriceModifier specific = activePriceModifiers.get(category);
-        if (specific != null) percent = percent.multiply(java.math.BigInteger.valueOf(specific.percent())).divide(java.math.BigInteger.valueOf(100));
-        return java.math.BigInteger.valueOf(basePrice).multiply(percent).divide(java.math.BigInteger.valueOf(100)).longValueExact();
+        if (specific != null) percent = percent.multiply(BigInteger.valueOf(specific.percent())).divide(BigInteger.valueOf(100));
+        return BigInteger.valueOf(basePrice).multiply(percent).divide(BigInteger.valueOf(100)).longValueExact();
     }
 
-    /** 替换类型化事件与效果并保留世界标量和访问记录。
-     * @param nextDeadlines 新期限事件列表
-     * @param nextEvents 新世界事件列表
-     * @param nextPrices 新有效价格修正映射
-     * @param effects 新的世界持续效果
+    /** 推进一天，确认本日到期的叙事事件，移除过期价格修正。
      */
-    private WorldState withTyped(List<TimedEvent> nextDeadlines, List<WorldEvent> nextEvents,
-                                 Map<PriceModifier.Category, PriceModifier> nextPrices,
-                                 WorldEffects effects) {
-        return new WorldState(worldId, contentVersion, revision, setting, settingDescription, location, currentRegion,
-                mainQuest, day, time, flags, threatLevel, threatCounter, threatInterval,
-                threatHistory, timedEvents, incidentalEvents, lastTickDay, crisisTriggered, mainPlotStage,
-                mainPlotStages, priceModifiers, originScene, nextDeadlines, nextEvents, nextPrices, effects, visitedLocations);
+    public WorldState advanceDay() {
+        long nextDay = day + 1;
+        List<TimedEvent> nextDeadlines = new ArrayList<>(deadlineEvents.size());
+        List<WorldEvent> nextEvents = new ArrayList<>(worldEvents);
+        for (TimedEvent event : deadlineEvents) {
+            TimedEvent updated = event.tick(nextDay);
+            nextDeadlines.add(updated);
+            if (event.status() == TimedEvent.Status.ACTIVE && updated.status() == TimedEvent.Status.EXPIRED) {
+                nextEvents.add(new WorldEvent(event.id() + "-expired", nextDay, WorldEvent.Type.DEADLINE,
+                        event.consequence(), event.materialId()));
+            }
+        }
+        Map<PriceModifier.Category, PriceModifier> nextPrices = new EnumMap<>(PriceModifier.Category.class);
+        nextPrices.putAll(activePriceModifiers);
+        nextPrices.values().removeIf(modifier -> modifier.expiresDay() > 0 && nextDay >= modifier.expiresDay());
+        return withTimeline(nextDay, nextDeadlines, nextEvents, nextPrices);
     }
 
+    /** 替换有效价格修正并保留世界事件事实。
+     * @param nextPrices 按商品分类索引的价格修正
+     */
+    public WorldState withPriceModifiers(Map<PriceModifier.Category, PriceModifier> nextPrices) {
+        return withTimeline(day, deadlineEvents, worldEvents, nextPrices);
+    }
+
+    /** 替换世界时间线并保留其他叙事状态。
+     * @param nextDay 更新后的世界天数
+     * @param nextDeadlines 更新后的期限事件
+     * @param nextEvents 更新后的世界事件
+     * @param nextPrices 当前有效的价格修正
+     */
+    private WorldState withTimeline(long nextDay, List<TimedEvent> nextDeadlines, List<WorldEvent> nextEvents,
+                                    Map<PriceModifier.Category, PriceModifier> nextPrices) {
+        return new WorldState(worldId, contentVersion, revision, setting, settingDescription, location, currentRegion,
+                mainQuest, nextDay, time, flags, originScene, nextDeadlines, nextEvents, nextPrices, visitedLocations);
+    }
 }

@@ -2,6 +2,8 @@ package com.gameneko.aigame;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
+import com.gameneko.aigame.engine.PriceModifier;
+import com.gameneko.aigame.engine.TimedEvent;
 import com.gameneko.aigame.engine.WorldState;
 import com.gameneko.aigame.rulesets.ap.ApBattle;
 import com.gameneko.aigame.rulesets.ap.ApItemEffect;
@@ -81,12 +83,12 @@ class AdvancedApFeatureTests {
     @Test
     void worldDeadlineAndPriceAreTypedAndDeterministic() {
         WorldState state = new WorldState("w", "1", 0, null, null, null, null, null, 1, "",
-                Map.of(), "Dormant", 0, 7, List.of(), List.of(), List.of(), 0, false, 0, List.of(), Map.of(), "", java.util.List.of());
-        var event = new com.gameneko.aigame.engine.TimedEvent("e1", "plot", "desc", "answer", "late", 0, 3, 2,
-                com.gameneko.aigame.engine.TimedEvent.Status.ACTIVE, com.gameneko.aigame.engine.WorldEffects.none());
+                Map.of(), "", List.of(), List.of(), Map.of(), List.of());
+        TimedEvent event = new TimedEvent("e1", "plot", "desc", "answer", "late", 0, 3, 2,
+                TimedEvent.Status.ACTIVE, "");
         state = state.schedule(event).resolveTimedEvent("e1", "done");
-        assertEquals(com.gameneko.aigame.engine.TimedEvent.Status.RESOLVED, state.deadlineEvents().getFirst().status());
-        state = new WorldState(state.worldId(), state.contentVersion(), state.revision(), state.setting(), state.settingDescription(), state.location(), state.currentRegion(), state.mainQuest(), state.day(), state.time(), state.flags(), state.threatLevel(), state.threatCounter(), state.threatInterval(), state.threatHistory(), state.timedEvents(), state.incidentalEvents(), state.lastTickDay(), state.crisisTriggered(), state.mainPlotStage(), state.mainPlotStages(), state.priceModifiers(), state.originScene(), state.deadlineEvents(), state.worldEvents(), Map.of(com.gameneko.aigame.engine.PriceModifier.Category.ALL, new com.gameneko.aigame.engine.PriceModifier("all", 125)), state.activeEffects(), state.visitedLocations());
-        assertEquals(125, state.price(100, com.gameneko.aigame.engine.PriceModifier.Category.FOOD));
+        assertEquals(TimedEvent.Status.RESOLVED, state.deadlineEvents().getFirst().status());
+        state = state.withPriceModifiers(Map.of(PriceModifier.Category.ALL, new PriceModifier("all", 125)));
+        assertEquals(125, state.price(100, PriceModifier.Category.FOOD));
     }
 }

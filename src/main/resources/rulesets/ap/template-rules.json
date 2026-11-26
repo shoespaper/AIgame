@@ -75,6 +75,14 @@
     }
   },
   {
+    "template_id": "event_npc_morale",
+    "entity_type": "event",
+    "rule_type": "shift_npc_mood",
+    "parameters": {
+      "mood_delta": 2
+    }
+  },
+  {
     "template_id": "spell_damage",
     "entity_type": "spell",
     "rule_type": "spell_damage",

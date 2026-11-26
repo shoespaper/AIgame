@@ -1,5 +1,6 @@
 package com.gameneko.aigame.persistence;
 
+import com.gameneko.aigame.application.port.GamePersistenceException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,6 +40,7 @@ import java.util.function.Function;
 @Component
 public final class ConfirmedTemplateRegistry {
     private static final String RULE_PROPOSALS = "engine_template_registrations";
+    private static final Set<String> MATERIAL_FIELDS = Set.of("id", "name", "description", "category");
     private static final int PROPOSAL_ATTEMPTS = 3;
 
     /** 将待提交的世界素材与通过校验的引擎规则索引作为一组返回。
@@ -421,6 +423,11 @@ public final class ConfirmedTemplateRegistry {
                 if (!name.isTextual() || name.asText().isBlank()) {
                     throw new IllegalArgumentException(path + ".name 必须是非空字符串");
                 }
+                for (Map.Entry<String, JsonNode> property : entry.properties()) {
+                    if (!MATERIAL_FIELDS.contains(property.getKey())) {
+                        throw new IllegalArgumentException(path + "." + property.getKey() + " 不属于世界叙事素材字段");
+                    }
+                }
                 validateOptionalText(entry, "description", path);
                 validateOptionalText(entry, "category", path);
             }
@@ -458,8 +465,9 @@ public final class ConfirmedTemplateRegistry {
                     + " 数组中提交当前世界素材引用但尚未定义的规则，规则类型和参数字段须与该类型的预置规则一致。"
                     + "\n可复用的规则：" + known;
         }
-        NarrativeSnapshot snapshot = new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "", "", "", "",
-                List.of(), List.of(), List.of()), null, List.of()).withWorldbook(book);
+        instruction += "\n各素材项只提供 id、name、description、category 中适用的字段；引擎引用放在 engines，规则数值放在引擎提案中。";
+        NarrativeSnapshot snapshot = new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "", "", "",
+                List.of(), List.of(), List.of()), List.of()).withWorldbook(book);
         return provider.respond(new NarrativePrompt(instruction, book.toString(), snapshot, "zh-CN"));
     }
 

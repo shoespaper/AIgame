@@ -106,7 +106,7 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.weather").doesNotExist())
                 .andExpect(jsonPath("$.season").doesNotExist())
                 .andExpect(jsonPath("$.currentRegion").value("forest"))
-                .andExpect(jsonPath("$.threatLevel").value("Dormant"));
+                .andExpect(jsonPath("$.threatLevel").doesNotExist());
     }
 
     @Test
@@ -370,6 +370,50 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.code").value("ENGINE_REQUIRED"));
         mockMvc.perform(get("/api/games/{gameId}", gameId)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(0));
+    }
+
+    /** 验证到期事件只保存事实，AP 按素材结算补给与 NPC 心情且只执行一次。 */
+    @Test
+    void apResolvesDeadlineFactsThroughRegisteredEventRules() throws Exception {
+        String gameId = "ap-world-facts";
+        openApInTown(gameId).andExpect(jsonPath("$.world.threatLevel").doesNotExist());
+        performAction(gameId, 0, "register_npc", Map.of("npcId", "guide", "npcType", "merchant", "name", "向导"))
+                .andExpect(status().isOk());
+        scheduleDeadline(gameId, 1, "delivery", "caravan_arrival");
+        scheduleDeadline(gameId, 2, "patrol", "patrol_return");
+
+        performAction(gameId, 3, "advance_day", Map.of()).andExpect(status().isOk())
+                .andExpect(jsonPath("$.world.day").value(2))
+                .andExpect(jsonPath("$.world.worldEvents.length()").value(2))
+                .andExpect(jsonPath("$.world.worldEvents[0].materialId").value("caravan_arrival"))
+                .andExpect(jsonPath("$.world.worldEvents[0].effects").doesNotExist())
+                .andExpect(jsonPath("$.rulesetState.resources.rations").value(3))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].mood").value(2))
+                .andExpect(jsonPath("$.rulesetState.systems.threatDays").value(1))
+                .andExpect(jsonPath("$.confirmedEvents[1].type").value("supply_event"))
+                .andExpect(jsonPath("$.confirmedEvents[2].type").value("event_npc_mood"));
+
+        performAction(gameId, 4, "advance_day", Map.of()).andExpect(status().isOk())
+                .andExpect(jsonPath("$.world.worldEvents.length()").value(2))
+                .andExpect(jsonPath("$.rulesetState.resources.rations").value(2))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].mood").value(1));
+    }
+
+    /** 登记下一天到期的世界事件。
+     * @param gameId 当前游戏标识
+     * @param revision 玩家观察到的当前修订号
+     * @param eventId 本次事件标识
+     * @param materialId 到期事实关联的世界素材标识
+     */
+    private void scheduleDeadline(String gameId, int revision, String eventId, String materialId) throws Exception {
+        List<Map<String, Object>> arguments = List.of(
+                Map.of("name", "eventId", "type", "text", "text", eventId),
+                Map.of("name", "materialId", "type", "text", "text", materialId),
+                Map.of("name", "deadlineDays", "type", "integer", "integer", 1));
+        String body = mapper.writeValueAsString(Map.of("expectedRevision", revision, "type", "schedule_timed_event",
+                "arguments", arguments));
+        mockMvc.perform(post("/api/games/{gameId}/actions", gameId).contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
     }
 
     /** 使用内置素材在城镇开局，场景文本可独立于遭遇选择。

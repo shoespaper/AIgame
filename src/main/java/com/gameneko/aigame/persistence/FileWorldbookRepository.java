@@ -1,5 +1,7 @@
 package com.gameneko.aigame.persistence;
 
+import com.gameneko.aigame.application.port.GamePersistenceException;
+import com.gameneko.aigame.application.port.WorldbookRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -19,7 +21,7 @@ import java.util.Map;
 
 /** 负责读写 data/worldbooks 下的用户世界书，并与 classpath 世界书保持独立。 */
 @Component
-public final class FileWorldbookRepository {
+public final class FileWorldbookRepository implements WorldbookRepository {
     private final ObjectMapper objectMapper;
     private final Path root;
 
@@ -52,6 +54,7 @@ public final class FileWorldbookRepository {
     /** 返回本地目录中的用户世界书标识。
      * @return 排序后的世界书标识
      */
+    @Override
     public List<String> available() {
         if (!Files.isDirectory(root)) return List.of();
         try (var paths = Files.list(root)) {
@@ -83,6 +86,7 @@ public final class FileWorldbookRepository {
     /** 保存一个世界书实例，默认拒绝覆盖已有文件。
      * @param worldbook 世界书叙事内容
      */
+    @Override
     public synchronized void save(WorldbookDefinition worldbook) {
         save(worldbook, false);
     }
@@ -91,6 +95,7 @@ public final class FileWorldbookRepository {
      * @param worldbook 世界书叙事内容
      * @param overwrite 是否覆盖已存在的同名世界书
      */
+    @Override
     public synchronized void save(WorldbookDefinition worldbook, boolean overwrite) {
         if (worldbook == null) throw new IllegalArgumentException("Worldbook is required");
         Path file = safePath(worldbook.id());
@@ -135,6 +140,7 @@ public final class FileWorldbookRepository {
     /** 删除一个用户世界书文件。
      * @param id 世界书标识
      */
+    @Override
     public synchronized void delete(String id) {
         Path file = safePath(id);
         try {

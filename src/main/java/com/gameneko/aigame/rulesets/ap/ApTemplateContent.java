@@ -1,14 +1,13 @@
 package com.gameneko.aigame.rulesets.ap;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.gameneko.aigame.content.WorldDefinition;
-import com.gameneko.aigame.content.WorldDefinition.AbilityDefinition;
-import com.gameneko.aigame.content.WorldDefinition.AbilityMechanic;
-import com.gameneko.aigame.content.WorldDefinition.IntRange;
-import com.gameneko.aigame.content.WorldDefinition.ItemTemplate;
-import com.gameneko.aigame.content.WorldDefinition.MonsterDefinition;
-import com.gameneko.aigame.content.WorldDefinition.NpcTemplate;
-import com.gameneko.aigame.content.WorldDefinition.TalentDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.AbilityDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.AbilityMechanic;
+import com.gameneko.aigame.rulesets.ap.ApContent.IntRange;
+import com.gameneko.aigame.rulesets.ap.ApContent.ItemTemplate;
+import com.gameneko.aigame.rulesets.ap.ApContent.MonsterDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.NpcTemplate;
+import com.gameneko.aigame.rulesets.ap.ApContent.TalentDefinition;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,21 +16,19 @@ import java.util.Map;
 /** 将已登记的 AP 模板转换为可执行的能力、怪物及交互数据。 */
 public final class ApTemplateContent {
     /** 创建应用本次世界素材和对应规则定义的 AP 运行时。
-     * @param world 世界书的基础内容
      * @param materials 已确认的世界素材，未登记时为空节点
      * @param rules 按模板标识索引的已验证 AP 规则
      */
-    public static ApGameEngineRuntime runtime(WorldDefinition world, JsonNode materials, JsonNode rules) {
-        if (!materials.path("registered_engines").path("ap").asBoolean()) return new ApGameEngineRuntime(world);
-        return new ApGameEngineRuntime(configure(world, materials, rules), materials, rules);
+    public static ApGameEngineRuntime runtime(JsonNode materials, JsonNode rules) {
+        if (!materials.path("registered_engines").path("ap").asBoolean()) return new ApGameEngineRuntime();
+        return new ApGameEngineRuntime(configure(materials, rules), materials, rules);
     }
 
     /** 将世界条目映射为本引擎的计算数据。
-     * @param world 世界书基础内容
      * @param materials 已确认的叙事素材
      * @param rules 按标识索引的 AP 规则
      */
-    public static WorldDefinition configure(WorldDefinition world, JsonNode materials, JsonNode rules) {
+    public static ApContent configure(JsonNode materials, JsonNode rules) {
         Map<String, AbilityDefinition> abilities = new LinkedHashMap<>();
         Map<String, MonsterDefinition> monsters = new LinkedHashMap<>();
         Map<String, NpcTemplate> npcs = new LinkedHashMap<>();
@@ -49,23 +46,16 @@ public final class ApTemplateContent {
                             rule.path("template_id").asText()));
                     case "monster_types" -> monsters.put(id, new MonsterDefinition(id, name,
                             params.path("max_hp").intValue(), params.path("attack_power").intValue()));
-                    case "npc_types" -> npcs.put(id, new NpcTemplate(id, List.of(description), "", 0, false, false, false, false, false));
+                    case "npc_types" -> npcs.put(id, new NpcTemplate(List.of(description), "", 0, false, false, false, false));
                     case "talent_types" -> talents.put(id, new TalentDefinition(name, description));
-                    case "item_types" -> items.put(id + ":common", new ItemTemplate(id, "common", fixed(1),
+                    case "item_types" -> items.put(id + ":common", new ItemTemplate(new IntRange(1, 1),
                             params.path("healing").asInt(), 0, false, 0, 0));
                     default -> throw new IllegalArgumentException("未知素材类别：" + group);
                 }
             }
         }
-        return new WorldDefinition(world.worldId(), world.contentVersion(), world.nameHint(),
-                world.descriptionHint(), world.defaultThreatInterval(), Map.of(), talents, abilities, monsters,
-                npcs, world.eventTemplates(), items);
+        return new ApContent(talents, abilities, monsters, npcs, items);
     }
-
-    /** 创建固定值的属性区间。
-     * @param value 固定的非负属性数值
-     */
-    private static IntRange fixed(int value) { return new IntRange(value, value); }
 
     /** 读取世界素材引用的已登记 AP 模板。
      * @param material 带有 AP 模板引用的世界素材
@@ -99,7 +89,7 @@ public final class ApTemplateContent {
             default -> throw new IllegalArgumentException("无效的 AP 技能模板");
         };
         AbilityMechanic mechanic = new AbilityMechanic(category, "", 0, 1, p.path("power").asInt(), 100,
-                p.path("healing").asInt(), "guard", p.path("guard").asInt(), 1, 0, 0, 0, false, false, "active");
+                p.path("healing").asInt(), "guard", p.path("guard").asInt(), false, false, "active");
         return new AbilityDefinition(id, kind, 1, p.path("ap_cost").asInt(),
                 p.path("sp_cost").asInt(), p.path("power").asInt(), Map.of(), name, description, description, mechanic);
     }

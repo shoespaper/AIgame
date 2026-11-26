@@ -1,7 +1,6 @@
 package com.gameneko.aigame.rulesets.ap;
 
-import com.gameneko.aigame.content.WorldDefinition;
-import com.gameneko.aigame.content.WorldDefinition.AbilityDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.AbilityDefinition;
 import com.gameneko.aigame.engine.ActionIntent;
 import com.gameneko.aigame.engine.ConfirmedEvent;
 import com.gameneko.aigame.engine.EngineResolution;
@@ -25,29 +24,26 @@ import java.util.Set;
 
 /** 为 AP 规则提供引擎中立接口所需的初始化、动作校验与状态投影适配。 */
 public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRuntime.ApState, ApRulesetRuntime.ApProjection> {
-    private final WorldDefinition world;
+    private final ApContent content;
     private final JsonNode materials;
     private final JsonNode rules;
     private final ApRulesetRuntime runtime;
 
-    /** 为当前世界创建 AP 运行时，难度缺省时使用引擎默认配置。
-     * @param world 世界书与模板合并后的内容
-     */
-    public ApGameEngineRuntime(WorldDefinition world) {
-        this(world, MissingNode.getInstance(), MissingNode.getInstance());
+    /** 创建用于开局访谈的 AP 运行时。 */
+    public ApGameEngineRuntime() {
+        this(ApContent.empty(), MissingNode.getInstance(), MissingNode.getInstance());
     }
 
     /** 创建复用已确认模板的 AP 引擎。
-     * @param world 已映射的世界素材
+     * @param content 已解码的 AP 专用素材
      * @param materials 已确认的叙事条目
      * @param rules 注册的 AP 计算规则
      */
-    ApGameEngineRuntime(WorldDefinition world, JsonNode materials, JsonNode rules) {
+    ApGameEngineRuntime(ApContent content, JsonNode materials, JsonNode rules) {
         this.materials = materials;
         this.rules = rules;
         this.runtime = new ApRulesetRuntime(rules);
-        if (world == null) throw new IllegalArgumentException("AP requires a world definition");
-        this.world = world;
+        this.content = content;
     }
 
     /** 返回此规则引擎的稳定标识。
@@ -129,7 +125,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         String gender = text(answers, "gender", "未定");
         String archetype = text(answers, "archetype", "swordsman");
         String difficulty = text(answers, "difficulty", "adventure");
-        ApRulesetRuntime.ApState state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(name, age, gender, archetype, difficulty), world);
+        ApRulesetRuntime.ApState state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(name, age, gender, archetype, difficulty), content);
         if (state.uniqueTalent() != null && materials.isObject()) {
             int bonus = ApTemplateContent.ruleFor(material("talent_types", state.uniqueTalent().type()), rules)
                     .path("parameters").path("max_hp_bonus").intValue();
@@ -220,27 +216,60 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         int recovery = action instanceof ApRulesetRuntime.AdvanceDay
                 ? ApRulesetRuntime.difficultyPresets().get(state.difficulty()).hpRecoveryBonus() : 0;
         RulesetResolution<ApRulesetRuntime.ApState, ApRulesetRuntime.ApEvent> result =
-                runtime.resolve(state, action, recovery, world);
-        List<ConfirmedEvent> events = result.events().stream()
-                .map(event -> new ConfirmedEvent(id(), event.type(), event.description(), event.amount(),
-                        event.subject(), event.target())).toList();
+                runtime.resolve(state, action, recovery, content);
+        List<ConfirmedEvent> events = result.events().stream().map(this::confirmed).toList();
         return new EngineResolution<>(result.nextState(), events,
                 action instanceof ApRulesetRuntime.AdvanceDay);
     }
 
+    /** 更新 NPC 的每日状态，并按 AP 模板解释收到的世界事件事实。
+     * @param state AP 完成日结后的状态
+     * @param worldDay 推进后的游戏天数
+     * @param seed NPC 日结使用的确定性种子
+     * @param events 本日新增的确认事件
+     */
     @Override
-    public ApRulesetRuntime.ApState afterWorldAdvance(ApRulesetRuntime.ApState state, long worldDay,
-                                                    long seed, List<WorldEvent> events) {
-        var next = runtime.resolve(state, new ApRulesetRuntime.TickNpcs(seed, worldDay), 0, world).nextState();
-        for (var event : events) {
-            var effects = event.effects();
-            if (effects.rationsBonus() != 0) next = next.withResources(next.resources().add(0, effects.rationsBonus(), 0));
-            if (effects.npcMoodShift() != 0) {
-                var npcs = next.systems().npcs().stream().map(npc -> npc.shiftMood(effects.npcMoodShift())).toList();
+    public EngineResolution<ApRulesetRuntime.ApState> afterWorldAdvance(ApRulesetRuntime.ApState state, long worldDay,
+                                                                       long seed, List<WorldEvent> events) {
+        ApRulesetRuntime.ApState next = runtime.resolve(state, new ApRulesetRuntime.TickNpcs(seed, worldDay), 0, content).nextState();
+        List<ConfirmedEvent> confirmed = new ArrayList<>();
+        for (WorldEvent event : events) {
+            JsonNode material = findMaterial("event_templates", event.materialId());
+            if (material.isMissingNode()) continue;
+            JsonNode rule = ApTemplateContent.ruleFor(material, rules);
+            JsonNode parameters = rule.path("parameters");
+            if ("grant_rations".equals(rule.path("rule_type").asText())) {
+                RulesetResolution<ApRulesetRuntime.ApState, ApRulesetRuntime.ApEvent> supply =
+                        runtime.resolve(next, new ApRulesetRuntime.SupplyEvent(event.id(),
+                                material.path("name").asText(), parameters.path("rations").intValue()));
+                next = supply.nextState();
+                supply.events().stream().map(this::confirmed).forEach(confirmed::add);
+            } else if ("shift_npc_mood".equals(rule.path("rule_type").asText())) {
+                int delta = parameters.path("mood_delta").intValue();
+                List<ApNpc> previous = next.systems().npcs();
+                List<ApNpc> npcs = previous.stream().map(npc -> npc.status() == ApNpc.Status.ACTIVE
+                        ? npc.shiftMood(delta) : npc).toList();
+                long changed = 0;
+                for (int index = 0; index < npcs.size(); index++) {
+                    if (previous.get(index).mood() != npcs.get(index).mood()) changed++;
+                }
                 next = next.withSystems(next.systems().withNpcs(npcs));
+                if (changed > 0) {
+                    String outcome = delta > 0 ? "好转" : "变差";
+                    confirmed.add(new ConfirmedEvent(id(), "event_npc_mood",
+                            "「" + material.path("name").asText() + "」使 " + changed + " 位 NPC 的心情" + outcome + "。",
+                            changed, event.id(), ""));
+                }
             }
         }
-        return next;
+        return new EngineResolution<>(next, confirmed);
+    }
+
+    /** 把 AP 结算结果转换为引擎中立的确认事件。
+     * @param event AP 确认的结算事实
+     */
+    private ConfirmedEvent confirmed(ApRulesetRuntime.ApEvent event) {
+        return new ConfirmedEvent(id(), event.type(), event.description(), event.amount(), event.subject(), event.target());
     }
 
     @Override public ApRulesetRuntime.ApProjection project(ApRulesetRuntime.ApState state) { return runtime.project(state); }
@@ -260,10 +289,21 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
      * @param id 素材标识
      */
     private JsonNode material(String group, String id) {
+        JsonNode material = findMaterial(group, id);
+        if (material.isMissingNode()) throw new IllegalArgumentException("未知素材：" + id);
+        return material;
+    }
+
+    /** 查询本局世界素材，找不到时返回缺失节点。
+     * @param group 世界模板中的素材集合
+     * @param id 素材标识，可为空
+     */
+    private JsonNode findMaterial(String group, String id) {
+        if (id == null || id.isBlank()) return MissingNode.getInstance();
         for (JsonNode entry : materials.path(group)) {
             if (id.equals(entry.path("id").asText())) return entry;
         }
-        throw new IllegalArgumentException("未知素材：" + id);
+        return MissingNode.getInstance();
     }
 
     /** 将 AI 的结构化意图转换成已支持的 AP 动作。
@@ -318,7 +358,11 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     private ApRulesetRuntime.SupplyEvent supplyEvent(ActionIntent intent) {
         String id = textArg(intent, "eventId", "");
         JsonNode event = material("event_templates", id);
-        int rations = ApTemplateContent.ruleFor(event, rules).path("parameters").path("rations").intValue();
+        JsonNode rule = ApTemplateContent.ruleFor(event, rules);
+        if (!"grant_rations".equals(rule.path("rule_type").asText())) {
+            throw new IllegalArgumentException("事件素材没有 AP 补给规则：" + id);
+        }
+        int rations = rule.path("parameters").path("rations").intValue();
         return new ApRulesetRuntime.SupplyEvent(id, event.path("name").asText(id), rations);
     }
 
@@ -343,7 +387,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
      */
     private ApRulesetRuntime.LearnAbility learnAbility(String id) {
         if (!materials.isObject()) return new ApRulesetRuntime.LearnAbility(id);
-        AbilityDefinition definition = world.abilities().get(id);
+        AbilityDefinition definition = content.abilities().get(id);
         if (definition == null) throw new IllegalArgumentException("未知能力素材：" + id);
         String group = "spell".equals(definition.kind()) ? "spell_types" : "skill_types";
         JsonNode rule = ApTemplateContent.ruleFor(material(group, id), rules);
@@ -367,7 +411,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     private ApRulesetRuntime.LearnAbility createdSkill(ActionIntent intent) {
         String id = textArg(intent, "abilityId", "");
         String name = textArg(intent, "name", "");
-        if (!id.matches("[a-zA-Z0-9_-]{1,80}") || name.isBlank() || world.abilities().containsKey(id)) throw new IllegalArgumentException("新技能标识或名称无效");
+        if (!id.matches("[a-zA-Z0-9_-]{1,80}") || name.isBlank() || content.abilities().containsKey(id)) throw new IllegalArgumentException("新技能标识或名称无效");
         String templateId = textArg(intent, "template_id", "");
         JsonNode rule = rules.path(templateId);
         String description = textArg(intent, "description", "");

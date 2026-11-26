@@ -35,7 +35,7 @@ public final class ClasspathGameEngineFactory implements GameEngineFactory {
     public GameEngineRuntime<?, ?> createForGame(String engineId, WorldDefinition world, String gameId) {
         if (engineId == null || engineId.isBlank()) throw new GameRequestException(GameRequestException.Code.ENGINE_REQUIRED, "Game engine is not selected");
         return switch (engineId.trim().toLowerCase(java.util.Locale.ROOT)) {
-            case "ap" -> registry == null || gameId == null ? new ApGameEngineRuntime(world) : ApTemplateContent.runtime(world, registry.world(gameId), registry.rules("ap"));
+            case "ap" -> registry == null || gameId == null ? new ApGameEngineRuntime() : ApTemplateContent.runtime(registry.world(gameId), registry.rules("ap"));
             default -> throw new GameRequestException(GameRequestException.Code.UNSUPPORTED_ENGINE, "Unsupported game engine: " + engineId);
         };
     }

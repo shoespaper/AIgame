@@ -3,7 +3,6 @@ package com.gameneko.aigame;
 import com.gameneko.aigame.narrative.NarrativeProviderException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.application.*;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
@@ -12,7 +11,7 @@ import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver;
 import com.gameneko.aigame.narrative.*;
 import com.gameneko.aigame.persistence.FileGameRepository;
-import com.gameneko.aigame.persistence.GamePersistenceException;
+import com.gameneko.aigame.application.port.GamePersistenceException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -274,12 +273,12 @@ class NarrativeUpdatesTests {
         assertFalse(turn.collected().containsKey("region"));
     }
 
-    /** 验证访问记录在世界复制、事件处理与价格修改后仍被保留，且旧 JSON 缺失该字段时可读取。 */
+    /** 验证访问记录在世界复制、事件处理与价格修改后仍被保留，且可序列化回读。 */
     @Test
-    void visitedLocationsSurviveWorldCopiesAndOlderSaves() throws Exception {
+    void visitedLocationsSurviveWorldCopiesAndSerialization() throws Exception {
         var world = new WorldInitializationService(catalog).initialize(request("石桥镇"));
         var event = new TimedEvent("deadline", "plot", "线索", "解决", "错过", 1, 3, 2,
-                TimedEvent.Status.ACTIVE, WorldEffects.none());
+                TimedEvent.Status.ACTIVE, "");
         var copied = world.withRevision(1).schedule(event).resolveTimedEvent("deadline", "找到线索");
         assertEquals(List.of("石桥镇"), copied.visitedLocations());
         assertThrows(UnsupportedOperationException.class, () -> copied.visitedLocations().add("无法写入"));
@@ -289,13 +288,7 @@ class NarrativeUpdatesTests {
         assertEquals(world.visitedLocations(), priced.worldState().visitedLocations());
         var removed = actions.applyWorldAction("copies", 1, new WorldAction.RemovePriceModifier(PriceModifier.Category.ALL));
         assertEquals(world.visitedLocations(), removed.worldState().visitedLocations());
-        var json = mapper.valueToTree(world);
-        ((ObjectNode) json).remove("visitedLocations");
-        ((ObjectNode) json).put("weather", "旧天气");
-        ((ObjectNode) json).put("season", "旧季节");
-        assertEquals(List.of(), mapper.treeToValue(json, WorldState.class).visitedLocations());
-        assertFalse(mapper.valueToTree(mapper.treeToValue(json, WorldState.class)).has("weather"));
-        assertFalse(mapper.valueToTree(mapper.treeToValue(json, WorldState.class)).has("season"));
+        assertEquals(world.visitedLocations(), mapper.readValue(mapper.writeValueAsString(copied), WorldState.class).visitedLocations());
     }
 
     /** 验证声明数量与标识符边界在进入字段采纳之前被拒绝。 */

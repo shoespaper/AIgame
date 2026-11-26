@@ -94,12 +94,13 @@ class ConfirmedTemplateRegistryTests {
         assertTrue(Files.notExists(temporary.resolve("registry.json")));
     }
 
-    /** 验证内层 JSON 错误或区域叙事素材缺少名称时会反馈给模型并重试。 */
+    /** 验证模板 JSON 非法或叙事素材携带计算字段时会反馈给模型并重试。 */
     @Test
-    void retriesMalformedProposalAndUnnamedRegion() throws IOException {
+    void retriesMalformedProposalAndRuleDataInNarrativeMaterial() throws IOException {
         when(catalog.findTemplate("dusk")).thenReturn(Optional.empty());
-        String unnamedRegion = WORLD.replace("\"regions\":[]", "\"regions\":[{\"id\":\"forest\"}]");
-        when(provider.respond(any())).thenReturn(response("{"), response(unnamedRegion), response(WORLD));
+        String materialWithRuleData = WORLD.replace("\"description\":\"守住关口\"",
+                "\"description\":\"守住关口\",\"ap_cost\":2");
+        when(provider.respond(any())).thenReturn(response("{"), response(materialWithRuleData), response(WORLD));
         ConfirmedTemplateRegistry registry = registry();
 
         registry.confirm("story", book(""), null);
@@ -108,7 +109,7 @@ class ConfirmedTemplateRegistryTests {
         verify(provider, times(3)).respond(prompts.capture());
         assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("updates.template 的 JSON 无效"));
         assertTrue(prompts.getAllValues().get(2).systemInstruction()
-                .contains("world_template.regions[0].name 必须是非空字符串"));
+                .contains("world_template.skill_types[0].ap_cost 不属于世界叙事素材字段"));
         assertTrue(registry.world("story").path("regions").isEmpty());
     }
 

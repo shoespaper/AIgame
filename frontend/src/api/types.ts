@@ -41,7 +41,14 @@ export interface EngineConfirmedEvent { source: string; type: string; descriptio
 export interface ConversationMessage { role: 'player' | 'gm'; text: string }
 /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
 export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[] }
-export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; threatLevel: string; threatCounter: number; threatInterval: number; threatHistory: string[]; timedEvents: string[]; incidentalEvents: string[]; lastTickDay: number; crisisTriggered: boolean; mainPlotStage: number; mainPlotStages: string[]; priceModifiers: Record<string, number>; originScene: string }
+/** 世界期限事件及其已确认的结果。 */
+export interface TimedWorldEvent { id: string; kind: string; description: string; answer: string; consequence: string; registeredDay: number; deadlineDay: number; daysRemaining: number; status: 'ACTIVE' | 'RESOLVED' | 'EXPIRED'; materialId: string; outcome: string; resolvedDay: number }
+/** 已发生的世界事件事实。 */
+export interface WorldEvent { id: string; day: number; type: 'DEADLINE'; description: string; materialId: string }
+/** 按分类应用的价格倍率。 */
+export interface WorldPriceModifier { category: string; percent: number; source: string; expiresDay: number }
+/** 引擎中立的权威世界状态。 */
+export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; originScene: string; deadlineEvents: TimedWorldEvent[]; worldEvents: WorldEvent[]; activePriceModifiers: Record<string, WorldPriceModifier> }
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[] }
 /** 后端错误响应的提示、稳定错误码和可选请求 ID。 */

@@ -292,7 +292,7 @@ public final class InitializationNarrationService {
     /** 创建初始化阶段不含引擎状态的中立快照。 */
     private static NarrativeSnapshot emptySnapshot() {
         return new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null,
-                "Dormant", List.of(), List.of(), List.of()), null, List.of());
+                List.of(), List.of(), List.of()), List.of());
     }
 
     /** 初始化会话的可变内存状态。 */

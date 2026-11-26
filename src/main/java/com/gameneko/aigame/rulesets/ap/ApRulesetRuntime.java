@@ -3,11 +3,10 @@ package com.gameneko.aigame.rulesets.ap;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
-import com.gameneko.aigame.content.WorldDefinition;
-import com.gameneko.aigame.content.WorldDefinition.AbilityMechanic;
-import com.gameneko.aigame.content.WorldDefinition.AbilityDefinition;
-import com.gameneko.aigame.content.WorldDefinition.DifficultyDefinition;
-import com.gameneko.aigame.content.WorldDefinition.MonsterDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.AbilityMechanic;
+import com.gameneko.aigame.rulesets.ap.ApContent.AbilityDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.DifficultyDefinition;
+import com.gameneko.aigame.rulesets.ap.ApContent.MonsterDefinition;
 import com.gameneko.aigame.engine.ActionValidation;
 import com.gameneko.aigame.engine.GameState;
 import com.gameneko.aigame.engine.RulesetResolution;
@@ -34,10 +33,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             "alchemist", new Archetype(9, 10, 15, 9, 11, 13, "投石索", "+1", "工作围裙"));
     private static final Archetype DEFAULT = new Archetype(10, 10, 10, 10, 10, 10, "铁匕首", "+2", "旅行衫");
     private static final Map<String, DifficultyDefinition> DEFAULT_DIFFICULTIES = Map.of(
-            "story", new DifficultyDefinition(14, 50, 5, 3, 2, "叙事", "敌人很软，钱好赚，很少真的会死。用来讲故事。", 70, 70, 75, 50, 150, 130, 15),
-            "adventure", new DifficultyDefinition(7, 15, 3, 2, 0, "冒险", "标准难度。会受伤，会缺钱，走错一步可能就没了。", 100, 100, 100, 100, 100, 100, 0),
-            "hard", new DifficultyDefinition(5, 5, 2, 1, -1, "艰难", "敌人更硬更狠，战利品更少。每一场都要算。", 140, 130, 125, 130, 120, 80, -10),
-            "nightmare", new DifficultyDefinition(3, 0, 1, 0, -2, "噩梦", "敌人远超同阶。能活下来就是运气。", 200, 180, 150, 160, 150, 50, -20));
+            "story", new DifficultyDefinition(14, 50, 5, 3, 2, "叙事", "敌人很软，钱好赚，很少真的会死。用来讲故事。", 70, 70, 50, 150, 130),
+            "adventure", new DifficultyDefinition(7, 15, 3, 2, 0, "冒险", "标准难度。会受伤，会缺钱，走错一步可能就没了。", 100, 100, 100, 100, 100),
+            "hard", new DifficultyDefinition(5, 5, 2, 1, -1, "艰难", "敌人更硬更狠，战利品更少。每一场都要算。", 140, 130, 130, 120, 80),
+            "nightmare", new DifficultyDefinition(3, 0, 1, 0, -2, "噩梦", "敌人远超同阶。能活下来就是运气。", 200, 180, 160, 150, 50));
     private static final String[] THREAT_LEVELS = {"Dormant", "Low", "Moderate", "High", "Severe", "Crisis"};
     private static final int BASIC_ATTACK_COST = 2;
     private final JsonNode rules;
@@ -70,10 +69,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
 
     /** 按职业和有效难度创建 AP 初始角色状态。
      * @param request 角色身份、职业标识和难度标识
-     * @param world 世界书与模板的合并内容，可为空
+     * @param content 世界书与模板的合并内容，可为空
      * @return 初始 AP 角色状态
      */
-    public ApState initialize(ApInitializationRequest request, WorldDefinition world) {
+    public ApState initialize(ApInitializationRequest request, ApContent content) {
         if (request == null) throw new IllegalArgumentException("AP initialization input is required");
         String archetype = request.archetype() == null ? "swordsman" : request.archetype().toLowerCase().trim();
         Archetype preset = ARCHETYPES.getOrDefault(archetype, DEFAULT);
@@ -82,7 +81,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         if (diff == null) throw new IllegalArgumentException("Unknown difficulty: " + difficulty);
         int hp = 20 + preset.constitution();
         int sp = 6 + Math.floorDiv(preset.intelligence(), 2);
-        Talent talent = world == null ? null : world.talents().entrySet().stream().findFirst()
+        Talent talent = content == null ? null : content.talents().entrySet().stream().findFirst()
                 .map(entry -> new Talent(entry.getKey(), entry.getValue().name(), entry.getValue().description(), false)).orElse(null);
         int armorBonus = switch (archetype) { case "swordsman" -> 1; case "mage", "ranger", "alchemist" -> 0; default -> 1; };
         return new ApState(request.characterName(), request.age(), request.gender(), archetype, difficulty,
@@ -100,14 +99,14 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     /** 检查类型化 AP 动作是否能在当前状态执行。
      * @param state 当前 AP 状态
      * @param action 待检查的动作
-     * @param world 已确认世界素材，可为空
+     * @param content 已确认世界素材，可为空
      */
-    public ActionValidation validate(ApState state, ApAction action, WorldDefinition world) {
+    public ActionValidation validate(ApState state, ApAction action, ApContent content) {
         if (state == null || action == null) return ActionValidation.reject("State and action are required");
         if (state.hpCurrent() <= 0 && !(action instanceof SettleBattle)) return ActionValidation.reject("Character is not alive");
         if (action instanceof SupplyEvent supply) return supply.rations() >= 0 ? ActionValidation.accept() : ActionValidation.reject("补给数量无效");
         if (action instanceof LearnAbility learn) {
-            AbilityDefinition definition = learn.definition() != null ? learn.definition() : world == null ? null : world.abilities().get(learn.abilityId());
+            AbilityDefinition definition = learn.definition() != null ? learn.definition() : content == null ? null : content.abilities().get(learn.abilityId());
             if (definition == null) return ActionValidation.reject("Unknown ability");
             if (state.hasAbility(learn.abilityId())) return ActionValidation.reject("Ability already learned");
             for (var requirement : definition.prerequisites().entrySet())
@@ -145,7 +144,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         }
         if (action instanceof FailQuest fail) return quest(state, fail.questId(), ApQuest.Status.ACTIVE) != null ? ActionValidation.accept() : ActionValidation.reject("Quest is not active");
         if (action instanceof RegisterNpc npc) return npc.npcId() != null && !npc.npcId().isBlank() && npc.name() != null && !npc.name().isBlank()
-                && (world == null || world.npcTypes().containsKey(npc.npcType()))
+                && (content == null || content.npcTypes().containsKey(npc.npcType()))
                 && state.systems().npcs().stream().noneMatch(value -> value.npcId().equals(npc.npcId()))
                 ? ActionValidation.accept() : ActionValidation.reject("NPC data is invalid or type is unknown");
         if (action instanceof InteractNpc interact) {
@@ -157,9 +156,9 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         if (action instanceof RecordNpcLifeEvent lifeEvent) return npc(state, lifeEvent.npcId()) != null && lifeEvent.description() != null && !lifeEvent.description().isBlank() ? ActionValidation.accept() : ActionValidation.reject("NPC life event is invalid");
         if (action instanceof SetNpcStatus update) return npc(state, update.npcId()) != null && update.status() != null ? ActionValidation.accept() : ActionValidation.reject("NPC status update is invalid");
         if (action instanceof TickNpcs) return ActionValidation.accept();
-        if (action instanceof AcquireItem acquire) return world != null && acquire.name() != null && !acquire.name().isBlank()
+        if (action instanceof AcquireItem acquire) return content != null && acquire.name() != null && !acquire.name().isBlank()
                 && !isPotion(acquire.name())
-                && world.itemTemplates().containsKey(acquire.category() + ":" + acquire.tier())
+                && content.itemTemplates().containsKey(acquire.category() + ":" + acquire.tier())
                 ? ActionValidation.accept() : ActionValidation.reject("Unknown item template");
         if (action instanceof StartBattle start) {
             if (state.battle() != null && !state.battle().rewardsSettled()) {
@@ -168,7 +167,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             if (start.monsterId() == null || start.monsterId().isBlank()) {
                 return ActionValidation.reject("缺少遭遇怪物素材标识");
             }
-            if (world == null || !world.monsters().containsKey(start.monsterId())) {
+            if (content == null || !content.monsters().containsKey(start.monsterId())) {
                 return ActionValidation.reject("找不到怪物素材：" + start.monsterId());
             }
             return ActionValidation.accept();
@@ -287,13 +286,13 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
      * @param state 当前 AP 状态
      * @param action 待执行的 AP 动作
      * @param hpRecoveryBonus 难度带来的额外日恢复生命点数
-     * @param world 已确认的世界素材，可为空
+     * @param content 已确认的世界素材，可为空
      */
-    public RulesetResolution<ApState, ApEvent> resolve(ApState state, ApAction action, int hpRecoveryBonus, WorldDefinition world) {
+    public RulesetResolution<ApState, ApEvent> resolve(ApState state, ApAction action, int hpRecoveryBonus, ApContent content) {
         if (state != null && action instanceof BattleAction battle) {
             return battleAction(state, battle, prepareBattleAction(state, battle, true));
         }
-        ActionValidation validation = validate(state, action, world);
+        ActionValidation validation = validate(state, action, content);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
         if (action instanceof SupplyEvent supply) {
             return result(state.withResources(state.resources().add(0, supply.rations(), 0)),
@@ -301,7 +300,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
                             supply.id(), "player"));
         }
         if (action instanceof LearnAbility learn) {
-            AbilityDefinition definition = learn.definition() != null ? learn.definition() : Objects.requireNonNull(world).abilities().get(learn.abilityId());
+            AbilityDefinition definition = learn.definition() != null ? learn.definition() : Objects.requireNonNull(content).abilities().get(learn.abilityId());
             Ability ability = learnedAbility(definition, learn.templateId());
             ApState next = "spell".equals(definition.kind()) ? state.withSpellsAdd(ability) : state.withSkillsAdd(ability);
             return result(next, new ApEvent("learn_ability", 1, "学会了「" + ability.name() + "」。", "player", ability.id()));
@@ -336,7 +335,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
                     "player", q.questId()));
         }
         if (action instanceof FailQuest fail) return questTransition(state, fail.questId(), q -> q.fail(fail.reason()), "quest_failed");
-        if (action instanceof RegisterNpc register) return result(state.withSystems(state.systems().withNpc(createNpc(register, world))),
+        if (action instanceof RegisterNpc register) return result(state.withSystems(state.systems().withNpc(createNpc(register, content))),
                 new ApEvent("npc_registered", 1, register.name() + "已登场。", register.npcId(), ""));
         if (action instanceof InteractNpc interact) {
             ApNpc current = npc(state, interact.npcId());
@@ -365,7 +364,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             return result(state.withSystems(state.systems().withNpcs(next)), new ApEvent("npc_tick", next.size()));
         }
         if (action instanceof AcquireItem acquire) {
-            Item item = createItem(world, acquire.name(), acquire.category(), acquire.tier(), new SplittableRandom(acquire.seed()));
+            Item item = createItem(content, acquire.name(), acquire.category(), acquire.tier(), new SplittableRandom(acquire.seed()));
             List<Item> inventory = new ArrayList<>(state.inventory());
             int index = -1;
             for (int i = 0; i < inventory.size(); i++) {
@@ -383,7 +382,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             return result(state.withInventory(inventory), new ApEvent("item_acquired", 1,
                     "获得「" + item.name() + "」。", "player", acquire.category()));
         }
-        if (action instanceof StartBattle start) return startBattle(state, start, world);
+        if (action instanceof StartBattle start) return startBattle(state, start, content);
         if (action instanceof AdvanceBattleTurn) return playEnemyTurns(advanceBattle(state));
         if (action instanceof SettleBattle settle) return settleBattle(state, settle.result());
         throw new IllegalArgumentException("Unsupported AP action");
@@ -428,16 +427,27 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
                 && item.quantity() > 0 && item.effect().usable()).findFirst().orElseThrow();
     }
 
+    /** 结算 AP 的威胁增长、恢复、口粮和任务倒计时。
+     * @param state 本轮开始时的 AP 角色状态
+     * @param bonus 难度提供的额外生命恢复点数
+     */
     private RulesetResolution<ApState, ApEvent> advanceDay(ApState state, int bonus) {
-        state = state.withSystems(state.systems().advanceThreat(difficultyPresets().get(state.difficulty()).threatInterval(), THREAT_LEVELS.length - 1));
+        ApSystems systems = state.systems().advanceThreat(difficultyPresets().get(state.difficulty()).threatInterval(),
+                THREAT_LEVELS.length - 1);
         int hpRecovery = Math.max(0, state.hpMax() / 4 + bonus);
         int spRecovery = state.spMax() / 2;
-        ApState next = state.withVitality(Math.min(state.hpMax(), state.hpCurrent() + hpRecovery), Math.min(state.spMax(), state.spCurrent() + spRecovery)).withStatusEffects(tickStatusEffects(state.statusEffects()));
+        ApState next = state.withSystems(systems)
+                .withVitality(Math.min(state.hpMax(), state.hpCurrent() + hpRecovery), Math.min(state.spMax(), state.spCurrent() + spRecovery))
+                .withStatusEffects(tickStatusEffects(state.statusEffects()));
         if (next.resources().rations() > 0) next = next.withResources(next.resources().withRations(next.resources().rations() - 1));
         else next = next.withStatusEffect(new StatusEffect("饥饿", 1, "所有判定-2"));
         List<ApQuest> quests = next.systems().questLog().stream().map(ApQuest::tickDay).toList();
         next = next.withSystems(next.systems().withQuests(quests));
-        return result(next, new ApEvent(next.resources().rations() >= state.resources().rations() ? "advance_day_hunger" : "advance_day", 1));
+        ApEvent day = new ApEvent(next.resources().rations() >= state.resources().rations() ? "advance_day_hunger" : "advance_day", 1);
+        if (systems.threatStage() == state.systems().threatStage()) return result(next, day);
+        ApEvent threat = new ApEvent("threat_escalation", systems.threatStage(),
+                "威胁等级升至 " + THREAT_LEVELS[systems.threatStage()] + "。", "", "");
+        return new RulesetResolution<>(next, List.of(day, threat));
     }
 
     private RulesetResolution<ApState, ApEvent> questTransition(ApState state, String id, java.util.function.UnaryOperator<ApQuest> transition, String event) {
@@ -448,10 +458,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     /** 按指定怪物素材生成战斗，若敌方先动则自动结算其行动。
      * @param state 当前 AP 状态
      * @param start 已校验的遭遇名称和怪物素材标识
-     * @param world 包含已确认怪物素材的世界定义
+     * @param content 包含已确认怪物素材的世界定义
      */
-    private RulesetResolution<ApState, ApEvent> startBattle(ApState state, StartBattle start, WorldDefinition world) {
-        ApBattle.Combatant monster = monsterCombatant(world.monsters().get(start.monsterId()), state.difficulty());
+    private RulesetResolution<ApState, ApEvent> startBattle(ApState state, StartBattle start, ApContent content) {
+        ApBattle.Combatant monster = monsterCombatant(content.monsters().get(start.monsterId()), state.difficulty());
         List<ApBattle.Combatant> combatants = List.of(playerCombatant(state), monster).stream()
                 .sorted(Comparator.comparingInt(ApBattle.Combatant::speed).reversed().thenComparing(ApBattle.Combatant::id)).toList();
         List<String> order = combatants.stream().map(ApBattle.Combatant::id).toList();
@@ -460,10 +470,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
                 new ApEvent("battle_started", 1, "遭遇了「" + monster.name() + "」。", "player", monster.id())));
     }
 
-    public Item createItem(WorldDefinition world, String name, String category, String tier,
+    public Item createItem(ApContent content, String name, String category, String tier,
                            RandomGenerator random) {
-        if (world == null || random == null) throw new IllegalArgumentException("World and random source are required");
-        var template = world.itemTemplates().get(category + ":" + tier);
+        if (content == null || random == null) throw new IllegalArgumentException("World and random source are required");
+        var template = content.itemTemplates().get(category + ":" + tier);
         if (template == null) throw new IllegalArgumentException("Unknown item template");
         long value = template.valueRange().roll(random);
         ApItemEffect effect = new ApItemEffect(template.hpRecovery(), template.spRecovery(),
@@ -774,8 +784,8 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         return new Ability(definition.id(), definition.kind(), definition.tier(), definition.apCost(), definition.spCost(),
                 definition.power(), definition.name(), definition.effectHint(), definition.description(), definition.mechanic(), templateId);
     }
-    private ApNpc createNpc(RegisterNpc input, WorldDefinition world) {
-        var template = world == null ? null : world.npcTypes().get(input.npcType());
+    private ApNpc createNpc(RegisterNpc input, ApContent content) {
+        var template = content == null ? null : content.npcTypes().get(input.npcType());
         String personality = template == null || template.personalities().isEmpty() ? "" : template.personalities().get(new java.util.SplittableRandom(input.seed()).nextInt(template.personalities().size()));
         String scheduleTemplate = template == null ? "" : template.scheduleTemplate();
         List<ApNpc.ScheduleEntry> schedule = scheduleTemplate.isBlank() ? List.of()

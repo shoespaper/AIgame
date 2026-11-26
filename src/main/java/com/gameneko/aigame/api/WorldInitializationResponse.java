@@ -4,12 +4,11 @@ import com.gameneko.aigame.engine.WorldState;
 import com.gameneko.aigame.engine.PriceModifier;
 import com.gameneko.aigame.engine.TimedEvent;
 import com.gameneko.aigame.engine.WorldEvent;
-import com.gameneko.aigame.engine.WorldEffects;
 
 import java.util.List;
 import java.util.Map;
 
-/** Stable read-only API projection of an initialized world. */
+/** API 返回的引擎中立世界状态。 */
 public record WorldInitializationResponse(
         String worldId,
         String contentVersion,
@@ -22,32 +21,19 @@ public record WorldInitializationResponse(
         long day,
         String time,
         Map<String, Boolean> flags,
-        String threatLevel,
-        long threatCounter,
-        long threatInterval,
-        List<String> threatHistory,
-        List<String> timedEvents,
-        List<String> incidentalEvents,
-        long lastTickDay,
-        boolean crisisTriggered,
-        int mainPlotStage,
-        List<String> mainPlotStages,
-        Map<String, Integer> priceModifiers,
         String originScene,
         List<TimedEvent> deadlineEvents,
         List<WorldEvent> worldEvents,
-        Map<PriceModifier.Category, PriceModifier> activePriceModifiers,
-        WorldEffects activeEffects
+        Map<PriceModifier.Category, PriceModifier> activePriceModifiers
 ) {
+    /** 从权威快照创建世界响应。
+     * @param state 当前权威世界状态
+     */
     public static WorldInitializationResponse from(WorldState state) {
         return new WorldInitializationResponse(
                 state.worldId(), state.contentVersion(), state.revision(),
                 state.setting(), state.settingDescription(), state.location(), state.currentRegion(),
                 state.mainQuest(), state.day(), state.time(),
-                state.flags(), state.threatLevel(), state.threatCounter(), state.threatInterval(),
-                state.threatHistory(), state.timedEvents(), state.incidentalEvents(), state.lastTickDay(),
-                state.crisisTriggered(), state.mainPlotStage(), state.mainPlotStages(),
-                state.priceModifiers(), state.originScene(), state.deadlineEvents(), state.worldEvents(),
-                state.activePriceModifiers(), state.activeEffects());
+                state.flags(), state.originScene(), state.deadlineEvents(), state.worldEvents(), state.activePriceModifiers());
     }
 }

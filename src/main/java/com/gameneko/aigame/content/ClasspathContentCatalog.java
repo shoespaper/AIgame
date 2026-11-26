@@ -127,8 +127,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
      */
     private WorldDefinition load(String worldId) {
         WorldbookDefinition book = loadWorldbookData("isekai_grey".equals(worldId) ? "cinder_continent" : worldId);
-        return new WorldDefinition(worldId, book.contentVersion(), book.name(), book.descriptionHint(),
-                7, Map.of(), Map.of());
+        return new WorldDefinition(worldId, book.contentVersion(), book.name(), book.descriptionHint());
     }
 
     /** 严格读取一个 JSON 对象并拒绝重复键和额外根节点。

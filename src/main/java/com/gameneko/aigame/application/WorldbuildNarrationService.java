@@ -82,7 +82,7 @@ public final class WorldbuildNarrationService {
                 + "\n对话历史：" + json(session.history);
         NarrativeResponse response = provider.respond(new NarrativePrompt(context, input,
                 new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null,
-                        "Dormant", List.of(), List.of(), List.of()), null, List.of()), "zh-CN"));
+                        List.of(), List.of(), List.of()), List.of()), "zh-CN"));
         if (response == null || response.narration().length() > 6000) throw NarrativeProviderException.invalidOutput("Invalid worldbuild response", null);
         response.validateUpdates();
         if (!opening) {

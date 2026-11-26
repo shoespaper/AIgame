@@ -93,6 +93,7 @@ mvn spring-boot:run
 主要配置位于 `src/main/resources/application.properties`：
 
 - `aigame.persistence.root`：存档目录，默认读取 `AI_GAME_SAVE_ROOT`，否则使用 `./data/saves`。
+- 每次外部模型调用都会记录发送的系统消息、用户消息和收到的回复原文。重试轮次单独记录，可从「设置」导出日志。
 
 ## 测试
 

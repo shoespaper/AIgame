@@ -84,8 +84,8 @@ public final class DiagnosticLog {
                 .addKeyValue("actualRevision", action.actualRevision()).log("game.action.committed");
     }
 
-    /** 记录单次模型尝试的结果或重试计划。
-     * @param attempt 单次模型尝试的受限指标
+    /** 记录一次模型对话、结果和可用的重试计划。
+     * @param attempt 单次模型尝试的消息内容和指标
      * @param outcome 固定的结果标识
      * @param reason 可空的失败原因码
      * @param retryDelayMs 下一次尝试前的等待毫秒数，未重试时为空
@@ -96,6 +96,8 @@ public final class DiagnosticLog {
                 .addKeyValue("upstreamStatus", attempt.status()).addKeyValue("maxTokens", attempt.maxTokens())
                 .addKeyValue("durationMs", attempt.durationMs()).addKeyValue("promptTokens", attempt.promptTokens())
                 .addKeyValue("completionTokens", attempt.completionTokens()).addKeyValue("proposedActionType", identifier(attempt.proposedActionType()))
+                .addKeyValue("systemMessage", attempt.systemMessage()).addKeyValue("userMessage", attempt.userMessage())
+                .addKeyValue("modelResponse", attempt.modelResponse()).addKeyValue("modelRefusal", attempt.modelRefusal())
                 .addKeyValue("outcome", identifier(outcome)).addKeyValue("reason", identifier(reason))
                 .addKeyValue("delayMs", retryDelayMs).log(retryDelayMs == null ? "narrative.completed" : "narrative.retry");
     }
@@ -118,7 +120,7 @@ public final class DiagnosticLog {
         MODEL.atDebug().addKeyValue("maxTokens", current).addKeyValue("nextMaxTokens", next).log("narrative.budget.changed");
     }
 
-    /** 记录每次模板提案的失败阶段和校验代码位置，省略可能含有模型输出的异常消息。
+    /** 记录每次模板提案的失败阶段和校验代码位置。
      * @param templateId 当前模板标识
      * @param attempt 从 1 开始的已失败尝试次数
      * @param stage 提案解析或内容校验阶段的固定标识
@@ -193,7 +195,7 @@ public final class DiagnosticLog {
      */
     public record ModelFailure(String reason, Integer status) {}
 
-    /** 单次模型尝试的指标。
+    /** 单次模型尝试的对话内容和指标。
      * @param model 模型标识
      * @param number 从 1 开始的尝试次数
      * @param status 可空的上游 HTTP 状态码
@@ -202,7 +204,12 @@ public final class DiagnosticLog {
      * @param promptTokens 可用的输入 token 数
      * @param completionTokens 可用的输出 token 数
      * @param proposedActionType 可空的提议动作类型
+     * @param systemMessage 发往模型的系统消息，未构造时为空
+     * @param userMessage 发往模型的用户消息，未编码时为空
+     * @param modelResponse 模型在解析前的回复正文，上游未返回正文时为空
+     * @param modelRefusal 模型返回的拒绝说明，未返回时为空
      */
     public record ModelAttempt(String model, int number, Integer status, int maxTokens, long durationMs,
-                               Integer promptTokens, Integer completionTokens, String proposedActionType) {}
+                               Integer promptTokens, Integer completionTokens, String proposedActionType,
+                               String systemMessage, String userMessage, String modelResponse, String modelRefusal) {}
 }

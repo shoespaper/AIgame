@@ -99,15 +99,14 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
      * @param call 本次调用的诊断数据与输出 token 预算
      */
     private NarrativeResponse doRespond(NarrativePrompt prompt, CallAttempt call) {
-        String userContent;
+        call.systemMessage = prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION;
         try {
-            userContent = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
+            call.userMessage = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
         } catch (IOException exception) {
             throw call.failure("无法编码叙事请求", false, exception, "request_encoding_failed");
         }
         ChatRequest request = new ChatRequest(model, List.of(
-                new ChatMessage("system", prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION),
-                new ChatMessage("user", userContent)), call.budget,
+                new ChatMessage("system", call.systemMessage), new ChatMessage("user", call.userMessage)), call.budget,
                 NarrativeProviderConfiguration.jsonObjectResponseFormat(objectMapper));
         ChatResponse response;
         long upstreamStarted = System.nanoTime();
@@ -138,6 +137,8 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
             throw call.failure("模型服务未返回有效候选结果", false, null, "missing_choice");
         }
         Choice choice = response.choices().getFirst();
+        call.modelResponse = choice.message().content();
+        call.modelRefusal = choice.message().refusal();
         if ("length".equals(choice.finish_reason())) {
             throw call.failure("finish_reason=length，本次请求 max_tokens=" + call.budget
                     + "，服务端实际输出 " + completionTokens(response) + " tokens", false, null, "output_truncated");
@@ -145,10 +146,10 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         if (!"stop".equals(choice.finish_reason())) {
             throw call.failure("模型未完整生成结果", false, null, "incomplete_output");
         }
-        if (choice.message().refusal() != null && !choice.message().refusal().isBlank()) {
+        if (call.modelRefusal != null && !call.modelRefusal.isBlank()) {
             throw call.failure("模型拒绝了本次请求", false, null, "model_refusal");
         }
-        String content = choice.message().content();
+        String content = call.modelResponse;
         if (content == null || content.isBlank()) throw call.failure("模型返回了空内容", false, null, "empty_output");
         try {
             return toResponse(readStrict(content));
@@ -157,15 +158,16 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         }
     }
 
-    /** 提取允许记录的模型指标。
-     * @param call 单次模型尝试的状态
+    /** 提取本次尝试的指标以及发往模型的消息和收到的原文。
+     * @param call 单次模型尝试的状态和对话内容
      * @param actionType 可空的模型提议动作类型
      */
     private DiagnosticLog.ModelAttempt metrics(CallAttempt call, String actionType) {
         Usage usage = call.usage;
         return new DiagnosticLog.ModelAttempt(model, call.number, call.status, call.budget,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - call.started),
-                usage == null ? null : usage.prompt_tokens(), usage == null ? null : usage.completion_tokens(), actionType);
+                usage == null ? null : usage.prompt_tokens(), usage == null ? null : usage.completion_tokens(), actionType,
+                call.systemMessage, call.userMessage, call.modelResponse, call.modelRefusal);
     }
 
     /** 解析模型 JSON：剥离代码围栏并截取首个对象，容忍未知字段但拒绝重复键。 */
@@ -251,6 +253,10 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         private final long started;
         private Integer status;
         private Usage usage;
+        private String systemMessage;
+        private String userMessage;
+        private String modelResponse;
+        private String modelRefusal;
 
         /** 创建一次模型调用的诊断状态。
          * @param number 从 1 开始的调用次数

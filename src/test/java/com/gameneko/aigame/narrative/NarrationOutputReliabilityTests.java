@@ -1,9 +1,13 @@
 package com.gameneko.aigame.narrative;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.InitializationValue;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -102,7 +106,9 @@ class NarrationOutputReliabilityTests {
                 "k", true, "", "", 99999).maxTokens());
     }
 
-    /** 验证 finish_reason=length 时按倍数提高 max_tokens 重试，而不是直接失败。 */
+    /** 验证输出截断时扩大 token 预算，且每轮分别记录发出的消息和收到的正文。
+     * @throws Exception 测试请求或响应验证失败
+     */
     @Test
     void truncatedOutputRetriesWithLargerTokenBudget() throws Exception {
         var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://model.test");
@@ -111,7 +117,7 @@ class NarrationOutputReliabilityTests {
                 {"choices":[{"message":{"content":"{\\"narration\\":\\"半句"},"finish_reason":"length"}],"usage":{"completion_tokens":256}}
                 """;
         String completed = """
-                {"choices":[{"message":{"content":"{\\"narration\\":\\"夜色降临。\\",\\"action\\":null,\\"options\\":[\\"继续前进\\"],\\"updates\\":{}}"},"finish_reason":"stop"}],"usage":{"completion_tokens":120}}
+                {"choices":[{"message":{"content":"{ \\"narration\\":\\"夜色降临。\\",\\"action\\":null,\\"options\\":[\\"继续前进\\"],\\"updates\\":{} }"},"finish_reason":"stop"}],"usage":{"completion_tokens":120}}
                 """;
         for (int expected : new int[]{256, 512}) {
             server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("https://model.test/chat/completions"))
@@ -125,10 +131,41 @@ class NarrationOutputReliabilityTests {
                         completed, org.springframework.http.MediaType.APPLICATION_JSON));
 
         var provider = new OpenAiCompatibleNarrativeProvider(builder.build(), new ObjectMapper(), "test-model", 256);
-        var response = provider.respond(new NarrativePrompt("system", "input", snapshot(), "zh-CN"));
+        Logger logger = (Logger) LoggerFactory.getLogger("com.gameneko.aigame.narrative.diagnostics");
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        NarrativeResponse response;
+        try {
+            response = provider.respond(new NarrativePrompt("system", "input", snapshot(), "zh-CN"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
 
         assertEquals("夜色降临。", response.narration());
+        List<ILoggingEvent> attempts = appender.list.stream()
+                .filter(event -> List.of("narrative.retry", "narrative.completed").contains(event.getMessage()))
+                .toList();
+        assertEquals(3, attempts.size());
+        assertEquals("{\"narration\":\"半句", logField(attempts.get(0), "modelResponse"));
+        assertEquals("{\"narration\":\"半句", logField(attempts.get(1), "modelResponse"));
+        assertEquals("{ \"narration\":\"夜色降临。\",\"action\":null,\"options\":[\"继续前进\"],\"updates\":{} }",
+                logField(attempts.get(2), "modelResponse"));
+        for (ILoggingEvent attempt : attempts) {
+            assertEquals("system\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION, logField(attempt, "systemMessage"));
+            assertEquals("input", new ObjectMapper().readTree((String) logField(attempt, "userMessage"))
+                    .path("playerInput").asText());
+        }
         server.verify();
+    }
+
+    /** 获取结构化日志中的指定字段。
+     * @param event 单轮模型调用日志
+     * @param key 待检查的字段名
+     */
+    private static Object logField(ILoggingEvent event, String key) {
+        return event.getKeyValuePairs().stream().filter(pair -> key.equals(pair.key)).findFirst().orElseThrow().value;
     }
 
     /** 读取模拟请求体中的 max_tokens 字段。 */

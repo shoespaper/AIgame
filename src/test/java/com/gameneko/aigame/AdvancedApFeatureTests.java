@@ -61,26 +61,21 @@ class AdvancedApFeatureTests {
         assertEquals(30, state.systems().npcs().getFirst().interactions().size());
     }
 
+    /** 验证按指定怪物素材开战后使用先攻顺序和整数减伤。 */
     @Test
     void battleUsesInitiativeAndIntegerMitigationFormula() {
         var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
-        var started = runtime.resolve(state, new ApRulesetRuntime.StartBattle("test", "forest", 1, 7), 0, ApTemplateFixture.confirmed(catalog)).nextState();
+        ApRulesetRuntime.ApState started = runtime.resolve(state, new ApRulesetRuntime.StartBattle("test", "high"), 0,
+                ApTemplateFixture.confirmed(catalog)).nextState();
         var battle = started.systems().battle();
         assertEquals(2, battle.combatants().size());
         assertEquals(battle.turnOrder().getFirst(), battle.currentActor().id());
         var player = battle.combatants().stream().filter(ApBattle.Combatant::player).findFirst().orElseThrow();
         var enemy = battle.combatants().stream().filter(c -> !c.player()).findFirst().orElseThrow();
+        assertEquals("high", enemy.monsterType());
         var acted = runtime.resolve(started, new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.ATTACK, enemy.id(), null, null), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         assertEquals(1, acted.systems().battle().log().size());
         assertEquals(player.currentAp() - 2, acted.systems().battle().combatant(player.id()).currentAp());
-    }
-
-    @Test
-    void monsterGenerationRejectsTypesOutsideRegionPool() {
-        var world = ApTemplateFixture.confirmed(catalog);
-        assertThrows(IllegalArgumentException.class, () -> runtime.generateMonster(world, "forest", "high", new java.util.SplittableRandom(1)));
-        var monster = runtime.generateMonster(world, "forest", "low", new java.util.SplittableRandom(2));
-        assertEquals("low", monster.type());
     }
 
     @Test

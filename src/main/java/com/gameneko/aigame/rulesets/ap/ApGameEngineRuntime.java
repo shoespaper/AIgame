@@ -1,28 +1,34 @@
 package com.gameneko.aigame.rulesets.ap;
 
 import com.gameneko.aigame.content.WorldDefinition;
+import com.gameneko.aigame.content.WorldDefinition.AbilityDefinition;
 import com.gameneko.aigame.engine.ActionIntent;
-import com.gameneko.aigame.engine.ActionValidation;
+import com.gameneko.aigame.engine.ConfirmedEvent;
 import com.gameneko.aigame.engine.EngineResolution;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.InitializationField;
 import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.engine.InitializationValue;
+import com.gameneko.aigame.engine.RulesetResolution;
 import com.gameneko.aigame.engine.SupportedAction;
+import com.gameneko.aigame.engine.WorldEvent;
+import com.gameneko.aigame.engine.WorldState;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import java.util.Locale;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** 为 AP 规则提供引擎中立接口所需的初始化、动作校验与状态投影适配。 */
 public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRuntime.ApState, ApRulesetRuntime.ApProjection> {
     private final WorldDefinition world;
     private final JsonNode materials;
     private final JsonNode rules;
-    private final ApRulesetRuntime runtime = new ApRulesetRuntime();
+    private final ApRulesetRuntime runtime;
 
     /** 为当前世界创建 AP 运行时，难度缺省时使用引擎默认配置。
      * @param world 世界书与模板合并后的内容
@@ -39,6 +45,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     ApGameEngineRuntime(WorldDefinition world, JsonNode materials, JsonNode rules) {
         this.materials = materials;
         this.rules = rules;
+        this.runtime = new ApRulesetRuntime(rules);
         if (world == null) throw new IllegalArgumentException("AP requires a world definition");
         this.world = world;
     }
@@ -124,17 +131,14 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         String difficulty = text(answers, "difficulty", "adventure");
         ApRulesetRuntime.ApState state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(name, age, gender, archetype, difficulty), world);
         if (state.uniqueTalent() != null && materials.isObject()) {
-            int bonus = parameters("talent_types", state.uniqueTalent().type()).path("max_hp_bonus").asInt();
+            int bonus = ApTemplateContent.ruleFor(material("talent_types", state.uniqueTalent().type()), rules)
+                    .path("parameters").path("max_hp_bonus").intValue();
             return state.withStartingHealthBonus(bonus);
         }
         return state;
     }
 
-    @Override public ActionValidation validate(ApRulesetRuntime.ApState state, ActionIntent intent) {
-        try { return runtime.validate(state, toAction(intent), world); }
-        catch (IllegalArgumentException exception) { return ActionValidation.reject(exception.getMessage()); }
-    }
-
+    /** 返回 AP 可执行动作和模型创作能力时可引用的模板。 */
     @Override
     public List<SupportedAction> supportedActions() {
         List<String> skillRules = new ArrayList<>();
@@ -150,16 +154,21 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                 new SupportedAction("advance_day", "推进到下一天，触发世界推进。", List.of()),
                 new SupportedAction("grant_experience", "获得经验值。", List.of(
                         new SupportedAction.Parameter("amount", "integer", "经验值数量", true))),
-                new SupportedAction("start_battle", "开始一场遭遇。", List.of(new SupportedAction.Parameter("region", "text", "遭遇区域标识", false))),
+                new SupportedAction("start_battle", "场景发生遭遇时，选择符合叙事的怪物素材。由 AP 按模板生成并结算。",
+                        List.of(new SupportedAction.Parameter("monsterId", "text", "世界素材 monster_types 中的怪物 ID", true))),
                 new SupportedAction("attack", "普通攻击。", List.of(new SupportedAction.Parameter("targetId", "text", "战斗目标标识", true))),
                 new SupportedAction("use_skill", "使用已学技能，包括防御技。", List.of(new SupportedAction.Parameter("abilityId", "text", "技能实例标识", true), new SupportedAction.Parameter("targetId", "text", "战斗目标标识", false))),
                 new SupportedAction("cast_spell", "施放已学法术。", List.of(new SupportedAction.Parameter("abilityId", "text", "技能实例标识", true), new SupportedAction.Parameter("targetId", "text", "战斗目标标识", false))),
-                new SupportedAction("advance_battle_turn", "结束当前行动者的回合。", List.of()),
+                new SupportedAction("advance_battle_turn", "结束玩家回合，由敌方依次进行普通攻击。", List.of()),
                 new SupportedAction("settle_battle", "结算已结束的战斗。", List.of(new SupportedAction.Parameter("result", "text", "战斗结果枚举", true))),
                 new SupportedAction("register_npc", "根据世界 NPC 类型创建角色。", List.of(new SupportedAction.Parameter("npcId", "text", "角色标识", true), new SupportedAction.Parameter("npcType", "text", "世界素材中的角色类别", true), new SupportedAction.Parameter("name", "text", "展示名称", true))),
                 new SupportedAction("talk_npc", "与已登记角色交谈。", List.of(new SupportedAction.Parameter("npcId", "text", "角色标识", true))),
                 new SupportedAction("supply_event", "处理已发生的补给事件。", List.of(new SupportedAction.Parameter("eventId", "text", "世界事件素材标识", true))),
-                new SupportedAction("create_skill", "创作并学习技能，可用计算模板：" + String.join("、", skillRules), List.of(new SupportedAction.Parameter("abilityId", "text", "技能实例标识", true), new SupportedAction.Parameter("name", "text", "展示名称", true), new SupportedAction.Parameter("template_id", "text", "AP 计算模板标识", true))),
+                new SupportedAction("create_skill", "创作并学习技能或法术。可用模板：" + String.join("、", skillRules), List.of(
+                        new SupportedAction.Parameter("abilityId", "text", "新能力的实例标识，施放时使用此标识", true),
+                        new SupportedAction.Parameter("name", "text", "展示名称", true),
+                        new SupportedAction.Parameter("description", "text", "能力的叙事描述", false),
+                        new SupportedAction.Parameter("template_id", "text", "已注册的 AP 计算模板标识", true))),
                 new SupportedAction("defend", "在当前战斗回合消耗行动点进行防御。", List.of()),
                 new SupportedAction("learn_ability", "学习一个能力。", List.of(
                         new SupportedAction.Parameter("abilityId", "text", "能力标识", true))),
@@ -175,19 +184,14 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                 new SupportedAction("fail_quest", "使一个任务失败。", List.of(
                         new SupportedAction.Parameter("questId", "text", "任务标识", true),
                         new SupportedAction.Parameter("reason", "text", "失败原因", false))),
-                new SupportedAction("claim_quest_reward", "领取任务奖励。", List.of(
-                        new SupportedAction.Parameter("questId", "text", "任务标识", true),
-                        new SupportedAction.Parameter("xp", "integer", "经验奖励", false),
-                        new SupportedAction.Parameter("copper", "integer", "铜币奖励", false),
-                        new SupportedAction.Parameter("rations", "integer", "口粮奖励", false),
-                        new SupportedAction.Parameter("potions", "integer", "药水奖励", false))),
                 new SupportedAction("acquire_item", "获得一件物品。", List.of(
                         new SupportedAction.Parameter("itemName", "text", "物品名称", true),
-                        new SupportedAction.Parameter("itemCategory", "text", "物品类别", true),
+                        new SupportedAction.Parameter("itemCategory", "text", "世界道具素材标识", true),
                         new SupportedAction.Parameter("itemTier", "text", "物品品质", true))),
                 new SupportedAction("offer_quest", "向玩家提供新任务。", List.of(
                         new SupportedAction.Parameter("questId", "text", "任务标识", true),
-                        new SupportedAction.Parameter("questTitle", "text", "任务标题", true),
+                        new SupportedAction.Parameter("questTemplateId", "text", "世界任务素材标识，省略时取任务标识", false),
+                        new SupportedAction.Parameter("questTitle", "text", "任务标题，省略时沿用素材名称", false),
                         new SupportedAction.Parameter("questDescription", "text", "任务描述", false),
                         new SupportedAction.Parameter("questRegion", "text", "任务区域", false),
                         new SupportedAction.Parameter("deadlineDays", "integer", "期限天数", false))));
@@ -200,22 +204,33 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
      */
     @Override
     public EngineResolution<ApRulesetRuntime.ApState> resolve(ApRulesetRuntime.ApState state, ActionIntent intent) {
-        var action = toAction(intent);
-        var validation = runtime.validate(state, action, world);
-        if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
+        return resolve(state, intent, null);
+    }
+
+    /** 在 AP 入口解释结构化意图并执行一次校验和结算。
+     * @param state 当前 AP 角色状态
+     * @param intent 待结算的结构化动作
+     * @param worldState 当前世界事实，直接使用引擎时可为空
+     */
+    @Override
+    public EngineResolution<ApRulesetRuntime.ApState> resolve(ApRulesetRuntime.ApState state, ActionIntent intent,
+                                                            WorldState worldState) {
+        if (state == null) throw new IllegalArgumentException("AP 角色状态缺失");
+        ApRulesetRuntime.ApAction action = toAction(intent, state, worldState);
         int recovery = action instanceof ApRulesetRuntime.AdvanceDay
                 ? ApRulesetRuntime.difficultyPresets().get(state.difficulty()).hpRecoveryBonus() : 0;
-        var result = runtime.resolve(state, action, recovery, world);
-        var events = result.events().stream()
-                .map(event -> new com.gameneko.aigame.engine.ConfirmedEvent("ap", event.type(),
-                        event.type() + ":" + event.amount())).toList();
+        RulesetResolution<ApRulesetRuntime.ApState, ApRulesetRuntime.ApEvent> result =
+                runtime.resolve(state, action, recovery, world);
+        List<ConfirmedEvent> events = result.events().stream()
+                .map(event -> new ConfirmedEvent(id(), event.type(), event.description(), event.amount(),
+                        event.subject(), event.target())).toList();
         return new EngineResolution<>(result.nextState(), events,
                 action instanceof ApRulesetRuntime.AdvanceDay);
     }
 
     @Override
     public ApRulesetRuntime.ApState afterWorldAdvance(ApRulesetRuntime.ApState state, long worldDay,
-                                                       long seed, List<com.gameneko.aigame.engine.WorldEvent> events) {
+                                                    long seed, List<WorldEvent> events) {
         var next = runtime.resolve(state, new ApRulesetRuntime.TickNpcs(seed, worldDay), 0, world).nextState();
         for (var event : events) {
             var effects = event.effects();
@@ -240,57 +255,110 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         return value instanceof InitializationValue.IntegerNumber number ? number.value() : fallback;
     }
 
-    /** 按素材标识找到当前引擎已确认的数值。
+    /** 按精确标识查找已确认的世界素材。
      * @param group 世界模板中的素材集合
      * @param id 素材标识
      */
-    private JsonNode parameters(String group, String id) {
+    private JsonNode material(String group, String id) {
         for (JsonNode entry : materials.path(group)) {
-            if (id.equals(entry.path("id").asText())) return rules.path(entry.path("engines").path("ap").path("template_id").asText()).path("parameters");
+            if (id.equals(entry.path("id").asText())) return entry;
         }
         throw new IllegalArgumentException("未知素材：" + id);
     }
 
     /** 将 AI 的结构化意图转换成已支持的 AP 动作。
      * @param intent 已解析的动作及其参数
+     * @param state 当前 AP 角色状态
+     * @param worldState 可空的世界状态，提供当前区域、地点和天数
      */
-    private ApRulesetRuntime.ApAction toAction(ActionIntent intent) {
+    private ApRulesetRuntime.ApAction toAction(ActionIntent intent, ApRulesetRuntime.ApState state, WorldState worldState) {
         if (intent == null) throw new IllegalArgumentException("Action intent is required");
+        Set<String> fields = new HashSet<>();
+        for (ActionIntent.Argument argument : intent.arguments()) {
+            if (!fields.add(argument.name())) throw new IllegalArgumentException("动作参数重复：" + argument.name());
+        }
+        long day = worldState == null ? 1 : worldState.day();
+        String region = worldState == null || worldState.currentRegion() == null ? "" : worldState.currentRegion();
+        String location = worldState == null || worldState.location() == null ? "" : worldState.location();
         return switch (intent.type().toLowerCase(Locale.ROOT)) {
             case "rest" -> new ApRulesetRuntime.Rest();
             case "consume_ration" -> new ApRulesetRuntime.ConsumeRation();
-            case "use_potion" -> new ApRulesetRuntime.UsePotion();
+            case "use_potion" -> itemAction(state, "potion");
             case "advance_day" -> new ApRulesetRuntime.AdvanceDay();
             case "grant_experience" -> new ApRulesetRuntime.GrantExperience(longArg(intent, "amount", 0));
-            case "start_battle" -> new ApRulesetRuntime.StartBattle("遭遇", textArg(intent, "region", ""), 1, 0);
+            case "start_battle" -> new ApRulesetRuntime.StartBattle("遭遇", textArg(intent, "monsterId", ""));
             case "attack" -> new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.ATTACK, textArg(intent, "targetId", intent.target()), "", "");
             case "use_skill" -> new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.SKILL, textArg(intent, "targetId", ""), textArg(intent, "abilityId", intent.target()), "");
             case "cast_spell" -> new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.SPELL, textArg(intent, "targetId", ""), textArg(intent, "abilityId", intent.target()), "");
             case "advance_battle_turn" -> new ApRulesetRuntime.AdvanceBattleTurn();
             case "settle_battle" -> new ApRulesetRuntime.SettleBattle(ApBattle.Result.valueOf(textArg(intent, "result", "").toUpperCase(Locale.ROOT)));
-            case "register_npc" -> new ApRulesetRuntime.RegisterNpc(textArg(intent,"npcId",""), textArg(intent,"name",""), textArg(intent,"npcType",""), "", 0);
-            case "talk_npc" -> new ApRulesetRuntime.InteractNpc(textArg(intent,"npcId",""), "talk", ApNpc.InteractionResult.NEUTRAL, 0);
-            case "supply_event" -> new ApRulesetRuntime.SupplyEvent(parameters("event_templates", textArg(intent,"eventId","")).path("rations").asInt());
+            case "register_npc" -> new ApRulesetRuntime.RegisterNpc(textArg(intent, "npcId", ""),
+                    textArg(intent, "name", ""), textArg(intent, "npcType", ""), location, day);
+            case "talk_npc" -> new ApRulesetRuntime.InteractNpc(textArg(intent, "npcId", ""), "talk",
+                    ApNpc.InteractionResult.NEUTRAL, day, day);
+            case "supply_event" -> supplyEvent(intent);
             case "create_skill" -> createdSkill(intent);
             case "defend" -> new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.DEFEND, "", "", "");
-            case "learn_ability" -> new ApRulesetRuntime.LearnAbility(textArg(intent, "abilityId", intent.target()));
+            case "learn_ability" -> learnAbility(textArg(intent, "abilityId", intent.target()));
             case "equip_item" -> new ApRulesetRuntime.EquipItem(textArg(intent, "itemName", intent.target()), textArg(intent, "slot", "weapon"));
-            case "use_item" -> new ApRulesetRuntime.UseItem(textArg(intent, "itemName", intent.target()));
+            case "use_item" -> itemAction(state, textArg(intent, "itemName", intent.target()));
             case "accept_quest" -> new ApRulesetRuntime.AcceptQuest(textArg(intent, "questId", intent.target()));
             case "complete_quest" -> new ApRulesetRuntime.CompleteQuest(textArg(intent, "questId", intent.target()));
             case "fail_quest" -> new ApRulesetRuntime.FailQuest(textArg(intent, "questId", intent.target()), textArg(intent, "reason", ""));
-            case "claim_quest_reward" -> new ApRulesetRuntime.ClaimQuestReward(textArg(intent, "questId", intent.target()),
-                    longArg(intent, "xp", 0), longArg(intent, "copper", 0), longArg(intent, "rations", 0), longArg(intent, "potions", 0));
             case "acquire_item" -> new ApRulesetRuntime.AcquireItem(textArg(intent, "itemName", "item"),
                     textArg(intent, "itemCategory", "material"), textArg(intent, "itemTier", "common"), longArg(intent, "proposalSeed", longArg(intent, "seed", 0)));
-            case "offer_quest" -> new ApRulesetRuntime.OfferQuest(new ApQuest(
-                    textArg(intent, "questId", intent.target()), textArg(intent, "questTitle", "Quest"),
-                    textArg(intent, "questDescription", ""), textArg(intent, "questRegion", ""), ApQuest.Status.AVAILABLE,
-                    List.of(), new ApQuest.Reward(materials.isObject() ? parameters("quest_templates", textArg(intent, "questId", intent.target())).path("experience").asInt() : longArg(intent, "xp", 0), longArg(intent, "copper", 0),
-                    longArg(intent, "rations", 0), longArg(intent, "potions", 0)), 0,
-                    longArg(intent, "deadlineDays", 0), longArg(intent, "deadlineDays", 0), ""));
+            case "offer_quest" -> offerQuest(intent, day, region);
             default -> throw new IllegalArgumentException("Unsupported AP intent: " + intent.type());
         };
+    }
+
+    /** 解析要发放的补给事件，补给量来自该素材关联的 AP 模板。
+     * @param intent 包含补给事件素材标识的动作
+     */
+    private ApRulesetRuntime.SupplyEvent supplyEvent(ActionIntent intent) {
+        String id = textArg(intent, "eventId", "");
+        JsonNode event = material("event_templates", id);
+        int rations = ApTemplateContent.ruleFor(event, rules).path("parameters").path("rations").intValue();
+        return new ApRulesetRuntime.SupplyEvent(id, event.path("name").asText(id), rations);
+    }
+
+    /** 创建任务实例，奖励由该任务素材的登记规则决定。
+     * @param intent 提供任务实例标识和可选叙事信息的动作
+     * @param day 当前游戏天数
+     * @param region 当前区域标识，用于补齐任务区域
+     */
+    private ApRulesetRuntime.OfferQuest offerQuest(ActionIntent intent, long day, String region) {
+        String id = textArg(intent, "questId", intent.target());
+        JsonNode quest = material("quest_templates", textArg(intent, "questTemplateId", id));
+        long experience = ApTemplateContent.ruleFor(quest, rules).path("parameters").path("experience").longValue();
+        long deadline = longArg(intent, "deadlineDays", 0);
+        return new ApRulesetRuntime.OfferQuest(new ApQuest(id, textArg(intent, "questTitle", quest.path("name").asText()),
+                textArg(intent, "questDescription", quest.path("description").asText()),
+                textArg(intent, "questRegion", region), ApQuest.Status.AVAILABLE, List.of(),
+                new ApQuest.Reward(experience, 0, 0, 0), day, deadline, deadline, ""));
+    }
+
+    /** 学习世界素材对应的能力并保存其模板标识。
+     * @param id 技能或法术的素材标识
+     */
+    private ApRulesetRuntime.LearnAbility learnAbility(String id) {
+        if (!materials.isObject()) return new ApRulesetRuntime.LearnAbility(id);
+        AbilityDefinition definition = world.abilities().get(id);
+        if (definition == null) throw new IllegalArgumentException("未知能力素材：" + id);
+        String group = "spell".equals(definition.kind()) ? "spell_types" : "skill_types";
+        JsonNode rule = ApTemplateContent.ruleFor(material(group, id), rules);
+        return new ApRulesetRuntime.LearnAbility(id, definition, rule.path("template_id").asText());
+    }
+
+    /** 根据当前战斗状态选择对应的道具结算。
+     * @param state 当前 AP 状态
+     * @param name 背包道具名称或药水别名
+     */
+    private static ApRulesetRuntime.ApAction itemAction(ApRulesetRuntime.ApState state, String name) {
+        if (state.battle() != null && state.battle().active()) {
+            return new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.ITEM, "", "", name);
+        }
+        return new ApRulesetRuntime.UseItem(name);
     }
 
     /** 以已注册的计算模板创建可保存的具名能力。
@@ -300,22 +368,41 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         String id = textArg(intent, "abilityId", "");
         String name = textArg(intent, "name", "");
         if (!id.matches("[a-zA-Z0-9_-]{1,80}") || name.isBlank() || world.abilities().containsKey(id)) throw new IllegalArgumentException("新技能标识或名称无效");
-        JsonNode rule = rules.path(textArg(intent, "template_id", ""));
-        return new ApRulesetRuntime.LearnAbility(id, ApTemplateContent.ability(id, name, "", rule));
+        String templateId = textArg(intent, "template_id", "");
+        JsonNode rule = rules.path(templateId);
+        String description = textArg(intent, "description", "");
+        return new ApRulesetRuntime.LearnAbility(id, ApTemplateContent.ability(id, name, description, rule, templateId), templateId);
     }
 
+    /** 读取文本动作参数，缺省时使用预设值。
+     * @param intent 待解析的结构化意图
+     * @param name 参数名
+     * @param fallback 省略参数时的默认值
+     */
     private static String textArg(ActionIntent intent, String name, String fallback) {
-        for (var argument : intent.arguments()) if (name.equals(argument.name()) && argument.value() instanceof InitializationValue.Text text) return text.value();
+        for (ActionIntent.Argument argument : intent.arguments()) {
+            if (!name.equals(argument.name())) continue;
+            if (argument.value() instanceof InitializationValue.Text text) return text.value();
+            throw new IllegalArgumentException("动作参数必须是文本：" + name);
+        }
         return fallback == null ? "" : fallback;
     }
 
+    /** 读取整数动作参数，兼容直接接口提交的整数字符串。
+     * @param intent 待解析的结构化意图
+     * @param name 参数名
+     * @param fallback 省略参数时的默认值
+     */
     private static long longArg(ActionIntent intent, String name, long fallback) {
-        for (var argument : intent.arguments()) if (name.equals(argument.name())) {
+        for (ActionIntent.Argument argument : intent.arguments()) if (name.equals(argument.name())) {
             if (argument.value() instanceof InitializationValue.IntegerNumber number) return number.value();
             if (argument.value() instanceof InitializationValue.Text text) {
                 try { return Long.parseLong(text.value()); }
-                catch (NumberFormatException ignored) { return fallback; }
+                catch (NumberFormatException exception) {
+                    throw new IllegalArgumentException("动作参数必须是整数：" + name, exception);
+                }
             }
+            throw new IllegalArgumentException("动作参数必须是整数：" + name);
         }
         return fallback;
     }

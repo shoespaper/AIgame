@@ -54,7 +54,7 @@ public final class GameActionService {
      * @param gameId 游戏存档标识
      * @param expectedRevision 客户端观察到的修订号
      * @param intent 可空的引擎调用意图，无引擎时非空意图会被拒绝
-     * @param updates 叙事模型声明的世界字段，非法类型和区域独立忽略
+     * @param updates 叙事模型声明的世界字段，忽略未知字段和错误类型
      * @return 合并字段后的权威实例及本次确认事件
      */
     public AppliedAction applyNarrativeTurn(String gameId, long expectedRevision, ActionIntent intent,
@@ -74,8 +74,7 @@ public final class GameActionService {
      * @param updates 模型声明的世界字段
      */
     AppliedAction resolveNarrativeTurn(GameInstance<?> loaded, ActionIntent intent, Map<String, InitializationValue> updates) {
-        WorldDefinition definition = contentCatalog.world(loaded.worldId());
-        Map<String, InitializationValue> accepted = WorldUpdatePolicy.accepted(updates, definition);
+        Map<String, InitializationValue> accepted = WorldUpdatePolicy.accepted(updates);
         if (intent == null) {
             if (accepted.isEmpty()) return new AppliedAction(loaded, List.of(), List.of());
             long revision = loaded.revision() + 1;
@@ -88,6 +87,7 @@ public final class GameActionService {
             throw GameRequestException.action(GameRequestException.Code.ENGINE_REQUIRED, "engine_required",
                     loaded, intent.type(), loaded.revision());
         }
+        WorldDefinition definition = contentCatalog.world(loaded.worldId());
         GameEngineRuntime<?, ?> runtime = runtimeFor(loaded, definition);
         EngineResolution<?> resolution = resolveRuntime(runtime, loaded, intent);
         long nextRevision = loaded.revision() + 1;
@@ -121,18 +121,7 @@ public final class GameActionService {
         return runtimeFor(instance, definition);
     }
 
-    // The engine factory selects the runtime for the state stored with this engine ID.
-    /** 将动作校验委托给选中引擎。
-     * @param runtime 选中引擎的运行时
-     * @param instance 当前权威游戏实例
-     * @param intent 交由选中引擎解释的结构化动作
-     */
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static ActionValidation validateRuntime(GameEngineRuntime runtime, GameInstance<?> instance, ActionIntent intent) {
-        return runtime.validate(instance.rulesetState(), intent, instance.worldState().day());
-    }
-
-    /** 验证动作后委托选中引擎进行规则结算。
+    /** 委托所选引擎校验与结算，并为被拒绝的意图附加存档上下文。
      * @param runtime 选中引擎的运行时
      * @param instance 当前权威游戏实例
      * @param intent 交由选中引擎解释的结构化动作
@@ -140,12 +129,12 @@ public final class GameActionService {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static EngineResolution<?> resolveRuntime(GameEngineRuntime runtime, GameInstance<?> instance,
                                                        ActionIntent intent) {
-        ActionValidation validation = validateRuntime(runtime, instance, intent);
-        if (!validation.accepted()) {
-            throw GameRequestException.action(GameRequestException.Code.ENGINE_ACTION_REJECTED, validation.reason(),
+        try {
+            return runtime.resolve(instance.rulesetState(), intent, instance.worldState());
+        } catch (IllegalArgumentException exception) {
+            throw GameRequestException.action(GameRequestException.Code.ENGINE_ACTION_REJECTED, exception.getMessage(),
                     instance, intent.type(), instance.revision());
         }
-        return runtime.resolve(instance.rulesetState(), intent, instance.worldState().day());
     }
 
     /** 将世界推进后的效果委托给选中引擎。

@@ -67,7 +67,7 @@ public final class WorldInitializationController {
      * @param name 可空的世界名称覆盖值
      * @param description 可空的世界描述覆盖值
      * @param location 可空的开场地点文本
-     * @param region 可空的区域稳定标识
+     * @param region 可空的区域叙事文本
      * @param time 可空的开场时间
      * @param mainQuest 可空的开场主线方向
      * @param originScene 可空的开场场景描述

@@ -8,95 +8,52 @@
       {
         "id": "forest",
         "name": "forest",
-        "description": "密林",
-        "monster_ids": [
-          "low",
-          "small",
-          "beast"
-        ]
+        "description": "密林"
       },
       {
         "id": "plains",
         "name": "plains",
-        "description": "开阔草原",
-        "monster_ids": [
-          "low",
-          "beast",
-          "mid"
-        ]
+        "description": "开阔草原"
       },
       {
         "id": "mountain",
         "name": "mountain",
-        "description": "山岭地带",
-        "monster_ids": [
-          "mid",
-          "flying",
-          "beast"
-        ]
+        "description": "山岭地带"
       },
       {
         "id": "dungeon",
         "name": "dungeon",
-        "description": "地窟",
-        "monster_ids": [
-          "low",
-          "mid",
-          "high"
-        ]
+        "description": "地窟"
       },
       {
         "id": "swamp",
         "name": "swamp",
-        "description": "沼泽",
-        "monster_ids": [
-          "small",
-          "mid",
-          "beast"
-        ]
+        "description": "沼泽"
       },
       {
         "id": "ruins",
         "name": "ruins",
-        "description": "废墟",
-        "monster_ids": [
-          "mid",
-          "high"
-        ]
+        "description": "废墟"
       },
       {
         "id": "cavern",
         "name": "cavern",
-        "description": "洞穴群",
-        "monster_ids": [
-          "small",
-          "low",
-          "mid"
-        ]
+        "description": "洞穴群"
       },
       {
         "id": "town",
         "name": "town",
-        "description": "城镇",
-        "monster_ids": []
+        "description": "城镇"
       },
       {
         "id": "corrupted_land",
         "name": "corrupted_land",
-        "description": "侵蚀之地",
-        "monster_ids": [
-          "high",
-          "flying"
-        ]
+        "description": "侵蚀之地"
       },
       {
         "id": "volcanic",
         "name": "volcanic",
-        "description": "火山带",
-        "monster_ids": [
-          "mid",
-          "high"
-        ]
+        "description": "火山带"
       }
     ],
     "npc_types": [

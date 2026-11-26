@@ -104,7 +104,6 @@ class GameEngineSelectionTests {
                 "archetype", new InitializationValue.Text("swordsman"),
                 "difficulty", new InitializationValue.Text("adventure")));
         var intent = new ActionIntent("rest", "", java.util.List.of());
-        org.junit.jupiter.api.Assertions.assertTrue(runtime.validate(state, intent).accepted());
         var resolution = runtime.resolve(state, intent);
         org.junit.jupiter.api.Assertions.assertEquals("rest", resolution.events().getFirst().type());
     }

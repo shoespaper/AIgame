@@ -6,6 +6,7 @@ import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.SupportedAction;
 import com.gameneko.aigame.narrative.NarrativeRequest;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.narrative.NarrativeSnapshot;
 import com.gameneko.aigame.narrative.NarrativeSnapshot.ConfirmedEvent;
@@ -73,7 +74,7 @@ public final class NarrativeApplicationService {
         }
         GameActionService.AppliedAction applied = gameActionService.applyNarrativeTurn(
                 instance.gameId(), instance.revision(), response.action(), response.updates());
-        return toTurn(applied, response);
+        return toTurn(applied, response, playerInput, locale, history);
     }
 
     /** 在尚未存档的初始实例上生成并结算开场，返回可一次性持久化的结果。
@@ -87,7 +88,7 @@ public final class NarrativeApplicationService {
             return new NarratedTurn(instance, response.narration(), response.options(), List.of());
         }
         GameActionService.AppliedAction applied = gameActionService.resolveNarrativeTurn(instance, response.action(), response.updates());
-        return toTurn(applied, response);
+        return toTurn(applied, response, "游戏开始", locale, List.of());
     }
 
     /** 将权威实例、世界书和已登记素材转换为只读的模型快照。
@@ -99,14 +100,42 @@ public final class NarrativeApplicationService {
                 .withMaterials(templates == null ? null : templates.world(instance.gameId()));
     }
 
-    /** 将已结算的动作和模型响应组合成可返回的叙事回合。
+    /** 用结算后的快照生成叙事，描写失败时仍返回已确认的结果。
      * @param applied 结算后的权威实例及确认事件
-     * @param response 模型生成的叙事文本与候选动作
+     * @param response 模型的首轮响应，没有确认事件时直接使用
+     * @param playerInput 玩家原始输入，开局时为开场提示
+     * @param locale 叙事语言标识
+     * @param history 近期对话记录，开局时为空
      */
-    private NarratedTurn toTurn(GameActionService.AppliedAction applied, NarrativeResponse response) {
-        List<ConfirmedEvent> confirmed = NarrativeSnapshotFactory.fromConfirmed(applied.instance(), applied.events(),
-                applied.worldEvents(), projection(applied.instance())).confirmedEvents();
-        return new NarratedTurn(applied.instance(), response.narration(), response.options(), confirmed);
+    private NarratedTurn toTurn(GameActionService.AppliedAction applied, NarrativeResponse response,
+                                String playerInput, String locale, List<NarrativeRequest.ConversationMessage> history) {
+        GameInstance<?> instance = applied.instance();
+        if (applied.events().isEmpty() && applied.worldEvents().isEmpty()) {
+            return new NarratedTurn(instance, response.narration(), response.options(), List.of());
+        }
+        NarrativeSnapshot snapshot = NarrativeSnapshotFactory.fromConfirmed(instance, applied.events(),
+                        applied.worldEvents(), projection(instance))
+                .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
+                .withMaterials(templates == null ? null : templates.world(instance.gameId()));
+        try {
+            NarrativeResponse description = narrationService.describeConfirmedTurn(new NarrativeRequest(
+                    instance.gameId(), instance.revision(), playerInput, locale, snapshot, history));
+            return new NarratedTurn(instance, description.narration(), description.options(), snapshot.confirmedEvents());
+        } catch (NarrativeProviderException exception) {
+            return confirmedOnly(instance, snapshot.confirmedEvents());
+        } catch (GameRequestException exception) {
+            if (exception.code() != GameRequestException.Code.MODEL_CONFIGURATION_REQUIRED) throw exception;
+            return confirmedOnly(instance, snapshot.confirmedEvents());
+        }
+    }
+
+    /** 在模型无法描写时直接展示已确认的事实，避免客户端误以为结算失败。
+     * @param instance 已结算的权威实例
+     * @param events 本轮确认事件
+     */
+    private static NarratedTurn confirmedOnly(GameInstance<?> instance, List<ConfirmedEvent> events) {
+        String description = String.join("\n", events.stream().map(ConfirmedEvent::outcome).toList());
+        return new NarratedTurn(instance, description, List.of("继续行动", "观察四周", "查看状态"), events);
     }
 
     /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */

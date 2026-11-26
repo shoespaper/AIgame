@@ -94,13 +94,12 @@ class ConfirmedTemplateRegistryTests {
         assertTrue(Files.notExists(temporary.resolve("registry.json")));
     }
 
-    /** 验证内层 JSON 和素材引用出错时都会反馈给模型，再用修正的整份提案开局。 */
+    /** 验证内层 JSON 错误或区域叙事素材缺少名称时会反馈给模型并重试。 */
     @Test
-    void retriesMalformedProposalAndUnknownMonsterReference() throws IOException {
+    void retriesMalformedProposalAndUnnamedRegion() throws IOException {
         when(catalog.findTemplate("dusk")).thenReturn(Optional.empty());
-        String unknownMonster = WORLD.replace("\"regions\":[]",
-                "\"regions\":[{\"id\":\"forest\",\"name\":\"林地\",\"monster_ids\":[\"missing_monster\"]}]");
-        when(provider.respond(any())).thenReturn(response("{"), response(unknownMonster), response(WORLD));
+        String unnamedRegion = WORLD.replace("\"regions\":[]", "\"regions\":[{\"id\":\"forest\"}]");
+        when(provider.respond(any())).thenReturn(response("{"), response(unnamedRegion), response(WORLD));
         ConfirmedTemplateRegistry registry = registry();
 
         registry.confirm("story", book(""), null);
@@ -109,7 +108,7 @@ class ConfirmedTemplateRegistryTests {
         verify(provider, times(3)).respond(prompts.capture());
         assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("updates.template 的 JSON 无效"));
         assertTrue(prompts.getAllValues().get(2).systemInstruction()
-                .contains("world_template.regions[0].monster_ids[0] 引用了未定义的怪物：\"missing_monster\""));
+                .contains("world_template.regions[0].name 必须是非空字符串"));
         assertTrue(registry.world("story").path("regions").isEmpty());
     }
 

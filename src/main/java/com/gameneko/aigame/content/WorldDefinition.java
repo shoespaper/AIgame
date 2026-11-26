@@ -6,12 +6,10 @@ import com.gameneko.aigame.engine.InitializationSchema;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /** 保存世界书内容及可供规则引擎读取的模板机制数据。 */
 public record WorldDefinition(String worldId, String contentVersion, String nameHint,
                               String descriptionHint, long defaultThreatInterval,
-                              Map<String, List<String>> regionMonsterTypes,
                                Map<String, DifficultyDefinition> difficulties,
                                Map<String, TalentDefinition> talents,
                                Map<String, AbilityDefinition> abilities,
@@ -20,8 +18,6 @@ public record WorldDefinition(String worldId, String contentVersion, String name
                                EventTemplates eventTemplates,
                                Map<String, ItemTemplate> itemTemplates) {
     public WorldDefinition {
-        regionMonsterTypes = regionMonsterTypes.entrySet().stream().collect(Collectors.toUnmodifiableMap(
-                Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
         difficulties = Map.copyOf(difficulties);
         talents = Map.copyOf(talents);
         abilities = Map.copyOf(abilities);
@@ -49,7 +45,7 @@ public record WorldDefinition(String worldId, String contentVersion, String name
                 new InitializationField("location", "开场地点", InitializationField.ValueType.TEXT,
                         false, List.of(), null, null, "故事从哪里开始？"),
                 new InitializationField("region", "区域", InitializationField.ValueType.TEXT,
-                        false, regionMonsterTypes.keySet().stream().sorted().toList(), null, null, "开场地点属于哪个区域？"),
+                        false, List.of(), null, null, "用简短文本描述开场地点所属的区域，可省略。"),
                 new InitializationField("time", "时间", InitializationField.ValueType.TEXT,
                         false, List.of(), null, null, "故事从一天中的什么时候开始？"),
                 new InitializationField("mainQuest", "主线方向", InitializationField.ValueType.TEXT,
@@ -68,23 +64,21 @@ public record WorldDefinition(String worldId, String contentVersion, String name
                 "gender", new com.gameneko.aigame.engine.InitializationValue.Text("未定"));
     }
 
+    /** 创建尚未装载规则素材的基础世界定义。
+     * @param worldId 世界书标识
+     * @param contentVersion 世界内容版本
+     * @param nameHint 世界展示名称
+     * @param descriptionHint 世界叙事描述
+     * @param defaultThreatInterval 默认威胁间隔，单位为天
+     * @param difficulties 难度定义
+     * @param talents 初始天赋定义
+     */
     public WorldDefinition(String worldId, String contentVersion, String nameHint,
                            String descriptionHint, long defaultThreatInterval,
-                           Map<String, List<String>> regionMonsterTypes,
                            Map<String, DifficultyDefinition> difficulties,
                            Map<String, TalentDefinition> talents) {
         this(worldId, contentVersion, nameHint, descriptionHint, defaultThreatInterval,
-                regionMonsterTypes, difficulties, talents, Map.of(), Map.of(), Map.of(), EventTemplates.empty(), Map.of());
-    }
-
-    public WorldDefinition(String worldId, String contentVersion, String nameHint,
-                           String descriptionHint, long defaultThreatInterval,
-                           Map<String, List<String>> regionMonsterTypes,
-                           Map<String, DifficultyDefinition> difficulties,
-                           Map<String, TalentDefinition> talents,
-                           Map<String, AbilityDefinition> abilities) {
-        this(worldId, contentVersion, nameHint, descriptionHint, defaultThreatInterval,
-                regionMonsterTypes, difficulties, talents, abilities, Map.of(), Map.of(), EventTemplates.empty(), Map.of());
+                difficulties, talents, Map.of(), Map.of(), Map.of(), EventTemplates.empty(), Map.of());
     }
 
     public record DifficultyDefinition(long threatInterval, long startingCopper, long startingRations,
@@ -163,15 +157,18 @@ public record WorldDefinition(String worldId, String contentVersion, String name
         }
     }
 
-    public record MonsterDefinition(String id, IntRange challengeRange, IntRange hpRange,
-                                    IntRange powerRange, IntRange mitigationRange, IntRange speedRange,
-                                    int actionPoints, IntRange experienceRange, IntRange lootCopperRange,
-                                    String behavior, List<String> abilityPool, double speedMultiplier) {
+    /** 提供生成普通攻击型怪物所需的数据。
+     * @param id 世界素材标识
+     * @param name 怪物展示名称
+     * @param maxHp 未应用难度倍率的生命上限
+     * @param attackPower 未应用难度倍率的普通攻击威力
+     */
+    public record MonsterDefinition(String id, String name, int maxHp, int attackPower) {
         public MonsterDefinition {
             if (id == null || id.isBlank()) throw new IllegalArgumentException("Monster id is required");
-            abilityPool = abilityPool == null ? List.of() : List.copyOf(abilityPool);
-            if (speedMultiplier <= 0) throw new IllegalArgumentException("Monster speed multiplier must be positive");
-            if (actionPoints <= 0) throw new IllegalArgumentException("Monster AP must be positive");
+            if (name == null || name.isBlank() || maxHp < 1 || attackPower < 0) {
+                throw new IllegalArgumentException("怪物名称或模板数值无效：" + id);
+            }
         }
     }
 

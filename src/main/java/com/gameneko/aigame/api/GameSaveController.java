@@ -50,12 +50,16 @@ public final class GameSaveController {
     @PostMapping("/{gameId}/actions")
     public GameInstanceResponse action(@PathVariable String gameId, @RequestBody GameActionRequest request) {
         MappedGameAction mapped = actionMapper.map(gameId, request);
-        GameInstance<?> instance = mapped.intent() == null
-                ? actionService.applyWorldAction(gameId, request.expectedRevision(), mapped.worldAction())
-                : actionService.applyIntent(gameId, request.expectedRevision(), mapped.intent()).instance();
-        DiagnosticLog.actionCommitted(new DiagnosticLog.Action(gameId, instance.rulesetId(), request.type(),
-                request.expectedRevision(), instance.revision()));
-        return GameInstanceResponse.from(instance);
+        GameInstanceResponse response;
+        if (mapped.intent() == null) {
+            response = GameInstanceResponse.from(actionService.applyWorldAction(gameId, request.expectedRevision(), mapped.worldAction()));
+        } else {
+            GameActionService.AppliedAction applied = actionService.applyIntent(gameId, request.expectedRevision(), mapped.intent());
+            response = GameInstanceResponse.from(applied.instance(), applied.events());
+        }
+        DiagnosticLog.actionCommitted(new DiagnosticLog.Action(gameId, response.rulesetId(), request.type(),
+                request.expectedRevision(), response.revision()));
+        return response;
     }
 
     @GetMapping("/{gameId}")

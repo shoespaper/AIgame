@@ -121,14 +121,14 @@ public final class ClasspathContentCatalog implements ContentCatalog {
         return new WorldBook(definition, definition.initializationSchema(), narrative);
     }
 
-    /** 按世界书引用的模板组合引擎兼容投影。
+    /** 根据世界书创建基础世界定义。
      * @param worldId 世界书标识或旧版别名
-     * @return 叙事内容与模板骨架的合并投影
+     * @return 未装载引擎素材的世界定义
      */
     private WorldDefinition load(String worldId) {
         WorldbookDefinition book = loadWorldbookData("isekai_grey".equals(worldId) ? "cinder_continent" : worldId);
         return new WorldDefinition(worldId, book.contentVersion(), book.name(), book.descriptionHint(),
-                7, Map.of(), Map.of(), Map.of());
+                7, Map.of(), Map.of());
     }
 
     /** 严格读取一个 JSON 对象并拒绝重复键和额外根节点。

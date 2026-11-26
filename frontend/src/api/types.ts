@@ -35,13 +35,15 @@ export interface WorldbookDetail {
   worldTropes: string[]
 }
 export interface ConfirmedEvent { domain: string; type: string; subject: string; target: string | null; amount: number; outcome: string }
+/** 直接动作接口返回的引擎确认事件。 */
+export interface EngineConfirmedEvent { source: string; type: string; description: string; amount: number; subject: string; target: string }
 /** 展示与叙事模型参考用的对话消息，不代表权威游戏状态。 */
 export interface ConversationMessage { role: 'player' | 'gm'; text: string }
 /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
 export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[] }
 export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; threatLevel: string; threatCounter: number; threatInterval: number; threatHistory: string[]; timedEvents: string[]; incidentalEvents: string[]; lastTickDay: number; crisisTriggered: boolean; mainPlotStage: number; mainPlotStages: string[]; priceModifiers: Record<string, number>; originScene: string }
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
-export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; rulesetState: { [key: string]: JsonValue } | null }
+export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[] }
 /** 后端错误响应的提示、稳定错误码和可选请求 ID。 */
 export interface ApiErrorPayload { error?: string; code?: string; requestId?: string }
 export interface NarrativeSettings { apiKey: string; enabled: boolean; baseUrl: string; model: string; maxTokens: number }

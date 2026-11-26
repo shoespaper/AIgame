@@ -10,10 +10,21 @@ public final class ApBattle {
     public enum Result { ACTIVE, VICTORY, DEFEAT, ESCAPED }
     public enum ActionKind { ATTACK, HEAVY, SPELL, SKILL, DEFEND, DODGE, ITEM, FOCUS, WAIT }
 
+    /** 保存一场遭遇当前的权威战斗状态。
+     * @param round 当前轮次，从 1 开始
+     * @param turnIndex 当前行动者在行动顺序中的索引
+     * @param turnOrder 战斗单位标识组成的行动顺序
+     * @param combatants 当前战斗单位状态
+     * @param log 已确认的战斗动作
+     * @param active 战斗是否仍在进行
+     * @param result 当前战斗结果
+     * @param encounterName 遭遇名称
+     * @param rewardsSettled 战斗结算是否已完成
+     */
     public record Snapshot(int round, int turnIndex, List<String> turnOrder,
                            List<Combatant> combatants, List<BattleEvent> log,
                            boolean active, Result result, String encounterName,
-                           long seed, boolean rewardsSettled) {
+                           boolean rewardsSettled) {
         public Snapshot {
             if (round < 1 || turnIndex < 0) throw new IllegalArgumentException("Invalid combat turn");
             turnOrder = turnOrder == null ? List.of() : List.copyOf(turnOrder);
@@ -31,11 +42,20 @@ public final class ApBattle {
 
         public Combatant currentActor() { return combatant(turnOrder.get(turnIndex)); }
 
+        /** 保留遭遇标识信息并替换战斗结算后的状态。
+         * @param nextRound 结算后的轮次
+         * @param nextTurnIndex 结算后行动者索引
+         * @param nextCombatants 结算后的战斗单位
+         * @param nextLog 累积的确认动作
+         * @param nextActive 结算后战斗是否仍在进行
+         * @param nextResult 结算后的战斗结果
+         * @param settled 奖励是否已结算
+         */
         public Snapshot with(int nextRound, int nextTurnIndex, List<Combatant> nextCombatants,
                              List<BattleEvent> nextLog, boolean nextActive, Result nextResult,
                              boolean settled) {
             return new Snapshot(nextRound, nextTurnIndex, turnOrder, nextCombatants, nextLog,
-                    nextActive, nextResult, encounterName, seed, settled);
+                    nextActive, nextResult, encounterName, settled);
         }
     }
 
@@ -47,7 +67,7 @@ public final class ApBattle {
                             Set<String> usedAbilities) {
         public Combatant {
             if (id == null || id.isBlank() || name == null || name.isBlank()) throw new IllegalArgumentException("Combatant identity is required");
-            if (maxHp <= 0 || hp < 0 || hp > maxHp || sp < 0 || sp > maxSp || maxAp < 0
+            if (maxHp <= 0 || hp < 0 || hp > maxHp || sp < 0 || sp > maxSp || power < 0 || maxAp < 0
                     || currentAp < 0 || currentAp > maxAp || mitigation < 0 || guard < 0 || exposedRounds < 0) {
                 throw new IllegalArgumentException("Invalid combatant values");
             }
@@ -59,11 +79,24 @@ public final class ApBattle {
 
         public boolean alive() { return hp > 0; }
 
+        /** 用一次结算后的数值更新战斗单位，归一化各资源的边界。
+         * @param nextHp 生命点数
+         * @param nextSp 法力点数
+         * @param nextPower 普通攻击威力
+         * @param nextMitigation 减伤点数
+         * @param nextAp 剩余行动点
+         * @param nextGuard 临时防护点数
+         * @param nextExposed 破绽剩余轮数
+         * @param nextDefending 是否处于主动防御状态
+         * @param nextDodging 是否处于闪避状态
+         * @param nextStatuses 当前战斗状态列表
+         * @param nextUsed 当前战斗中已使用的限次能力标识
+         */
         public Combatant update(int nextHp, int nextSp, int nextPower, int nextMitigation,
                                 int nextAp, int nextGuard, int nextExposed, boolean nextDefending,
                                 boolean nextDodging, List<CombatStatus> nextStatuses, Set<String> nextUsed) {
             return new Combatant(id, name, player, monsterType, Math.max(0, Math.min(maxHp, nextHp)), maxHp,
-                    Math.max(0, Math.min(maxSp, nextSp)), maxSp, Math.max(1, nextPower),
+                    Math.max(0, Math.min(maxSp, nextSp)), maxSp, Math.max(0, nextPower),
                     Math.max(0, nextMitigation), speed, maxAp, Math.max(0, Math.min(maxAp, nextAp)),
                     Math.max(0, nextGuard), Math.max(0, nextExposed), nextDefending, nextDodging,
                     nextStatuses, experienceReward, copperReward, lootItems, nextUsed);

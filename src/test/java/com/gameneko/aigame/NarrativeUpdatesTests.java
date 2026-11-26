@@ -46,13 +46,13 @@ class NarrativeUpdatesTests {
         repository.save(initial);
         assertEquals(List.of("石桥镇"), initial.worldState().visitedLocations());
         var responses = new ArrayDeque<>(List.of(
-                response(Map.of("location", text("古堡"), "region", text("ruins"), "name", text("新世界"))),
-                response(Map.of("location", text("石桥镇"), "region", text("错误区域"), "time", text("黄昏"))),
+                response(Map.of("location", text("古堡"), "region", text("雾谷废墟"), "name", text("新世界"))),
+                response(Map.of("location", text("石桥镇"), "region", new InitializationValue.Flag(false), "time", text("黄昏"))),
                 response(Map.of("visitedLocations", text("古堡"), "mainQuest", text("寻找钥匙")))));
         var service = service(repository, responses);
         var first = service.narrate("travel", 0, "去古堡", "zh-CN");
         assertEquals(1, first.instance().revision());
-        assertEquals("ruins", first.instance().worldState().currentRegion());
+        assertEquals("雾谷废墟", first.instance().worldState().currentRegion());
         assertEquals("新世界", first.instance().worldState().setting());
         service.narrate("travel", 1, "回镇", "zh-CN");
         var last = service.narrate("travel", 2, "观察", "zh-CN");
@@ -60,13 +60,13 @@ class NarrativeUpdatesTests {
         assertEquals(last.instance(), loaded);
         assertEquals(3, loaded.worldState().revision());
         assertEquals("石桥镇", loaded.worldState().location());
-        assertEquals("ruins", loaded.worldState().currentRegion());
+        assertEquals("雾谷废墟", loaded.worldState().currentRegion());
         assertEquals("黄昏", loaded.worldState().time());
         assertEquals("寻找钥匙", loaded.worldState().mainQuest());
         assertEquals(List.of("石桥镇", "古堡"), loaded.worldState().visitedLocations());
     }
 
-    /** 验证只有非法区域、错误类型或未知字段时不写入世界，也不推进版本。 */
+    /** 验证区域可在开场写入，只有错误类型或未知字段时跳过保存和版本推进。 */
     @Test
     void invalidFieldsAreIgnoredIndependentlyAndOpeningCanSetLocation() {
         var repository = repository();
@@ -74,7 +74,7 @@ class NarrativeUpdatesTests {
         GameInstance<?> initial = GameInstance.narrativeOnly("opening", world);
         var responses = new ArrayDeque<>(List.of(
                 response(Map.of("location", text("石桥镇"), "region", text("town"))),
-                response(Map.of("region", text("石桥镇"), "weather", text("雨"), "season", text("冬"),
+                response(Map.of("region", new InitializationValue.IntegerNumber(1), "weather", text("雨"), "season", text("冬"),
                         "unknown", text("无效")))));
         var service = service(repository, responses);
         NarrativeApplicationService.NarratedTurn opening = service.prepareOpening(initial, "zh-CN");
@@ -143,12 +143,14 @@ class NarrativeUpdatesTests {
         var repository = new CountingRepository(initial);
         var action = new ActionIntent("rest", "", List.of());
         var responses = new ArrayDeque<>(List.of(new NarrativeResponse("你在古堡休息。", action, List.of("观察四周"),
-                Map.of("location", text("古堡"), "region", text("ruins")))));
+                Map.of("location", text("古堡"), "region", text("ruins"))),
+                new NarrativeResponse("你已经休息完毕。", null, List.of("观察四周"))));
         var turn = service(repository, responses).narrate("combined", 0, "休息", "zh-CN");
         assertEquals(1, turn.instance().revision());
         assertEquals(1, turn.instance().worldState().revision());
         assertEquals(1, repository.writes);
         assertFalse(turn.confirmedEvents().isEmpty());
+        assertEquals("你已经休息完毕。", turn.narration());
         assertEquals(List.of("石桥镇", "古堡"), turn.instance().worldState().visitedLocations());
         var actions = new GameActionService(repository, catalog, engines);
         assertThrows(IllegalArgumentException.class, () -> actions.applyNarrativeTurn("combined", 0, null, Map.of("location", text("旧版本"))));
@@ -160,6 +162,14 @@ class NarrativeUpdatesTests {
         assertThrows(IllegalArgumentException.class, () -> new GameActionService(narrative, catalog, engines)
                 .applyNarrativeTurn("no-engine", 0, action, Map.of("location", text("错误地点"))));
         assertEquals(0, narrative.writes);
+
+        responses.add(new NarrativeResponse("你想休息。", action, List.of("观察四周")));
+        responses.add(new NarrativeResponse("你又休息了一次。", action, List.of("观察四周")));
+        NarrativeApplicationService.NarratedTurn fallback = service(repository, responses)
+                .narrate("combined", 1, "再休息一会儿", "zh-CN");
+        assertEquals(2, fallback.instance().revision());
+        assertEquals(2, repository.writes);
+        assertEquals(fallback.confirmedEvents().getFirst().outcome(), fallback.narration());
     }
 
     /** 验证引擎提示模板进入 AI 多轮上下文，由 updates 一次多答，并按缺失字段反馈推进。
@@ -172,7 +182,7 @@ class NarrativeUpdatesTests {
                         List.of("从角色经历开始"), Map.of()),
                 response(Map.of("characterName", text("凯尔"), "age", text("十六"), "location", text("石桥镇"), "region", text("town"))),
                 response(Map.of("characterName", text("莉娅"), "age", new InitializationValue.IntegerNumber(16),
-                        "archetype", text("mage"), "difficulty", text("invalid"), "region", text("invalid"))),
+                        "archetype", text("mage"), "difficulty", text("invalid"), "region", text("石桥北郊"))),
                 response(Map.of("difficulty", text("adventure")))));
         var service = new InitializationNarrationService(prompt -> { prompts.add(prompt); return responses.removeFirst(); },
                 new GameInitializationSchemaService(catalog, engines), catalog);
@@ -200,7 +210,7 @@ class NarrativeUpdatesTests {
         assertEquals(16L, second.collected().get("age"));
         assertEquals("mage", second.collected().get("archetype"));
         assertFalse(second.collected().containsKey("difficulty"));
-        assertEquals("town", second.collected().get("region"));
+        assertEquals("石桥北郊", second.collected().get("region"));
 
         var ready = service.answer(session, "adventure");
         assertTrue(ready.done());
@@ -208,7 +218,7 @@ class NarrativeUpdatesTests {
         assertTrue(prompts.get(3).systemInstruction().contains("已收集字段"));
         assertEquals("莉娅", ready.collected().get("characterName"));
         assertEquals("石桥镇", service.request(session).location());
-        assertEquals("town", service.request(session).region());
+        assertEquals("石桥北郊", service.request(session).region());
         assertEquals(text("adventure"), service.answers(session).get("difficulty"));
     }
 
@@ -256,7 +266,7 @@ class NarrativeUpdatesTests {
     void invalidOptionalFieldDoesNotBlockCompletedRequiredFields() {
         var service = new InitializationNarrationService(prompt -> response(Map.of(
                 "characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(16),
-                "region", text("not-a-region"))), new GameInitializationSchemaService(catalog, engines), catalog);
+                 "region", new InitializationValue.Flag(false))), new GameInitializationSchemaService(catalog, engines), catalog);
         var session = service.session("optional-error", new GameSelection("isekai_grey", null));
         var turn = service.open(session);
         assertTrue(turn.done());

@@ -28,7 +28,8 @@ public final class NarrativeSnapshotFactory {
                         .map(modifier -> new NarrativeSnapshot.PriceView(modifier.category().name(), modifier.percent())).toList());
         var events = new java.util.ArrayList<NarrativeSnapshot.ConfirmedEvent>();
         if (actionEvents != null) actionEvents.stream().limit(20)
-                .forEach(event -> events.add(new NarrativeSnapshot.ConfirmedEvent(event.source(), event.type(), "player", "", event.amount(), event.description())));
+                .forEach(event -> events.add(new NarrativeSnapshot.ConfirmedEvent(event.source(), event.type(),
+                        event.subject(), event.target(), event.amount(), event.description())));
         if (confirmedWorldEvents != null) confirmedWorldEvents.stream().skip(Math.max(0, confirmedWorldEvents.size() - 8L))
                 .forEach(event -> events.add(new NarrativeSnapshot.ConfirmedEvent("world", event.type().name(), "world", "", event.day(), event.description())));
         return new NarrativeSnapshot(worldView, null, events, engineProjection);

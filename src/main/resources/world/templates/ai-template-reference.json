@@ -8,10 +8,7 @@
       {
         "id": "mist_forest",
         "name": "雾林",
-        "description": "清晨浓雾遮蔽林间小路。",
-        "monster_ids": [
-          "shadow_wolf"
-        ]
+        "description": "清晨浓雾遮蔽林间小路。"
       }
     ],
     "npc_types": [

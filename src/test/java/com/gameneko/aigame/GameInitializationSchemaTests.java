@@ -6,7 +6,6 @@ import com.gameneko.aigame.content.WorldBook;
 import com.gameneko.aigame.content.WorldBookCatalog;
 import com.gameneko.aigame.content.WorldDefinition;
 import com.gameneko.aigame.engine.ActionIntent;
-import com.gameneko.aigame.engine.ActionValidation;
 import com.gameneko.aigame.engine.EngineResolution;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.GameSelection;
@@ -26,7 +25,7 @@ class GameInitializationSchemaTests {
     @Test
     void worldAndOptionalEngineFieldsAreComposed() {
         WorldDefinition definition = new WorldDefinition("world", "1", "name", "desc", 1,
-                Map.of("town", List.of()), Map.of(), Map.of());
+                Map.of(), Map.of());
         var engineField = new InitializationField("dicePool", "Dice pool", InitializationField.ValueType.INTEGER,
                 true, List.of(), 1L, 20L, "");
         WorldBook book = new WorldBook(definition, new InitializationSchema(List.of(
@@ -42,7 +41,7 @@ class GameInitializationSchemaTests {
     @Test
     void duplicateWorldAndEngineFieldUsesEngineDefinition() {
         WorldBook book = new WorldBook(new WorldDefinition("world", "1", "name", "desc", 1,
-                Map.of("town", List.of()), Map.of(), Map.of()),
+                Map.of(), Map.of()),
                 new InitializationSchema(List.of(new InitializationField("name", "Name", InitializationField.ValueType.TEXT, true, List.of(), null, null, ""))));
         WorldBookCatalog worlds = new WorldBookCatalog() {
             @Override public List<WorldBook> available() { return List.of(book); }
@@ -60,7 +59,7 @@ class GameInitializationSchemaTests {
     @Test
     void worldBookDoesNotRequireEngineDifficulty() {
         WorldDefinition definition = new WorldDefinition("world", "1", "name", "desc", 1,
-                Map.of("town", List.of()), Map.of("story", new WorldDefinition.DifficultyDefinition(1, 0, 0, 0, "Story", "")), Map.of());
+                Map.of("story", new WorldDefinition.DifficultyDefinition(1, 0, 0, 0, "Story", "")), Map.of());
         var ids = definition.initializationSchema().fields().stream().map(InitializationField::id).toList();
         org.junit.jupiter.api.Assertions.assertTrue(ids.contains("gender"));
         org.junit.jupiter.api.Assertions.assertFalse(ids.contains("difficulty"));
@@ -88,7 +87,6 @@ class GameInitializationSchemaTests {
             @Override public Map<String, InitializationValue> defaultInitializationAnswers() { return Map.of("dicePool", new InitializationValue.IntegerNumber(1)); }
             @Override public InitializationSchema initializationSchema() { return new InitializationSchema(List.of(field)); }
             @Override public GameState initialize(Map<String, InitializationValue> answers) { throw new UnsupportedOperationException(); }
-            @Override public ActionValidation validate(GameState state, ActionIntent intent) { throw new UnsupportedOperationException(); }
             @Override public EngineResolution<GameState> resolve(GameState state, ActionIntent intent) { throw new UnsupportedOperationException(); }
             @Override public Object project(GameState state) { throw new UnsupportedOperationException(); }
         };

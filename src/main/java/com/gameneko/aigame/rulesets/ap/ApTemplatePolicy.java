@@ -61,9 +61,10 @@ public final class ApTemplatePolicy implements EngineTemplatePolicy {
             }
             for (Map.Entry<String, JsonNode> field : schema.properties()) {
                 JsonNode value = parameters.path(field.getKey());
-                if (!value.isInt() || value.intValue() < 0 || value.intValue() > 1000) {
+                int minimum = "max_hp".equals(field.getKey()) ? 1 : 0;
+                if (!value.isInt() || value.intValue() < minimum || value.intValue() > 1000) {
                     throw new IllegalArgumentException("AP 规则 " + id + " 的 parameters." + field.getKey()
-                            + " 必须是 0 至 1000 的整数");
+                            + " 必须是 " + minimum + " 至 1000 的整数");
                 }
             }
             return;

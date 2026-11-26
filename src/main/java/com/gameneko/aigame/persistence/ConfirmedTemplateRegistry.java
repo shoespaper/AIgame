@@ -389,7 +389,7 @@ public final class ConfirmedTemplateRegistry {
         return text.length() <= 80 ? value.toString() : text.substring(0, 80) + "…";
     }
 
-    /** 检查素材集合、必填标识及区域所引用的生物是否存在。
+    /** 检查各叙事素材集合及其必填标识。
      * @param world 待注册的世界模板
      */
     private void validateMaterials(ObjectNode world) {
@@ -404,7 +404,6 @@ public final class ConfirmedTemplateRegistry {
                 }
             }
         }
-        Set<String> monsters = new HashSet<>();
         for (Map.Entry<String, JsonNode> field : reference.properties()) {
             if (!field.getValue().isArray()) continue;
             JsonNode entries = world.path(field.getKey());
@@ -424,22 +423,6 @@ public final class ConfirmedTemplateRegistry {
                 }
                 validateOptionalText(entry, "description", path);
                 validateOptionalText(entry, "category", path);
-            }
-            if ("monster_types".equals(field.getKey())) monsters.addAll(ids);
-        }
-        JsonNode regions = world.path("regions");
-        for (int index = 0; index < regions.size(); index++) {
-            JsonNode references = regions.get(index).path("monster_ids");
-            if (references.isMissingNode()) continue;
-            String path = "world_template.regions[" + index + "].monster_ids";
-            if (!references.isArray()) throw new IllegalArgumentException(path + " 必须是怪物 ID 数组");
-            for (int referenceIndex = 0; referenceIndex < references.size(); referenceIndex++) {
-                JsonNode monster = references.get(referenceIndex);
-                String referencePath = path + "[" + referenceIndex + "]";
-                if (!monster.isTextual()) throw new IllegalArgumentException(referencePath + " 必须是怪物 ID 字符串");
-                if (!monsters.contains(monster.asText())) {
-                    throw new IllegalArgumentException(referencePath + " 引用了未定义的怪物：" + identityValue(monster));
-                }
             }
         }
     }

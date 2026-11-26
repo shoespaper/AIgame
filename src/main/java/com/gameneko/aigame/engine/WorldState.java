@@ -12,7 +12,7 @@ import java.util.Map;
  * @param setting 世界展示名称，可空
  * @param settingDescription 世界描述，可空
  * @param location 具体地点自由文本，可空
- * @param currentRegion 合法区域的稳定 id，可空
+ * @param currentRegion GM 给出的当前区域叙事文本，可空
  * @param mainQuest 主线方向，可空
  * @param day 当前世界天数，以天为单位
  * @param time 当前时间描述，可空
@@ -88,7 +88,7 @@ public record WorldState(
      * @param setting 世界展示名称，可空
      * @param settingDescription 世界描述，可空
      * @param location 具体地点自由文本，可空
-     * @param currentRegion 合法区域的稳定 id，可空
+     * @param currentRegion GM 给出的当前区域叙事文本，可空
      * @param mainQuest 主线方向，可空
      * @param day 当前世界天数，以天为单位
      * @param time 当前时间描述，可空

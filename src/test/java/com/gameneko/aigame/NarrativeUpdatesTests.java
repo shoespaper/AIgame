@@ -132,6 +132,44 @@ class NarrativeUpdatesTests {
         }
     }
 
+    /** 验证必填资料齐备后仍可询问和修改，写档失败后按最新资料重新生成开场。 */
+    @Test
+    void initializationAcceptsFollowupsAndUsesRevisedAnswersAfterSaveFailure() {
+        CountingRepository repository = new CountingRepository(null);
+        ArrayDeque<NarrativeResponse> replies = new ArrayDeque<>(List.of(
+                response(Map.of("characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(19),
+                        "location", text("石桥镇"))),
+                new NarrativeResponse("石桥镇靠河，商旅常在那里歇脚。"),
+                response(Map.of("location", text("雾谷"), "age", text("无效年龄")))));
+        InitializationNarrationService interview = new InitializationNarrationService(prompt -> replies.removeFirst(),
+                new GameInitializationSchemaService(catalog, engines), catalog);
+        NarrativeApplicationService narratives = new NarrativeApplicationService(repository, catalog,
+                new DefaultNarrationService(prompt -> new NarrativeResponse("冒险开始。", null, List.of("四处看看"))),
+                new GameActionService(repository, catalog, engines));
+        GameInitializationFlow flow = new GameInitializationFlow(interview,
+                new GameInstanceService(new WorldInitializationService(catalog), catalog, engines),
+                narratives, new GameSaveService(repository));
+        GameInitializationFlow.StartedSession started = flow.start(new GameSelection("isekai_grey", null));
+        assertTrue(started.turn().done());
+        InitializationNarrationService.Turn followup = flow.answer(started.id(), "石桥镇是什么地方？");
+        assertEquals("石桥镇靠河，商旅常在那里歇脚。", followup.narration());
+        assertEquals(started.turn().collected(), followup.collected());
+
+        repository.failNextSave = true;
+        assertThrows(GamePersistenceException.class, () -> flow.confirm(started.id()));
+        GameInstance<?> firstAttempt = repository.lastAttempt;
+        assertEquals("石桥镇", firstAttempt.worldState().location());
+
+        InitializationNarrationService.Turn revised = flow.answer(started.id(), "我想在雾谷开场，年龄改为未知。");
+        assertTrue(revised.done());
+        assertEquals(19L, revised.collected().get("age"));
+        GameInstance<?> created = flow.confirm(started.id()).instance();
+        assertEquals(firstAttempt.gameId(), created.gameId());
+        assertEquals("雾谷", repository.load(created.gameId()).orElseThrow().worldState().location());
+        assertEquals(1, repository.writes);
+        assertThrows(GameRequestException.class, () -> flow.answer(started.id(), "我想回石桥镇开场。"));
+    }
+
     /** 验证引擎动作与世界更新共用一次 revision 和一次保存，错误动作不产生部分写入。 */
     @Test
     void actionAndUpdatesSaveExactlyOnceAndRejectStaleOrInvalidActions() {

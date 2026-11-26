@@ -13,6 +13,7 @@ const catalog = ref<GameCatalog | null>(null)
 const step = ref(1)
 const customMode = ref(false)
 const worldChat = ref<HTMLElement | null>(null)
+const characterChat = ref<HTMLElement | null>(null)
 const worldAnswer = ref('')
 const busy = ref(false)
 const error = ref('')
@@ -36,6 +37,12 @@ const customWorld = computed<WorldbookDraft>(() => {
 watch(() => [worldbuild.history.length, worldbuild.busy], async () => {
   await nextTick()
   const chat = worldChat.value
+  if (chat) chat.scrollTop = chat.scrollHeight
+})
+/** 显示角色访谈的最新消息，包括从确认页返回时。 */
+watch(() => [step.value, store.initializationHistory.length, store.initializationBusy], async () => {
+  await nextTick()
+  const chat = characterChat.value
   if (chat) chat.scrollTop = chat.scrollHeight
 })
 const collectedEntries = computed(() => Object.entries(store.initializationTurn?.collected || {}))
@@ -125,6 +132,7 @@ async function startCharacterSetup() {
   busy.value = true
   try {
     await store.startInitialization(selection)
+    answer.value = ''
     step.value = 3
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '无法开始开局确认。'
@@ -148,16 +156,16 @@ async function submitAnswer(value = answer.value) {
   }
 }
 
-/** 前往确认步骤并要求 GM 已完成必要资料确认。 */
+/** 在本轮回答处理完且必填资料齐备后预览开局资料。 */
 function reviewSetup() {
-  if (!store.initializationTurn?.done) return
+  if (store.initializationBusy || !store.initializationTurn?.done) return
   error.value = ''
   step.value = 4
 }
 
 /** 创建正式游戏并打开首轮游玩页面。 */
 async function createGame() {
-  if (!store.initializationTurn?.done || busy.value) return
+  if (!store.initializationTurn?.done || busy.value || store.initializationBusy) return
   error.value = ''
   busy.value = true
   try {
@@ -170,8 +178,9 @@ async function createGame() {
   }
 }
 
-/** 返回上一步；从规则步骤进入角色步骤时会重新建立初始化会话。 */
-async function goBack() {
+/** 从确认页返回时保留访谈，返回规则选择时清空访谈。 */
+function goBack() {
+  if (busy.value || store.initializationBusy) return
   if (customMode.value) {
     exitCustomWorld()
     return
@@ -208,7 +217,7 @@ onMounted(() => { void loadCatalog() })
           type="button"
           class="onboarding-step"
           :class="{ current: step === index + 1, complete: step > index + 1 }"
-          :disabled="busy || worldbuild.busy || step <= index + 1 || index > 1"
+          :disabled="busy || worldbuild.busy || store.initializationBusy || step <= index + 1 || index > 1"
           @click="step = index + 1"
         >
           <span>{{ index + 1 }}</span>{{ name }}
@@ -295,7 +304,7 @@ onMounted(() => { void loadCatalog() })
             <div><span>世界</span><strong>{{ selectedWorld?.name }}</strong></div>
             <div><span>规则</span><strong>{{ selectedEngine?.displayName || '纯叙事' }}</strong></div>
           </div>
-          <div class="onboarding-chat" aria-live="polite">
+          <div ref="characterChat" class="onboarding-chat" aria-live="polite" :aria-busy="store.initializationBusy">
             <div v-for="message in store.initializationHistory" :key="message.id" class="onboarding-message" :class="message.role">
               <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span>
               <p>{{ message.text }}</p>
@@ -312,11 +321,11 @@ onMounted(() => { void loadCatalog() })
               @click="submitAnswer(option)"
             >{{ option }}</button>
           </div>
-          <div v-if="!store.initializationTurn?.done" class="onboarding-composer">
-            <input v-model="answer" aria-label="回答 GM" placeholder="输入回答" @keyup.enter="submitAnswer()" />
-            <button type="button" class="onboarding-primary" :disabled="store.initializationBusy || !answer.trim()" @click="submitAnswer()">{{ store.initializationBusy ? '发送中…' : '回答' }}</button>
-          </div>
-          <p v-else class="onboarding-ready">开局资料已确认，可以检查并创建游戏。</p>
+          <form v-if="store.initializationTurn" class="onboarding-composer" @submit.prevent="submitAnswer()">
+            <input v-model="answer" aria-label="给 GM 发消息" placeholder="提问、补充或修改开局资料" :disabled="store.initializationBusy" />
+            <button type="submit" class="onboarding-primary" :disabled="store.initializationBusy || !answer.trim()">{{ store.initializationBusy ? '发送中…' : '发送' }}</button>
+          </form>
+          <p v-if="store.initializationTurn?.done" class="onboarding-ready">必填资料已齐备，可以继续和 GM 交流，也可以进入下一步。</p>
         </template>
 
         <template v-else>
@@ -335,14 +344,14 @@ onMounted(() => { void loadCatalog() })
         <span>{{ step < 3 ? `第 ${step} / 4 步` : step === 3 ? '角色与开局资料' : '准备就绪' }}</span>
         <div class="footer-actions">
           <button type="button" class="onboarding-secondary" @click="router.push('/')">取消</button>
-          <button v-if="step > 1 && step < 4" type="button" class="onboarding-secondary" @click="goBack">上一步</button>
+          <button v-if="step > 1" type="button" class="onboarding-secondary" :disabled="busy || store.initializationBusy" @click="goBack">{{ step === 4 ? '返回角色' : '上一步' }}</button>
           <template v-if="step === 1 && customMode">
             <button type="button" class="onboarding-primary" :disabled="busy || worldbuild.busy || !worldbuild.turn?.done" @click="finishCustomWorld">{{ busy ? '处理中…' : '下一步' }}</button>
           </template>
           <button v-else-if="step === 1" type="button" class="onboarding-primary" :disabled="!selection.worldId || !catalog" @click="step = 2">下一步</button>
           <button v-else-if="step === 2" type="button" class="onboarding-primary" :disabled="busy || !selection.worldId" @click="startCharacterSetup">{{ busy ? '准备中…' : '下一步' }}</button>
-          <button v-else-if="step === 3" type="button" class="onboarding-primary" :disabled="!store.initializationTurn?.done" @click="reviewSetup">下一步</button>
-          <button v-else type="button" class="onboarding-primary" :disabled="busy || !store.initializationTurn?.done" @click="createGame">{{ busy ? '创建中…' : '创建并进入' }}</button>
+          <button v-else-if="step === 3" type="button" class="onboarding-primary" :disabled="store.initializationBusy || !store.initializationTurn?.done" @click="reviewSetup">下一步</button>
+          <button v-else type="button" class="onboarding-primary" :disabled="busy || store.initializationBusy || !store.initializationTurn?.done" @click="createGame">{{ busy ? '创建中…' : '创建并进入' }}</button>
         </div>
       </footer>
     </main>

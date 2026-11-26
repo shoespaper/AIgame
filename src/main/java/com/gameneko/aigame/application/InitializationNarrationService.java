@@ -36,6 +36,7 @@ public final class InitializationNarrationService {
             """;
     private static final String COMMON_PROTOCOL = """
 协议边界：只使用 schema 里声明的字段及其类型、范围和枚举值。narration 最多 60 个汉字，options 最多 6 项且每项不超过 40 个汉字，updates 最多 16 项。问题和建议通过 narration/options 表达，不输出额外问题结构。
+必填字段齐备后，玩家可以进入下一步，也可以继续访谈。继续回应玩家的问题；根据玩家的明确意图补充可选字段或修改已填字段。玩家只提问时，用 narration 回答并将 updates 留空。
             """;
 
     private final NarrativeProvider provider;
@@ -82,7 +83,6 @@ public final class InitializationNarrationService {
     public Turn answer(Session session, String input) {
         if (session == null) throw new IllegalArgumentException("Initialization session is required");
         if (input == null || input.isBlank()) throw GameRequestException.invalid("Initialization answer is required");
-        if (session.done) return session.turn;
         return respond(session, input.trim());
     }
 
@@ -125,10 +125,9 @@ public final class InitializationNarrationService {
         session.validationErrors = applyUpdates(session, response.updates());
         session.done = missingRequired(session).isEmpty();
         String narration = response.narration().isBlank()
-                ? session.done ? "开局资料已经齐备，可以进入下一步。" : "我还需要了解一些开局信息。"
+                ? session.done ? "开局必填资料已齐备。你可以继续补充，也可以进入下一步。" : "我还需要了解一些开局信息。"
                 : response.narration();
-        session.turn = new Turn(narration, response.options(), collected(session), session.done);
-        return session.turn;
+        return new Turn(narration, response.options(), collected(session), session.done);
     }
 
     /** 根据世界书、引擎访谈模板、已收集字段和上轮对话请求模型。
@@ -183,7 +182,7 @@ public final class InitializationNarrationService {
         if (session.validationErrors.isEmpty()) builder.append("无\n");
         else session.validationErrors.forEach((field, error) -> builder.append(field).append("：").append(error).append('\n'));
         if (missing.isEmpty() && !session.validationErrors.isEmpty()) {
-            builder.append("仍有声明未通过校验，请先澄清相关字段，再允许进入下一步。\n");
+            builder.append("必填字段已齐备，未通过校验的更新未采纳。若玩家仍想修改相关字段，请协助澄清。\n");
         }
         return builder.toString();
     }
@@ -308,7 +307,6 @@ public final class InitializationNarrationService {
         private final List<NarrativeRequest.ConversationMessage> history = new ArrayList<>();
         private Map<String, String> validationErrors = Map.of();
         private boolean done;
-        private Turn turn;
 
         /** 创建尚未确认字段值的初始化会话。
          * @param id 会话标识

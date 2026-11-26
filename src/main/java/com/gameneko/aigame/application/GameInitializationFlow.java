@@ -5,6 +5,7 @@ import com.gameneko.aigame.application.InitializationNarrationService.Turn;
 import com.gameneko.aigame.application.NarrativeApplicationService.NarratedTurn;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.GameSelection;
+import com.gameneko.aigame.engine.InitializationValue;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -46,7 +47,7 @@ public final class GameInitializationFlow {
         return new StartedSession(id, turn);
     }
 
-    /** 在同一会话锁内提交访谈回答，完成的会话停止接收回答。
+    /** 在正式创建成功前接收访谈回答，资料变更后重新准备开局。
      * @param sessionId 初始化会话标识
      * @param input 玩家自然语言回答
      */
@@ -55,7 +56,14 @@ public final class GameInitializationFlow {
         progress.lock.lock();
         try {
             if (progress.completed) throw missingSession(sessionId);
-            return narration.answer(progress.interview, input);
+            boolean hasPreparedGame = progress.initial != null || progress.opening != null;
+            Map<String, InitializationValue> previousAnswers = hasPreparedGame ? narration.answers(progress.interview) : Map.of();
+            Turn turn = narration.answer(progress.interview, input);
+            if (hasPreparedGame && !previousAnswers.equals(narration.answers(progress.interview))) {
+                progress.initial = null;
+                progress.opening = null;
+            }
+            return turn;
         } finally {
             progress.lock.unlock();
         }

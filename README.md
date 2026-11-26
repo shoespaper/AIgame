@@ -27,15 +27,11 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 | `GET` | `/api/games/{gameId}/save` | 读取世界状态 |
 | `POST` | `/api/games/{gameId}/save` | 按 `expectedRevision` 创建 checkpoint |
 | `POST` | `/api/games/{gameId}/actions` | 执行 AP 或世界动作 |
-| `POST` | `/api/games/{gameId}/actions/narrate` | 执行动作后基于确认事件生成叙事 |
 | `POST` | `/api/games/{gameId}/narration` | 基于当前存档生成叙事并结算动作及字段声明 |
-| `POST` | `/api/games/{gameId}/narration/options` | 将所选 GM 意图交给引擎校验、结算并生成后续叙事 |
-| `POST` | `/api/games/{gameId}/narration/proposals` | 重新转换、校验并应用一个提案 |
 | `GET` | `/api/games/initialization/catalog` | 查询世界书和可选引擎目录 |
-| `GET` | `/api/games/initialization/schema?worldId=isekai_grey&engineId=ap` | 查询此次创建组合后的初始化字段 schema |
 | `GET` | `/actuator/health` | Spring Boot Actuator 健康检查 |
 
-动作、选项和提案都带有 `expectedRevision`。服务端只接受当前版本，成功结算后 revision 加一；版本不匹配时拒绝请求。GM 选项和自由文本都不能直接修改存档：选项中的 `intent` 必须由当前引擎验证，纯叙事实例会返回 `engine_required`。
+动作和叙事请求携带 `expectedRevision`。服务端对照存档版本，成功写入时推进修订号。玩家选择 GM 选项后提交选项文本，模型提出的引擎动作由当前引擎验证。纯叙事实例收到引擎动作时返回 `ENGINE_REQUIRED`。
 
 创建请求明确选择世界书及可选引擎。例如纯叙事请求设置 `engineId` 为 `null`，不发送引擎专属初始化字段；AP 请求则显式传入 `engineId: "ap"`：
 
@@ -49,7 +45,7 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 }
 ```
 
-通用动作请求使用 `type`、`target` 和类型化 `arguments`，参数项形状为 `{ "name": "amount", "value": { "type": "integer", "value": 20 } }`（也可使用 `text`、`decimal` 或 `flag`）。GM 输出仅包含 `narration`、`action`、`options`、`updates`；`updates` 以字段名映射类型化确定值，无变化时为 `{}`。角色初始化由 AI 根据已收集内容和服务端提供的 schema/缺失必填字段逐轮访谈，Turn 返回 `narration`、`options`、`collected` 和 `done`。玩家点击建议选项时，将选项作为自由文本与当前 `expectedRevision` 提交到 `/api/games/{gameId}/narration`。详见 [初始化与 GM 输出协议](docs/INITIALIZATION_AI_REFACTOR.md)。
+直接动作请求使用 `type`、可选的 `target` 和类型化 `arguments`。整数参数示例为 `{ "name": "amount", "type": "integer", "integer": 20 }`。GM 输出包含 `narration`、`action`、`options` 和 `updates`，其中 `updates` 按字段名提交类型化的值。角色初始化访谈返回 `narration`、`options`、`collected` 和 `done`。玩家点击建议选项后，客户端将选项文本与 `expectedRevision` 提交到 `/api/games/{gameId}/narration`。
 
 ## 自定义世界与模板
 
@@ -70,13 +66,13 @@ AIgame 是一个面向单人 AI 角色扮演游戏的 Spring Boot 模块化单�
 
 世界构建与角色初始化使用同一套 OpenAI 兼容模型配置。请在前端「设置」页启用模型并填写 API Key、Base URL 和模型名；配置保存在 `data/narrative-settings.json`，也可通过 `aigame.narrative.settings-file` 指定配置文件。未配置模型或请求失败时会显示明确错误，可保留当前会话重试。自动化测试使用模型桩，不依赖外部模型。
 
-AI 收到服务端生成的只读快照和确认事件，返回叙事正文、可空引擎动作、建议选项与确定字段声明。动作由选中引擎验证和结算；世界字段经应用层验证后合并。同轮动作和字段更新仅推进一次 revision 并保存一次，非法 region 独立忽略。
+AI 收到服务端生成的只读世界快照、确认事件和所选引擎投影，并可提出动作与世界字段变更。区域以叙事文本保存，是否发生遭遇由 AI 根据场景决定。服务端确认动作和字段变更后在同一修订号下保存。
+
+世界推进记录期限事件到期的事实。登记期限事件时可提供世界事件素材标识 `materialId`。AP 日结使用本局素材引用的规则模板处理补给或 NPC 心情变化，威胁计数和升级也由 AP 状态保存。世界状态、世界事件和叙事协议共用层仅携带引擎中立的数据。
 
 ## 随机性
 
-部分动作接受显式 `seed`，并使用 `SplittableRandom` 生成可复现结果。当前用途包括战斗开始时的怪物生成、NPC 人格选择、NPC 交互、NPC 每日变化和物品属性生成。战斗快照会保存启动 seed。
-
-世界每日推进的偶发事件使用 `day ^ revision` 生成确定性随机源；AI 物品提案则由游戏 ID、revision 和提案索引生成稳定 seed。未提供动作 seed 时，HTTP 映射层默认使用 `0`，因此这不是自动生成的安全随机数，也不是完整的整局回放系统。显式随机源的目的是让测试、问题复现和规则迁移可以重复计算。
+AP 使用确定性随机源计算 NPC 的日常和交互变化以及部分道具属性。NPC 日结使用游戏 ID 和当前修订号生成种子。普通遭遇使用 GM 指定的怪物素材，AP 根据模板和难度建立战斗状态。
 
 ## 构建与运行
 
@@ -107,7 +103,3 @@ mvn verify
 ```
 
 架构测试要求 `engine` 和 `rulesets` 不依赖 Spring、HTTP、持久化或应用层；控制器位于 `api` 包中。存档信封 schema v2 显式保存世界书/版本与可选引擎/版本；schema v1 继续读取并在下次保存时迁移。生产恢复通过 `GameStateTypeResolver` 按引擎 ID 还原类型化状态，未知引擎会明确失败。
-
-## 外部参考
-
-旧 Python skill 和 DiceFrame 目录是本机上的迁移参考，不属于本仓库，也不是运行时依赖。它们只能用于核对历史行为；当前 Java 源码、测试和本 README 才是项目现状的依据。

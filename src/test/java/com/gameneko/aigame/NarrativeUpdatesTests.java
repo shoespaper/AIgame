@@ -3,19 +3,26 @@ package com.gameneko.aigame;
 import com.gameneko.aigame.narrative.NarrativeProviderException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gameneko.aigame.api.InitializationSessionController;
 import com.gameneko.aigame.application.*;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
+import com.gameneko.aigame.content.TemplateCatalog;
 import com.gameneko.aigame.engine.*;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.gameneko.aigame.infrastructure.ClasspathGameStateTypeResolver;
 import com.gameneko.aigame.narrative.*;
+import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 import com.gameneko.aigame.persistence.FileGameRepository;
+import com.gameneko.aigame.rulesets.ap.ApTemplatePolicy;
 import com.gameneko.aigame.application.port.GamePersistenceException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.List;
@@ -29,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** 验证确定字段声明在问答、世界状态、回合版本及真实存档之间的一致性。 */
 class NarrativeUpdatesTests {
@@ -118,18 +127,62 @@ class NarrativeUpdatesTests {
         GameInstance<?> prepared = repository.lastAttempt;
         assertEquals(1, prepared.revision());
 
-        Callable<NarrativeApplicationService.NarratedTurn> confirm = () -> flow.confirm(started.id());
+        Callable<GameInitializationFlow.ConfirmedGame> confirm = () -> flow.confirm(started.id());
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
-            List<Future<NarrativeApplicationService.NarratedTurn>> responses =
+            List<Future<GameInitializationFlow.ConfirmedGame>> responses =
                     executor.invokeAll(List.of(confirm, confirm), 5, TimeUnit.SECONDS);
-            NarrativeApplicationService.NarratedTurn first = responses.getFirst().get();
+            GameInitializationFlow.ConfirmedGame first = responses.getFirst().get();
             assertSame(first, responses.getLast().get());
             assertSame(first, flow.confirm(started.id()));
-            assertSame(prepared, first.instance());
+            assertFalse(first.templateBuildFailed());
+            assertSame(prepared, first.opening().instance());
             assertEquals("石桥镇", repository.load(prepared.gameId()).orElseThrow().worldState().location());
             assertEquals(2, openingCalls.get());
             assertEquals(1, repository.writes);
         }
+    }
+
+    /** 验证三次无效提案后保留 AP 引擎，首次存档重试仍返回无模板开局提示。
+     * @throws IOException 临时模板目录初始化失败
+     */
+    @Test
+    void finalizationStartsApWithoutTemplateAfterThreeRejectedProposals() throws IOException {
+        CountingRepository repository = new CountingRepository(null);
+        AtomicInteger proposals = new AtomicInteger();
+        TemplateCatalog emptyTemplates = mock(TemplateCatalog.class);
+        when(emptyTemplates.findTemplate("isekai")).thenReturn(Optional.empty());
+        Path registryFile = saves.resolve("registry.json");
+        ConfirmedTemplateRegistry registry = new ConfirmedTemplateRegistry(mapper, prompt -> {
+            proposals.incrementAndGet();
+            return response(Map.of("template", text("{}")));
+        }, emptyTemplates, List.of(new ApTemplatePolicy(mapper)), registryFile.toString());
+        ReflectionTestUtils.invokeMethod(engines, "configureTemplates", registry);
+
+        GameInstanceService instances = new GameInstanceService(new WorldInitializationService(catalog), catalog, engines);
+        ReflectionTestUtils.invokeMethod(instances, "configureTemplates", registry);
+        InitializationNarrationService interview = new InitializationNarrationService(prompt -> response(Map.of(
+                "characterName", text("凯尔"), "age", new InitializationValue.IntegerNumber(19), "gender", text("男"),
+                "archetype", text("swordsman"), "difficulty", text("adventure"))),
+                new GameInitializationSchemaService(catalog, engines), catalog);
+        NarrativeApplicationService narratives = new NarrativeApplicationService(repository, catalog,
+                new DefaultNarrationService(prompt -> new NarrativeResponse("冒险开始。", null, List.of("四处看看"))),
+                new GameActionService(repository, catalog, engines));
+        GameInitializationFlow flow = new GameInitializationFlow(interview, instances, narratives, new GameSaveService(repository));
+        InitializationSessionController controller = new InitializationSessionController(flow);
+        GameInitializationFlow.StartedSession started = flow.start(new GameSelection("cinder_continent", "ap"));
+        assertTrue(started.turn().done());
+
+        repository.failNextSave = true;
+        assertThrows(GamePersistenceException.class, () -> controller.finalizeSession(started.id()));
+        InitializationSessionController.FinalizeResponse result = controller.finalizeSession(started.id());
+
+        assertTrue(result.templateBuildFailed());
+        assertEquals("ap", repository.load(result.game().gameId()).orElseThrow().rulesetId());
+        assertEquals("冒险开始。", result.opening().narration());
+        assertEquals(3, proposals.get());
+        assertEquals(1, repository.writes);
+        assertTrue(registry.world(result.game().gameId()).isMissingNode());
+        assertTrue(Files.notExists(registryFile));
     }
 
     /** 验证必填资料齐备后仍可询问和修改，写档失败后按最新资料重新生成开场。 */
@@ -163,7 +216,7 @@ class NarrativeUpdatesTests {
         InitializationNarrationService.Turn revised = flow.answer(started.id(), "我想在雾谷开场，年龄改为未知。");
         assertTrue(revised.done());
         assertEquals(19L, revised.collected().get("age"));
-        GameInstance<?> created = flow.confirm(started.id()).instance();
+        GameInstance<?> created = flow.confirm(started.id()).opening().instance();
         assertEquals(firstAttempt.gameId(), created.gameId());
         assertEquals("雾谷", repository.load(created.gameId()).orElseThrow().worldState().location());
         assertEquals(1, repository.writes);

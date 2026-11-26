@@ -14,7 +14,6 @@ import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.EngineTemplatePolicy;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.logging.DiagnosticLog;
-import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativePrompt;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.narrative.NarrativeSnapshot;
@@ -48,6 +47,9 @@ public final class ConfirmedTemplateRegistry {
      * @param rules 本轮通过校验的规则索引，纯叙事时为空对象
      */
     private record TemplateDefinitions(ObjectNode world, ObjectNode rules) {}
+
+    /** 表示所有模板提案均未通过校验，当前目录变更可以丢弃。 */
+    private static final class ProposalAttemptsExhausted extends RuntimeException {}
 
     private final TemplateCatalog catalog;
     private final ObjectMapper mapper;
@@ -88,8 +90,9 @@ public final class ConfirmedTemplateRegistry {
      * @param gameId 本次确认的游戏标识
      * @param book 玩家完成构建的世界书，未指定模板时以世界类型作为模板标识
      * @param engineId 玩家选中的引擎标识，纯叙事时可为空
+     * @return 已绑定模板时为 true，三次提案校验失败时为 false
      */
-    public synchronized void confirm(String gameId, WorldbookDefinition book, String engineId) {
+    public synchronized boolean confirm(String gameId, WorldbookDefinition book, String engineId) {
         String id = book.templateId().isBlank() ? book.type() : book.templateId();
         String engine = engineId == null ? "" : engineId.trim().toLowerCase(Locale.ROOT);
         JsonNode world = registry.path("worlds").path(id);
@@ -99,14 +102,22 @@ public final class ConfirmedTemplateRegistry {
         if (!engine.isBlank()) binding.put("engine_id", engine);
         boolean ready = !world.isMissingNode()
                 && (engine.isBlank() || world.path("registered_engines").path(engine).asBoolean());
-        if (ready && binding.equals(registry.path("bindings").path(gameId))) return;
+        if (ready && binding.equals(registry.path("bindings").path(gameId))) return true;
 
         ObjectNode next = mapper.createObjectNode().setAll(registry);
         ObjectNode bindings = copyIndex(registry.path("bindings"));
         bindings.set(gameId, binding);
         next.set("bindings", bindings);
-        if (!ready) completeTemplate(next, book, id, engine, world);
+        if (!ready) {
+            try {
+                completeTemplate(next, book, id, engine, world);
+            } catch (ProposalAttemptsExhausted exception) {
+                DiagnosticLog.templateRegistrationSkipped(gameId, id, engine);
+                return false;
+            }
+        }
         persist(next, id);
+        return true;
     }
 
     /** 只为缺少世界素材或所选引擎资料的模板查目录和生成提案。
@@ -351,13 +362,15 @@ public final class ConfirmedTemplateRegistry {
         int remainingAttempts = PROPOSAL_ATTEMPTS;
         while (true) {
             NarrativeResponse response = requestProposal(book, id, policy, known, task + feedback);
+            String stage = "parse_proposal";
             try {
-                return validate.apply(readProposal(response));
+                JsonNode proposal = readProposal(response);
+                stage = "validate_proposal";
+                return validate.apply(proposal);
             } catch (IllegalArgumentException exception) {
-                if (--remainingAttempts == 0) {
-                    throw NarrativeProviderException.invalidOutput("模型未能生成有效的模板提案", exception);
-                }
-                DiagnosticLog.templateRetry(id, PROPOSAL_ATTEMPTS - remainingAttempts);
+                --remainingAttempts;
+                DiagnosticLog.templateProposalRejected(id, PROPOSAL_ATTEMPTS - remainingAttempts, stage, exception);
+                if (remainingAttempts == 0) throw new ProposalAttemptsExhausted();
                 feedback = "\n上一次提案未通过校验。原因：" + exception.getMessage() + "。请修正后重新返回完整提案。";
             }
         }

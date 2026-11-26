@@ -7,13 +7,14 @@ import com.gameneko.aigame.content.ContentCatalog;
 import com.gameneko.aigame.content.WorldDefinition;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.InitializationValue;
-import com.gameneko.aigame.engine.InitializationField;
 import com.gameneko.aigame.engine.InitializationSchema;
+import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
-import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 /** 根据世界书共享字段与可选引擎字段创建完整游戏实例。 */
 @Service
@@ -92,6 +93,17 @@ public final class GameInstanceService {
                                       InitializeWorldRequest request,
                                       String engineId,
                                       Map<String, InitializationValue> answers) {
+        return initializeForOpening(gameId, request, engineId, answers).instance();
+    }
+
+    /** 创建初始游戏并报告模板提案校验耗尽时的无模板开局。
+     * @param gameId 本局游戏标识
+     * @param request 世界书共享字段覆盖请求
+     * @param engineId 可空的规则引擎标识
+     * @param answers 已确认的世界书与引擎字段值
+     */
+    InitializedGame initializeForOpening(String gameId, InitializeWorldRequest request, String engineId,
+                                          Map<String, InitializationValue> answers) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(answers, "answers");
         WorldDefinition definition = contentCatalog.world(request.worldId());
@@ -104,14 +116,21 @@ public final class GameInstanceService {
         if (!validation.accepted()) {
             throw new GameRequestException(GameRequestException.Code.INVALID_INITIALIZATION_ANSWERS, "Invalid initialization answers: " + validation.errors());
         }
-        if (confirmedTemplates != null) {
-            confirmedTemplates.confirm(gameId, contentCatalog.worldBook(request.worldId()).narrative(), engineId);
-            if (runtime != null) runtime = gameEngineFactory.createForGame(engineId, definition, gameId);
+        boolean templateBuildFailed = confirmedTemplates != null
+                && !confirmedTemplates.confirm(gameId, contentCatalog.worldBook(request.worldId()).narrative(), engineId);
+        if (runtime != null && confirmedTemplates != null && !templateBuildFailed) {
+            runtime = gameEngineFactory.createForGame(engineId, definition, gameId);
         }
         WorldState worldState = worldInitializationService.initialize(request);
-        if (runtime == null) return GameInstance.narrativeOnly(gameId, worldState);
+        if (runtime == null) return new InitializedGame(GameInstance.narrativeOnly(gameId, worldState), templateBuildFailed);
         GameState state = runtime.initialize(Map.copyOf(answers));
-        return GameInstance.initialized(gameId, worldState, runtime.id(), runtime.version(), state);
+        return new InitializedGame(GameInstance.initialized(gameId, worldState, runtime.id(), runtime.version(), state),
+                templateBuildFailed);
     }
 
+    /** 开局叙事前已建立的游戏实例及模板构建结果。
+     * @param instance 初始权威游戏实例
+     * @param templateBuildFailed 模板提案三次校验失败并跳过登记时为 true
+     */
+    record InitializedGame(GameInstance<?> instance, boolean templateBuildFailed) {}
 }

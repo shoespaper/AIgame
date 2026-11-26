@@ -8,7 +8,6 @@ import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.NarrativePrompt;
-import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 import com.gameneko.aigame.rulesets.ap.ApTemplatePolicy;
@@ -24,7 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
@@ -85,9 +84,7 @@ class ConfirmedTemplateRegistryTests {
         when(provider.respond(any())).thenReturn(response("{}"));
         ConfirmedTemplateRegistry registry = registry();
 
-        NarrativeProviderException failure = assertThrows(NarrativeProviderException.class,
-                () -> registry.confirm("story", book(""), null));
-        assertEquals("invalid_model_output", failure.reasonCode());
+        assertFalse(registry.confirm("story", book(""), null));
 
         verify(provider, times(3)).respond(any());
         assertTrue(registry.world("story").isMissingNode());
@@ -202,12 +199,12 @@ class ConfirmedTemplateRegistryTests {
         Path file = temporary.resolve("registry.json");
         String prior = Files.readString(file);
 
-        assertThrows(NarrativeProviderException.class, () -> registry.confirm("ap-game", book, "ap"));
+        assertFalse(registry.confirm("ap-game", book, "ap"));
         assertEquals(prior, Files.readString(file));
         assertTrue(registry.rules("ap").isMissingNode());
         assertTrue(registry.world("ap-game").isMissingNode());
 
-        registry.confirm("ap-game", book, "ap");
+        assertTrue(registry.confirm("ap-game", book, "ap"));
         assertEquals("dusk_guard", registry.world("ap-game").at("/skill_types/0/engines/ap/template_id").asText());
         assertEquals(1, registry.rules("ap").at("/dusk_guard/parameters/ap_cost").asInt());
         assertTrue(registry.world("story").at("/skill_types/0/engines").isMissingNode());

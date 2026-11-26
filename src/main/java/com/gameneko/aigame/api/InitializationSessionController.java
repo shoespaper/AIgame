@@ -3,7 +3,6 @@ package com.gameneko.aigame.api;
 import com.gameneko.aigame.application.GameInitializationFlow;
 import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.InitializationNarrationService;
-import com.gameneko.aigame.application.NarrativeApplicationService.NarratedTurn;
 import com.gameneko.aigame.engine.GameSelection;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -53,9 +52,9 @@ public final class InitializationSessionController {
      */
     @PostMapping("/{id}/finalize")
     public FinalizeResponse finalizeSession(@PathVariable String id) {
-        NarratedTurn turn = initialization.confirm(id);
-        NarrationHttpResponse opening = NarrationHttpResponse.from(turn);
-        return new FinalizeResponse(opening.game(), opening);
+        GameInitializationFlow.ConfirmedGame confirmed = initialization.confirm(id);
+        NarrationHttpResponse opening = NarrationHttpResponse.from(confirmed.opening());
+        return new FinalizeResponse(opening.game(), opening, confirmed.templateBuildFailed());
     }
 
     /** 创建会话请求。
@@ -84,6 +83,7 @@ public final class InitializationSessionController {
     /** finalize 响应。
      * @param game 新建的游戏实例
      * @param opening 开局首段叙事与初始行动建议
+     * @param templateBuildFailed 模板构建失败并已无模板开局时为 true
      */
-    public record FinalizeResponse(GameInstanceResponse game, NarrationHttpResponse opening) {}
+    public record FinalizeResponse(GameInstanceResponse game, NarrationHttpResponse opening, boolean templateBuildFailed) {}
 }

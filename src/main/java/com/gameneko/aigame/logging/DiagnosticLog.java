@@ -118,13 +118,27 @@ public final class DiagnosticLog {
         MODEL.atDebug().addKeyValue("maxTokens", current).addKeyValue("nextMaxTokens", next).log("narrative.budget.changed");
     }
 
-    /** 记录模板提案校验失败后即将进行的重试。
+    /** 记录每次模板提案的失败阶段和校验代码位置，省略可能含有模型输出的异常消息。
      * @param templateId 当前模板标识
      * @param attempt 从 1 开始的已失败尝试次数
+     * @param stage 提案解析或内容校验阶段的固定标识
+     * @param failure 通过调用栈定位校验检查的异常
      */
-    public static void templateRetry(String templateId, int attempt) {
+    public static void templateProposalRejected(String templateId, int attempt, String stage, IllegalArgumentException failure) {
         MODEL.atWarn().addKeyValue("templateId", identifier(templateId)).addKeyValue("attempt", attempt)
-                .addKeyValue("reason", "invalid_template_proposal").log("template.proposal.retry");
+                .addKeyValue("reason", "invalid_template_proposal").addKeyValue("stage", identifier(stage))
+                .addKeyValue("stack", safeStack(failure)).log("template.proposal.rejected");
+    }
+
+    /** 记录提案重试耗尽后跳过本局模板登记。
+     * @param gameId 本局游戏标识
+     * @param templateId 未能登记的模板标识
+     * @param engineId 所选引擎标识，纯叙事时为空字符串
+     */
+    public static void templateRegistrationSkipped(String gameId, String templateId, String engineId) {
+        MODEL.atWarn().addKeyValue("gameId", identifier(gameId)).addKeyValue("templateId", identifier(templateId))
+                .addKeyValue("engineId", engineId.isBlank() ? null : identifier(engineId))
+                .addKeyValue("reason", "invalid_template_proposal").log("template.registration.skipped");
     }
 
     /** 检查标识格式，避免自由文本作为日志字段内容。

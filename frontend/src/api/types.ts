@@ -59,7 +59,8 @@ export interface InitializationQuestion { fieldId: string; prompt: string; optio
 export interface InitializationTurn { narration: string; options: string[]; collected: Record<string, string | number | boolean>; done: boolean }
 export interface InitializationSession { id: string; turn: InitializationTurn }
 export interface InitializationAnswerResult { done: boolean; turn: InitializationTurn }
-export interface InitializationFinalizeResult { game: GameInstanceResponse; opening: NarrativeResponse }
+/** 创建游戏的开场结果。模板三次校验失败时，templateBuildFailed 为 true。 */
+export interface InitializationFinalizeResult { game: GameInstanceResponse; opening: NarrativeResponse; templateBuildFailed: boolean }
 
 /** 世界构建回合；配置中的列表保持结构化。 */
 export interface WorldbuildTurn {

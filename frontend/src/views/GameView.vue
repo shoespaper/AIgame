@@ -37,8 +37,10 @@ async function send() {
 
 onMounted(async () => {
   try {
-    if (phase.value === 'play' && route.params.gameId) await loadSaved(String(route.params.gameId))
-    else if (phase.value === 'saves') saves.value = await listGames()
+    if (phase.value === 'play' && route.params.gameId) {
+      const gameId = String(route.params.gameId)
+      if (store.game?.gameId !== gameId) await loadSaved(gameId)
+    } else if (phase.value === 'saves') saves.value = await listGames()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '页面数据加载失败。' }
 })
 </script>
@@ -66,7 +68,7 @@ onMounted(async () => {
   </section>
 
   <section v-else-if="store.game" class="play-page">
-    <div v-if="store.error || store.notice" class="message-bar" :class="{ error: store.error }">{{ store.error || store.notice }}</div>
+    <div v-if="store.error || store.notice" class="message-bar" :class="{ error: store.error }" role="status">{{ store.error || store.notice }}</div>
     <div class="play-layout">
       <StatusSidebar :ruleset-state="store.game.rulesetState" :world="store.game.world" :ruleset-id="store.game.rulesetId" />
       <main class="story-column">

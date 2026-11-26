@@ -1,9 +1,9 @@
 package com.gameneko.aigame.application;
 
+import com.gameneko.aigame.application.GameInstanceService.InitializedGame;
 import com.gameneko.aigame.application.InitializationNarrationService.Session;
 import com.gameneko.aigame.application.InitializationNarrationService.Turn;
 import com.gameneko.aigame.application.NarrativeApplicationService.NarratedTurn;
-import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.GameSelection;
 import com.gameneko.aigame.engine.InitializationValue;
 import org.springframework.stereotype.Service;
@@ -56,12 +56,12 @@ public final class GameInitializationFlow {
         progress.lock.lock();
         try {
             if (progress.completed) throw missingSession(sessionId);
-            boolean hasPreparedGame = progress.initial != null || progress.opening != null;
+            boolean hasPreparedGame = progress.initial != null || progress.confirmed != null;
             Map<String, InitializationValue> previousAnswers = hasPreparedGame ? narration.answers(progress.interview) : Map.of();
             Turn turn = narration.answer(progress.interview, input);
             if (hasPreparedGame && !previousAnswers.equals(narration.answers(progress.interview))) {
                 progress.initial = null;
-                progress.opening = null;
+                progress.confirmed = null;
             }
             return turn;
         } finally {
@@ -72,25 +72,26 @@ public final class GameInitializationFlow {
     /** 复用会话的游戏与开场成果，成功写档后允许重放同一确认结果。
      * @param sessionId 已满足必填字段的初始化会话标识
      */
-    public NarratedTurn confirm(String sessionId) {
+    public ConfirmedGame confirm(String sessionId) {
         Progress progress = require(sessionId);
         progress.lock.lock();
         try {
-            if (progress.completed) return progress.opening;
-            if (progress.opening == null) {
+            if (progress.completed) return progress.confirmed;
+            if (progress.confirmed == null) {
                 if (progress.initial == null) {
                     Session interview = progress.interview;
                     InitializeWorldRequest request = narration.request(interview);
-                    progress.initial = instances.initialize(progress.gameId, request, interview.selection().engineId(),
+                    progress.initial = instances.initializeForOpening(progress.gameId, request, interview.selection().engineId(),
                             narration.answers(interview));
                 }
-                progress.opening = narratives.prepareOpening(progress.initial, "zh-CN");
+                NarratedTurn opening = narratives.prepareOpening(progress.initial.instance(), "zh-CN");
+                progress.confirmed = new ConfirmedGame(opening, progress.initial.templateBuildFailed());
                 progress.initial = null;
             }
-            saves.save(progress.opening.instance());
+            saves.save(progress.confirmed.opening().instance());
             progress.completed = true;
             progress.interview = null;
-            return progress.opening;
+            return progress.confirmed;
         } finally {
             progress.lock.unlock();
         }
@@ -118,13 +119,19 @@ public final class GameInitializationFlow {
      */
     public record StartedSession(String id, Turn turn) {}
 
+    /** 开局叙事及须随确认响应返回的模板构建结果。
+     * @param opening 结算完毕的开场回合
+     * @param templateBuildFailed 模板构建失败并以无模板形式开局时为 true
+     */
+    public record ConfirmedGame(NarratedTurn opening, boolean templateBuildFailed) {}
+
     /** 保存单个会话的各阶段成果，所有可变字段均由会话锁保护。 */
     private static final class Progress {
         private final ReentrantLock lock = new ReentrantLock();
         private final String gameId = "game-" + UUID.randomUUID();
         private Session interview;
-        private GameInstance<?> initial;
-        private NarratedTurn opening;
+        private InitializedGame initial;
+        private ConfirmedGame confirmed;
         private boolean completed;
 
         /** 为新访谈预留唯一游戏标识。

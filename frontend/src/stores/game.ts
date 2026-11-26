@@ -92,7 +92,7 @@ export const useGameStore = defineStore('game', {
       } catch (cause) { this.initializationHistory.pop(); this.error = cause instanceof Error ? cause.message : '初始化回答未通过校验'; throw cause
       } finally { this.initializationBusy = false }
     },
-    /** 在 GM 回合标记完成后创建正式游戏并记录当前游戏。
+    /** 在 GM 回合标记完成后创建正式游戏，并保留无模板开局提示供游玩页显示。
      * @returns 新建的游戏实例
      */
     async finalizeInitialization() {
@@ -111,6 +111,7 @@ export const useGameStore = defineStore('game', {
         }
         this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []
         localStorage.setItem(conversationKey(this.game.gameId), JSON.stringify(this.conversation))
+        if (result.templateBuildFailed) this.notice = '模板构建失败，本局以无模板形式开始游戏。'
         return this.game
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '创建游戏失败'; throw cause
       } finally { this.initializationBusy = false }

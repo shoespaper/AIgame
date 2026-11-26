@@ -1,13 +1,14 @@
 package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.application.port.GameRepository;
+import com.gameneko.aigame.application.port.GameRepository.SavedGame;
 import com.gameneko.aigame.engine.GameInstance;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
 import java.util.List;
 
-/** 保存和读取权威游戏实例。 */
+/** 保存、读取和删除权威游戏实例。 */
 @Service
 public final class GameSaveService {
     private final GameRepository repository;
@@ -31,9 +32,11 @@ public final class GameSaveService {
      * @param expectedRevision 客户端观察到的修订号
      */
     public void checkpoint(String gameId, long expectedRevision) {
-        GameInstance<?> instance = load(gameId);
-        GameRequestException.checkRevision(instance, expectedRevision, null);
-        repository.save(instance);
+        synchronized (repository) {
+            GameInstance<?> instance = load(gameId);
+            GameRequestException.checkRevision(instance, expectedRevision, null);
+            repository.save(instance);
+        }
     }
 
     /** 按游戏标识读取存档。
@@ -43,6 +46,11 @@ public final class GameSaveService {
         return repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
     }
 
-    /** 返回存档实例列表，供客户端展示可恢复的游戏元数据。 */
-    public List<GameInstance<?>> list() { return repository.list(); }
+    /** 永久删除指定游戏存档。
+     * @param gameId 游戏存档标识
+     */
+    public void delete(String gameId) { repository.delete(gameId); }
+
+    /** 返回存档实例及保存时间，供客户端展示可恢复的游戏元数据。 */
+    public List<SavedGame> list() { return repository.list(); }
 }

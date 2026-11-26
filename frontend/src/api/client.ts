@@ -9,6 +9,7 @@ const apiErrorMessages: Readonly<Record<string, string>> = Object.freeze({
   ENGINE_REQUIRED: '当前游戏未选择引擎，无法执行该动作。',
   MODEL_CONFIGURATION_REQUIRED: '请在设置中启用并配置叙事模型。',
   PERSISTENCE_FAILED: '读取或写入游戏数据失败。',
+  SAVE_NOT_FOUND: '这份存档已不存在。',
   WORLD_CONTENT_UNAVAILABLE: '服务器无法读取世界内容。',
   INTERNAL_ERROR: '服务器处理请求时出现错误。',
 })
@@ -115,6 +116,12 @@ export function deleteWorldbook(id: string): Promise<void> {
 export function loadGame(gameId: string): Promise<GameInstanceResponse> { return request<GameInstanceResponse>(gamePath(gameId)) }
 export function saveGame(gameId: string, expectedRevision: number): Promise<void> {
   return request<void>(`${gamePath(gameId)}/save`, { method: 'POST', body: JSON.stringify({ expectedRevision }) })
+}
+/** 永久删除指定游戏的服务端存档。
+ * @param gameId 游戏存档标识
+ */
+export async function deleteGame(gameId: string): Promise<void> {
+  await fetchApi(gamePath(gameId), { method: 'DELETE' })
 }
 export function loadWorldProjection(gameId: string): Promise<WorldState> { return request<WorldState>(`${gamePath(gameId)}/save`) }
 export function getNarrativeSettings(): Promise<NarrativeSettings> { return request<NarrativeSettings>('/settings/narrative') }

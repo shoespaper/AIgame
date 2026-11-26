@@ -16,11 +16,14 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.regex.Pattern;
 
@@ -52,11 +55,16 @@ public final class FileGameRepository implements GameRepository {
     @Override
     public Optional<GameInstance<?>> load(String gameId) {
         Path path = savePath(gameId);
-        if (Files.notExists(path)) return Optional.empty();
-        String stage = "read_file";
+        String document;
         try {
-            String document = Files.readString(path);
-            stage = "parse_json";
+            document = Files.readString(path);
+        } catch (NoSuchFileException exception) {
+            return Optional.empty();
+        } catch (IOException exception) {
+            throw new GamePersistenceException("Unable to read save: " + gameId, exception,
+                    "game_save", gameId, "read", "read_file");
+        }
+        try {
             JsonNode envelope = objectMapper.readTree(document);
             validateEnvelope(envelope, gameId);
             JsonNode state = envelope.get("state");
@@ -71,7 +79,7 @@ public final class FileGameRepository implements GameRepository {
         } catch (IOException | IllegalArgumentException | GamePersistenceException exception) {
             String message = exception instanceof GamePersistenceException
                     ? exception.getMessage() : "Unable to read save: " + gameId;
-            throw new GamePersistenceException(message, exception, "game_save", gameId, "read", stage);
+            throw new GamePersistenceException(message, exception, "game_save", gameId, "read", "parse_json");
         }
     }
 
@@ -79,7 +87,7 @@ public final class FileGameRepository implements GameRepository {
      * @param instance 待持久化的权威游戏实例
      */
     @Override
-    public void save(GameInstance<?> instance) {
+    public synchronized void save(GameInstance<?> instance) {
         if (instance == null) throw new IllegalArgumentException("game instance must not be null");
         Path path = savePath(instance.gameId());
         Path temporary = null;
@@ -118,21 +126,48 @@ public final class FileGameRepository implements GameRepository {
         DiagnosticLog.saveCommitted(instance.gameId(), instance.worldId(), instance.rulesetId(), instance.revision());
     }
 
-    /** 读取保存目录中的全部有效游戏实例，供存档列表接口使用。 */
+    /** 按已校验的游戏标识删除对应文件，支持对同一标识安全重试。
+     * @param gameId 游戏存档标识
+     */
     @Override
-    public List<GameInstance<?>> list() {
+    public synchronized void delete(String gameId) {
+        Path path = savePath(gameId);
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException exception) {
+            throw new GamePersistenceException("Unable to delete save: " + gameId, exception,
+                    "game_save", gameId, "delete", "delete_file");
+        }
+    }
+
+    /** 读取存档和文件最后写入时间，按保存时间从新到旧排列。 */
+    @Override
+    public synchronized List<SavedGame> list() {
         if (!Files.isDirectory(saveRoot)) return List.of();
         try (Stream<Path> files = Files.list(saveRoot)) {
-            return files.filter(path -> path.getFileName().toString().endsWith(".json"))
-                    .map(path -> path.getFileName().toString().replaceFirst("\\.json$", ""))
-                    .map(this::load)
-                    .flatMap(Optional::stream)
+            List<SavedGame> saves = new ArrayList<>();
+            for (Path path : files.filter(file -> file.getFileName().toString().endsWith(".json")).toList()) {
+                String fileName = path.getFileName().toString();
+                Optional<GameInstance<?>> instance = load(fileName.substring(0, fileName.length() - ".json".length()));
+                if (instance.isEmpty()) continue;
+                try {
+                    saves.add(new SavedGame(instance.get(), Files.getLastModifiedTime(path).toInstant()));
+                } catch (NoSuchFileException exception) {
+                    // 存档可能在读取后被外部进程删除。
+                }
+            }
+            return saves.stream()
+                    .sorted(Comparator.comparing(SavedGame::updatedAt, Comparator.reverseOrder())
+                            .thenComparing(save -> save.instance().gameId()))
                     .toList();
         } catch (IOException exception) {
             throw new GamePersistenceException("Unable to list saves", exception, "game_save", null, "list", "list_directory");
         }
     }
 
+    /** 校验标识并解析其对应的存档路径。
+     * @param gameId 由字母、数字、下划线或连字符组成的游戏标识
+     */
     private Path savePath(String gameId) {
         if (gameId == null || !SAFE_GAME_ID.matcher(gameId).matches()) {
             throw GameRequestException.invalid("gameId must contain only letters, digits, '_' or '-'");

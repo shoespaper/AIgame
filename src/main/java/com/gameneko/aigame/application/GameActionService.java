@@ -60,13 +60,15 @@ public final class GameActionService {
      */
     public AppliedAction applyNarrativeTurn(String gameId, long expectedRevision, ActionIntent intent,
                                             Map<String, InitializationValue> updates) {
-        GameInstance<?> loaded = repository.load(gameId)
-                .orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
-        String actionType = intent == null ? null : intent.type();
-        GameRequestException.checkRevision(loaded, expectedRevision, actionType);
-        AppliedAction result = resolveNarrativeTurn(loaded, intent, updates);
-        if (result.instance().revision() != loaded.revision()) repository.save(result.instance());
-        return result;
+        synchronized (repository) {
+            GameInstance<?> loaded = repository.load(gameId)
+                    .orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
+            String actionType = intent == null ? null : intent.type();
+            GameRequestException.checkRevision(loaded, expectedRevision, actionType);
+            AppliedAction result = resolveNarrativeTurn(loaded, intent, updates);
+            if (result.instance().revision() != loaded.revision()) repository.save(result.instance());
+            return result;
+        }
     }
 
     /** 在给定权威实例上计算叙事结算，由调用者决定何时提交存档。
@@ -224,12 +226,14 @@ public final class GameActionService {
      */
     private GameInstance<?> updateWorld(String gameId, long expectedRevision,
                                         UnaryOperator<WorldState> update) {
-        GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
-        GameRequestException.checkRevision(loaded, expectedRevision, null);
-        WorldState changed = update.apply(loaded.worldState()).withRevision(loaded.revision() + 1);
-        GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(), loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, loaded.revision() + 1, changed, loaded.rulesetState());
-        repository.save(next);
-        return next;
+        synchronized (repository) {
+            GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
+            GameRequestException.checkRevision(loaded, expectedRevision, null);
+            WorldState changed = update.apply(loaded.worldState()).withRevision(loaded.revision() + 1);
+            GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(), loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, loaded.revision() + 1, changed, loaded.rulesetState());
+            repository.save(next);
+            return next;
+        }
     }
 
 }

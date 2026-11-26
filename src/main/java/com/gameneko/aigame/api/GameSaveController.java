@@ -7,6 +7,7 @@ import com.gameneko.aigame.application.GameSaveService;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.logging.DiagnosticLog;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -70,8 +71,21 @@ public final class GameSaveController {
     /** 返回全部存档的轻量元数据，避免列表页加载完整引擎状态。 */
     @GetMapping
     public List<SaveMetadata> list() {
-        return saveService.list().stream().map(instance -> new SaveMetadata(instance.gameId(), instance.worldId(),
-                instance.rulesetId(), instance.worldState().day(), instance.revision(), "")).toList();
+        return saveService.list().stream().map(save -> {
+            GameInstance<?> instance = save.instance();
+            String updatedAt = save.updatedAt() == null ? "" : save.updatedAt().toString();
+            return new SaveMetadata(instance.gameId(), instance.worldId(), instance.rulesetId(),
+                    instance.worldState().day(), instance.revision(), updatedAt);
+        }).toList();
+    }
+
+    /** 按游戏标识永久删除存档，重复删除返回相同的成功状态。
+     * @param gameId 游戏存档标识
+     */
+    @DeleteMapping("/{gameId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable String gameId) {
+        saveService.delete(gameId);
     }
 
     @GetMapping("/{gameId}/save")

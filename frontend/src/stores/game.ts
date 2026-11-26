@@ -40,6 +40,7 @@ export const useGameStore = defineStore('game', {
     game: null as GameInstanceResponse | null,
     events: [] as TimelineEvent[],
     loading: false,
+    loadRequestId: 0,
     saving: false,
     acting: false,
     error: '',
@@ -55,6 +56,22 @@ export const useGameStore = defineStore('game', {
   actions: {
     remember(gameId: string) { localStorage.setItem(CURRENT_GAME_KEY, gameId) },
     clearMessages() { this.error = ''; this.notice = '' },
+    /** 在服务端确认删除后清理对应的游戏状态、对话缓存和最近游玩记录。
+     * @param gameId 已删除的游戏存档标识
+     */
+    forgetSave(gameId: string) {
+      if (this.game?.gameId === gameId) {
+        this.game = null
+        this.events = []
+        this.narration = null
+        this.conversation = []
+        this.clearMessages()
+      }
+      try {
+        localStorage.removeItem(conversationKey(gameId))
+        if (localStorage.getItem(CURRENT_GAME_KEY) === gameId) localStorage.removeItem(CURRENT_GAME_KEY)
+      } catch { /* 浏览器限制本地存储时，服务端删除结果仍然有效。 */ }
+    },
     /** 创建 AI 初始化会话并保存首个 GM 回合。
      * @param selection 玩家选择的世界书和可选引擎
      */
@@ -116,16 +133,28 @@ export const useGameStore = defineStore('game', {
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '创建游戏失败'; throw cause
       } finally { this.initializationBusy = false }
     },
+    /** 加载指定权威存档和本地对话，清除上一次游玩留下的临时选项。
+     * @param gameId 待加载的游戏存档标识
+     */
     async load(gameId: string) {
+      const requestId = ++this.loadRequestId
       this.loading = true; this.clearMessages()
       try {
-        this.game = await loadGame(gameId)
+        const game = await loadGame(gameId)
+        if (requestId !== this.loadRequestId) return
         this.remember(gameId)
+        this.game = game
+        this.narration = null
         this.conversation = readConversation(gameId)
-        this.events = [event('system', '已恢复存档', `已读取第 ${this.game.revision} 次状态修订。`)]
-        return this.game
-      } catch (cause) { this.error = cause instanceof Error ? cause.message : '读取存档失败'; throw cause
-      } finally { this.loading = false }
+        this.events = [event('system', '已恢复存档', `已读取第 ${game.revision} 次状态修订。`)]
+        return game
+      } catch (cause) {
+        if (requestId !== this.loadRequestId) return
+        this.error = cause instanceof Error ? cause.message : '读取存档失败'
+        throw cause
+      } finally {
+        if (requestId === this.loadRequestId) this.loading = false
+      }
     },
     async save() {
       if (!this.game) return

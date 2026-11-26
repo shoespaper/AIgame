@@ -1,27 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { listGames } from '../api/client'
 import { useGameStore } from '../stores/game'
 import NarrativeTurn from '../components/NarrativeTurn.vue'
 import CreateGameFlow from '../components/CreateGameFlow.vue'
 import StatusSidebar from '../components/StatusSidebar.vue'
+import SavesView from './SavesView.vue'
 
-type Phase = 'selection' | 'initialization' | 'play' | 'saves'
 const route = useRoute(); const router = useRouter(); const store = useGameStore()
-const saves = ref<Awaited<ReturnType<typeof listGames>>>([])
-const phase = computed<Phase>(() => route.query.phase === 'saves' ? 'saves' : route.params.gameId ? 'play' : 'selection')
-const answer = ref(''); const error = ref(''); const busy = ref(false)
+const showSaves = computed(() => route.query.phase === 'saves')
+const gameId = computed(() => !showSaves.value && typeof route.params.gameId === 'string' ? route.params.gameId : '')
+const answer = ref(''); const error = ref('')
 const currentWorld = computed(() => store.game?.world)
-
-/** 从存档列表载入指定存档并跳转到游玩页。 */
-/** @param gameId 存档的游戏标识 */
-async function loadSaved(gameId: string) {
-  busy.value = true
-  try { await store.load(gameId); await router.replace(`/game/${encodeURIComponent(gameId)}`) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '无法加载存档。' }
-  finally { busy.value = false }
-}
 
 /** 点选候选行动：当作玩家输入发送。 */
 /** @param label 候选行动的文本 */
@@ -35,39 +25,32 @@ async function send() {
   try { await store.speak(text) } catch { /* store 会暴露用户可见错误 */ }
 }
 
-onMounted(async () => {
-  try {
-    if (phase.value === 'play' && route.params.gameId) {
-      const gameId = String(route.params.gameId)
-      if (store.game?.gameId !== gameId) await loadSaved(gameId)
-    } else if (phase.value === 'saves') saves.value = await listGames()
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '页面数据加载失败。' }
-})
+watch(gameId, async (id, _, onCleanup) => {
+  error.value = ''
+  answer.value = ''
+  if (!id || (!store.loading && store.game?.gameId === id)) return
+  let active = true
+  onCleanup(() => { active = false })
+  try { await store.load(id) }
+  catch (cause) {
+    if (active) error.value = cause instanceof Error ? cause.message : '无法加载存档。'
+  }
+}, { immediate: true })
 </script>
 
 <template>
-  <CreateGameFlow v-if="phase === 'selection' || phase === 'initialization'" />
+  <SavesView v-if="showSaves" />
+  <CreateGameFlow v-else-if="!gameId" />
 
-  <section v-else-if="phase === 'saves'" class="page-content game-flow">
-    <div class="section-heading">
-      <div>
-        <p class="eyebrow">SAVES</p>
-        <h1>加载存档</h1>
-        <p class="lede">选择一局继续游玩。</p>
-      </div>
-      <button class="quiet-button" type="button" @click="router.push('/')">返回首页</button>
-    </div>
-    <div class="save-list">
-      <button v-for="save in saves" :key="save.gameId" class="save-row" type="button" @click="loadSaved(save.gameId)">
-        <strong>{{ save.gameId }}</strong>
-        <span>{{ save.worldId }} · {{ save.engineId || '纯叙事' }}</span>
-        <small>第 {{ save.day }} 天 · revision {{ save.revision }} · {{ save.updatedAt }}</small>
-      </button>
-      <p v-if="!saves.length" class="empty-timeline">暂无存档。</p>
-    </div>
+  <section v-else-if="error" class="page-content game-flow">
+    <h1>无法加载存档</h1>
+    <p class="form-error" role="alert">{{ error }}</p>
+    <button class="secondary-button" type="button" @click="router.push({ name: 'game', query: { phase: 'saves' } })">
+      返回存档列表
+    </button>
   </section>
 
-  <section v-else-if="store.game" class="play-page">
+  <section v-else-if="store.game?.gameId === gameId" class="play-page">
     <div v-if="store.error || store.notice" class="message-bar" :class="{ error: store.error }" role="status">{{ store.error || store.notice }}</div>
     <div class="play-layout">
       <StatusSidebar :ruleset-state="store.game.rulesetState" :world="store.game.world" :ruleset-id="store.game.rulesetId" />
@@ -99,4 +82,5 @@ onMounted(async () => {
       </main>
     </div>
   </section>
+  <p v-else class="loading-state" role="status">正在加载存档…</p>
 </template>

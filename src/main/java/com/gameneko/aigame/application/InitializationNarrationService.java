@@ -30,12 +30,13 @@ public final class InitializationNarrationService {
             结合世界背景、已收集信息和缺失必填字段，逐步向玩家提问；玩家一轮可能同时确认多个字段。
             缺失必填字段清单由服务端根据 schema 计算，请继续收集这些字段，不要声称尚未满足的开局条件已经完成。
             字段清单是唯一可声明的字段集合；枚举值使用清单中的稳定 id。根据玩家表达把本轮可确定的值放入 updates。
-            narration 用自然、连贯的对话承接并提出下一问；options 提供与本轮交流相关的简短建议。
             可使用 updates 回应玩家明确提出的字段修改。字段校验错误会在后续上下文中说明，请重新澄清相关内容。
             初始化阶段 action 固定为 null。只输出 narration、action、options、updates 四字段 JSON；无字段更新时 updates 为 {}。
             """;
     private static final String COMMON_PROTOCOL = """
 协议边界：只使用 schema 里声明的字段及其类型、范围和枚举值。narration 最多 60 个汉字，options 最多 6 项且每项不超过 40 个汉字，updates 最多 16 项。问题和建议通过 narration/options 表达，不输出额外问题结构。
+narration 自然回应玩家。需要继续收集资料时，每轮只问一个需要玩家回答的问题，每次只询问一个字段。玩家主动提供多个字段时，把本轮已确认的值都写入 updates。
+options 中每个建议都应能直接作为 narration 中唯一问题的回答。没有提问或没有合适的建议时，返回空数组。
 必填字段齐备后，玩家可以进入下一步，也可以继续访谈。继续回应玩家的问题；根据玩家的明确意图补充可选字段或修改已填字段。玩家只提问时，用 narration 回答并将 updates 留空。
             """;
 
@@ -333,7 +334,7 @@ public final class InitializationNarrationService {
 
     /** 初始化访谈回合；问题和建议由 AI 的 narration 与 options 表达。
      * @param narration AI 访谈内容，可包含下一问题
-     * @param options 与本轮交流相关的建议回答
+     * @param options 可以直接回答本轮唯一问题的建议，无合适建议时为空
      * @param collected 已采纳并通过 schema 校验的字段值
      * @param done 是否满足进入下一步的必填字段
      */

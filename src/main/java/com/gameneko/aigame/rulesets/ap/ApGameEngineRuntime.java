@@ -67,7 +67,6 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                 难度选项及其可解释的含义见下方清单；所有枚举 updates 必须使用稳定 id。
                 字段清单里的“缺少的必填字段”是服务端校验结果，请优先收集其中尚未齐备的字段。
                 可以从玩家一句话里确认多个字段；可按玩家要求修改已填字段。把确认值放入 updates。
-                narration 用自然对话提出下一问并回应玩家；options 给出贴合本轮问题的简短建议。
                 初始化期间 action 必须为 null。只输出四字段响应 JSON，未声明字段时 updates 为 {}。
 
                 难度选项与说明：

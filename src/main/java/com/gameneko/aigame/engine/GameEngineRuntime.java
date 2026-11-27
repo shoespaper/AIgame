@@ -37,6 +37,13 @@ public interface GameEngineRuntime<S extends GameState, P> {
         return List.of();
     }
 
+    /** 返回当前状态下可直接交给玩家选择的动作。
+     * @param state 当前权威引擎状态
+     */
+    default List<EngineActionChoice> actionChoices(S state) {
+        return List.of();
+    }
+
     /** 校验并结算动作，动作被拒绝时抛出 IllegalArgumentException。
      * @param state 当前引擎状态
      * @param intent 待校验的结构化动作意图

@@ -117,16 +117,17 @@ export const useGameStore = defineStore('game', {
       } catch (cause) { if (cause instanceof ApiError && cause.code === 'REVISION_MISMATCH') { await this.load(this.game.gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '保存失败'; throw cause
       } finally { this.saving = false }
     },
-    /** 将自由输入交给 GM 叙事接口；服务端可能返回纯叙事或附带一次引擎结算。 */
+    /** 发送自由输入或直接执行已确认的引擎选项，并更新本局对话。 */
     /** @param input 玩家自由输入 */
-    async speak(input: string) {
-      if (!this.game) return
+    /** @param choiceId 若为直接执行按钮，传入当前状态提供的行动标识 */
+    async speak(input: string, choiceId?: string) {
+      if (!this.game || this.acting) return
       this.acting = true; this.clearMessages()
       const gameId = this.game.gameId; const revision = this.game.revision
       const transcript = [...this.conversation]
       this.conversation.push({ role: 'player', text: input })
       try {
-        const result = await narrate(gameId, revision, input, transcript)
+        const result = await narrate(gameId, revision, input, transcript, choiceId)
         this.game = result.game
         this.narration = result
         this.conversation.push({ role: 'gm', text: result.narration })

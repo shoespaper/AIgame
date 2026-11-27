@@ -41,6 +41,8 @@ export interface EngineConfirmedEvent { source: string; type: string; descriptio
 export interface ConversationMessage { role: 'player' | 'gm'; text: string }
 /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
 export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[] }
+/** 由服务端当前权威状态生成的可执行按钮。 */
+export interface EngineActionChoice { id: string; label: string }
 /** 世界期限事件及其已确认的结果。 */
 export interface TimedWorldEvent { id: string; kind: string; description: string; answer: string; consequence: string; registeredDay: number; deadlineDay: number; daysRemaining: number; status: 'ACTIVE' | 'RESOLVED' | 'EXPIRED'; materialId: string; outcome: string; resolvedDay: number }
 /** 已发生的世界事件事实。 */
@@ -51,7 +53,7 @@ export interface WorldPriceModifier { category: string; percent: number; source:
 export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; originScene: string; deadlineEvents: TimedWorldEvent[]; worldEvents: WorldEvent[]; activePriceModifiers: Record<string, WorldPriceModifier> }
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 export interface CharacterProfile { name: string; age: number; gender: string; background: string }
-export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; character: CharacterProfile; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[] }
+export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; character: CharacterProfile; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[]; actionChoices: EngineActionChoice[] }
 /** 后端错误响应的提示、稳定错误码和可选请求 ID。 */
 export interface ApiErrorPayload { error?: string; code?: string; requestId?: string }
 export interface NarrativeSettings { apiKey: string; enabled: boolean; baseUrl: string; model: string; maxTokens: number }

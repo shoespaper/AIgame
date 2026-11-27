@@ -4,6 +4,7 @@ import com.gameneko.aigame.rulesets.ap.ApContent.AbilityDefinition;
 import com.gameneko.aigame.engine.ActionIntent;
 import com.gameneko.aigame.engine.CharacterProfile;
 import com.gameneko.aigame.engine.ConfirmedEvent;
+import com.gameneko.aigame.engine.EngineActionChoice;
 import com.gameneko.aigame.engine.EngineResolution;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.InitializationField;
@@ -26,6 +27,18 @@ import java.util.stream.Collectors;
 
 /** 为 AP 规则提供引擎中立接口所需的初始化、动作校验与状态投影适配。 */
 public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRuntime.ApState, ApRulesetRuntime.ApProjection> {
+    private static final int MAX_QUEST_OFFERS = 4;
+    private static final List<SupportedAction.Parameter> QUEST_OFFER_PARAMETERS = List.of(
+            new SupportedAction.Parameter("questId", "text", "任务实例标识，同一委托沿用原标识", true),
+            new SupportedAction.Parameter("questTemplateId", "text", "任务素材标识，有模板时省略则取任务实例标识", false),
+            new SupportedAction.Parameter("questTitle", "text", "任务标题，无模板时必填", false),
+            new SupportedAction.Parameter("questDescription", "text", "任务描述", false),
+            new SupportedAction.Parameter("questRegion", "text", "任务区域", false),
+            new SupportedAction.Parameter("deadlineDays", "integer", "期限天数，无模板时省略", false));
+    private static final List<SupportedAction.Parameter> BATCH_QUEST_OFFER_PARAMETERS = batchOfferParameters();
+    private static final Set<String> BATCH_QUEST_OFFER_FIELDS = BATCH_QUEST_OFFER_PARAMETERS.stream()
+            .map(SupportedAction.Parameter::name).collect(Collectors.toUnmodifiableSet());
+
     private final ApContent content;
     private final JsonNode materials;
     private final JsonNode rules;
@@ -145,8 +158,9 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                         new SupportedAction.Parameter("slot", "text", "装备槽位", false))),
                 new SupportedAction("use_item", "使用一件物品。", List.of(
                         new SupportedAction.Parameter("itemName", "text", "物品名称", true))),
-                new SupportedAction("accept_quest", "接受一个任务。", List.of(
-                        new SupportedAction.Parameter("questId", "text", "任务标识", true))),
+                new SupportedAction("accept_quest", "仅接取当前快照 engineProjection.state.systems.questLog 中状态为 AVAILABLE 的任务。"
+                        + "复用条目中的 questId，禁止猜测。没有匹配时说明登记途径；有多个匹配时请玩家选定。", List.of(
+                        new SupportedAction.Parameter("questId", "text", "当前可接任务的实例标识", true))),
                 new SupportedAction("complete_quest", "完成一个任务。", List.of(
                         new SupportedAction.Parameter("questId", "text", "任务标识", true))),
                 new SupportedAction("fail_quest", "使一个任务失败。", List.of(
@@ -156,13 +170,36 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                         new SupportedAction.Parameter("itemName", "text", "物品名称", true),
                         new SupportedAction.Parameter("itemCategory", "text", "世界道具素材标识", true),
                         new SupportedAction.Parameter("itemTier", "text", "物品品质", true))),
-                new SupportedAction("offer_quest", "向玩家提供新任务。", List.of(
-                        new SupportedAction.Parameter("questId", "text", "任务标识", true),
-                        new SupportedAction.Parameter("questTemplateId", "text", "世界任务素材标识，省略时取任务标识", false),
-                        new SupportedAction.Parameter("questTitle", "text", "任务标题，省略时沿用素材名称", false),
-                        new SupportedAction.Parameter("questDescription", "text", "任务描述", false),
-                        new SupportedAction.Parameter("questRegion", "text", "任务区域", false),
-                        new SupportedAction.Parameter("deadlineDays", "integer", "期限天数", false))));
+                new SupportedAction("offer_quest", "展示一项新的可接委托前先提交登记。"
+                        + "templateMaterials 为 null 时省略 questTemplateId 和 deadlineDays，提供标题和内容，由 AP 使用通用委托规则。"
+                        + "接取按钮由引擎生成。传闻和暂未开放的委托无需登记。", QUEST_OFFER_PARAMETERS),
+                new SupportedAction("offer_quests", "一次发布 2 至 4 项新委托。参数沿用 offer_quest，"
+                        + "每项字段名加对应序号（1 至 4），例如 questId1、questTitle1、questId2、questTitle2。"
+                        + "从 1 连续编号，每组 questId 必填。已经登记的委托直接沿用，无需再次提交。", BATCH_QUEST_OFFER_PARAMETERS));
+    }
+
+    /** 为每一项批量发布的委托生成带序号的结构化参数。 */
+    private static List<SupportedAction.Parameter> batchOfferParameters() {
+        List<SupportedAction.Parameter> parameters = new ArrayList<>();
+        for (int number = 1; number <= MAX_QUEST_OFFERS; number++) {
+            for (SupportedAction.Parameter field : QUEST_OFFER_PARAMETERS) {
+                parameters.add(new SupportedAction.Parameter(field.name() + number, field.valueType(),
+                        field.description(), number <= 2 && field.required()));
+            }
+        }
+        return List.copyOf(parameters);
+    }
+
+    /** 生成当前可接委托的直接接取按钮。
+     * @param state 当前权威 AP 状态
+     */
+    @Override
+    public List<EngineActionChoice> actionChoices(ApRulesetRuntime.ApState state) {
+        return state.systems().questLog().stream()
+                .filter(quest -> quest.status() == ApQuest.Status.AVAILABLE)
+                .map(quest -> new EngineActionChoice("accept_quest:" + quest.questId(), "接取「" + quest.title() + "」",
+                        new ActionIntent("accept_quest", quest.questId(), List.of())))
+                .toList();
     }
 
     /** 校验并结算 AP 动作，推进天数时应用有效难度的生命恢复加成。
@@ -184,6 +221,9 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     public EngineResolution<ApRulesetRuntime.ApState> resolve(ApRulesetRuntime.ApState state, ActionIntent intent,
                                                             WorldState worldState) {
         if (state == null) throw new IllegalArgumentException("AP 角色状态缺失");
+        if (intent != null && "offer_quests".equalsIgnoreCase(intent.type())) {
+            return offerQuests(state, intent, worldState);
+        }
         ApRulesetRuntime.ApAction action = toAction(intent, state, worldState);
         int recovery = action instanceof ApRulesetRuntime.AdvanceDay
                 ? ApRulesetRuntime.difficultyPresets().get(state.difficulty()).hpRecoveryBonus() : 0;
@@ -192,6 +232,38 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         List<ConfirmedEvent> events = result.events().stream().map(this::confirmed).toList();
         return new EngineResolution<>(result.nextState(), events,
                 action instanceof ApRulesetRuntime.AdvanceDay);
+    }
+
+    /** 在同一次结算中发布多张委托，任意一张失败时不返回部分结果。
+     * @param state 发布前的权威 AP 状态
+     * @param intent 包含带序号任务参数的批量发布意图
+     * @param worldState 当前世界状态，可为空
+     */
+    private EngineResolution<ApRulesetRuntime.ApState> offerQuests(ApRulesetRuntime.ApState state,
+                                                                 ActionIntent intent, WorldState worldState) {
+        Set<String> fields = new HashSet<>();
+        List<List<ActionIntent.Argument>> groups = new ArrayList<>();
+        for (int index = 0; index < MAX_QUEST_OFFERS; index++) groups.add(new ArrayList<>());
+        for (ActionIntent.Argument argument : intent.arguments()) {
+            String name = argument.name();
+            if (!BATCH_QUEST_OFFER_FIELDS.contains(name) || !fields.add(name)) {
+                throw new IllegalArgumentException("批量委托参数无效：" + name);
+            }
+            int last = name.length() - 1;
+            groups.get(name.charAt(last) - '1').add(new ActionIntent.Argument(name.substring(0, last), argument.value()));
+        }
+        ApRulesetRuntime.ApState next = state;
+        List<ConfirmedEvent> events = new ArrayList<>();
+        for (int index = 0; index < MAX_QUEST_OFFERS; index++) {
+            List<ActionIntent.Argument> group = groups.get(index);
+            if (group.isEmpty() && index >= 2
+                    && groups.subList(index + 1, MAX_QUEST_OFFERS).stream().allMatch(List::isEmpty)) break;
+            EngineResolution<ApRulesetRuntime.ApState> offered = resolve(next,
+                    new ActionIntent("offer_quest", "", group), worldState);
+            next = offered.nextState();
+            events.addAll(offered.events());
+        }
+        return new EngineResolution<>(next, events);
     }
 
     /** 更新 NPC 的每日状态，并按 AP 模板解释收到的世界事件事实。
@@ -328,20 +400,28 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
         return new ApRulesetRuntime.SupplyEvent(id, event.path("name").asText(id), rations);
     }
 
-    /** 创建任务实例，奖励由该任务素材的登记规则决定。
+    /** 创建任务实例，奖励由登记规则或无模板局的通用规则决定。
      * @param intent 提供任务实例标识和可选叙事信息的动作
      * @param day 当前游戏天数
      * @param region 当前区域标识，用于补齐任务区域
      */
     private ApRulesetRuntime.OfferQuest offerQuest(ActionIntent intent, long day, String region) {
         String id = textArg(intent, "questId", intent.target());
-        JsonNode quest = material("quest_templates", textArg(intent, "questTemplateId", id));
-        long experience = ApTemplateContent.ruleFor(quest, rules).path("parameters").path("experience").longValue();
-        long deadline = longArg(intent, "deadlineDays", 0);
-        return new ApRulesetRuntime.OfferQuest(new ApQuest(id, textArg(intent, "questTitle", quest.path("name").asText()),
+        if (id.isBlank()) throw new IllegalArgumentException("任务标识无效。");
+        String templateId = textArg(intent, "questTemplateId", "");
+        boolean generic = materials.isMissingNode() && templateId.isBlank();
+        JsonNode quest = generic ? MissingNode.getInstance()
+                : material("quest_templates", templateId.isBlank() ? id : templateId);
+        ApQuest.Reward reward = generic ? ApQuest.Reward.none() : new ApQuest.Reward(
+                ApTemplateContent.ruleFor(quest, rules).path("parameters").path("experience").longValue(), 0, 0, 0);
+        String title = textArg(intent, "questTitle", quest.path("name").asText());
+        if (generic && title.isBlank()) throw new IllegalArgumentException("无模板委托需要任务标题。");
+        long proposedDeadline = longArg(intent, "deadlineDays", 0);
+        long deadline = generic ? 0 : proposedDeadline;
+        return new ApRulesetRuntime.OfferQuest(new ApQuest(id, title,
                 textArg(intent, "questDescription", quest.path("description").asText()),
                 textArg(intent, "questRegion", region), ApQuest.Status.AVAILABLE, List.of(),
-                new ApQuest.Reward(experience, 0, 0, 0), day, deadline, deadline, ""));
+                reward, day, deadline, deadline, ""));
     }
 
     /** 学习世界素材对应的能力并保存其模板标识。

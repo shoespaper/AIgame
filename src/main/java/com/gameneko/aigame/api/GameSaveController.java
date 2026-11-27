@@ -26,6 +26,11 @@ public final class GameSaveController {
     private final GameActionService actionService;
     private final GameActionMapper actionMapper;
 
+    /** 装配存档及动作接口所需的依赖。
+     * @param saveService 权威存档服务
+     * @param actionService 引擎动作结算及选项查询服务
+     * @param actionMapper HTTP 与结构化动作的转换器
+     */
     public GameSaveController(GameSaveService saveService, GameActionService actionService,
                               GameActionMapper actionMapper) {
         this.saveService = saveService;
@@ -53,19 +58,24 @@ public final class GameSaveController {
         MappedGameAction mapped = actionMapper.map(gameId, request);
         GameInstanceResponse response;
         if (mapped.intent() == null) {
-            response = GameInstanceResponse.from(actionService.applyWorldAction(gameId, request.expectedRevision(), mapped.worldAction()));
+            GameInstance<?> instance = actionService.applyWorldAction(gameId, request.expectedRevision(), mapped.worldAction());
+            response = GameInstanceResponse.from(instance, List.of(), actionService.actionChoices(instance));
         } else {
             GameActionService.AppliedAction applied = actionService.applyIntent(gameId, request.expectedRevision(), mapped.intent());
-            response = GameInstanceResponse.from(applied.instance(), applied.events());
+            response = GameInstanceResponse.from(applied.instance(), applied.events(), actionService.actionChoices(applied.instance()));
         }
         DiagnosticLog.actionCommitted(new DiagnosticLog.Action(gameId, response.rulesetId(), request.type(),
                 request.expectedRevision(), response.revision()));
         return response;
     }
 
+    /** 加载存档及可从当前状态执行的动作。
+     * @param gameId 游戏存档标识
+     */
     @GetMapping("/{gameId}")
     public GameInstanceResponse get(@PathVariable String gameId) {
-        return GameInstanceResponse.from(saveService.load(gameId));
+        GameInstance<?> instance = saveService.load(gameId);
+        return GameInstanceResponse.from(instance, List.of(), actionService.actionChoices(instance));
     }
 
     /** 返回全部存档的轻量元数据，避免列表页加载完整引擎状态。 */

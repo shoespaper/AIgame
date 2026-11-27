@@ -16,12 +16,12 @@ public final class DefaultNarrationService implements NarrationService {
             规则：
             1. narration 用 2-3 段交代角色当前的地点、场景、氛围与相关的已确认状态，
                以一句引导玩家继续行动的话收尾，让玩家明确知道现在轮到自己。全文控制在 220 个汉字以内。
-            2. 大多数回合是纯叙事：action 返回 null。只有当玩家的行动确实需要改变角色或世界数据（休息、使用物品、装备、接任务等）
-               时，才从下方「可用行动」清单里挑选一个填入 action，并给出该行动要求的参数。提出 action 时，先写玩家的尝试，等待引擎确认结果。
+            2. 大多数回合是纯叙事：action 返回 null。玩家尝试改变规则状态，或当前情节需要先登记引擎状态时，从「可用行动」中提交一次 action。
+               提案阶段只描写尝试或准备。只有服务端确认后，才能描述资源增减、获得物品、登记或接取成功等规则结果。action 为 null 时也遵守此限制。
             3. action.type 只能取「可用行动」清单中的值，参数名与类型必须和清单一致；清单里没有的动作一律不要调用，
                继续用叙事承接即可，绝不能自己编造 action 类型。
-            4. 每轮必须给出 3-4 个候选行动（options）：每个候选是一句简短的中文建议（不超过 12 个汉字），
-               引导玩家下一步可以做什么；options 绝不能为空数组。
+            4. 每轮给出 3-4 个纯文本候选行动（options），每项最多 12 个汉字。正文和候选行动都使用 confirmedSnapshot 中的当前状态和数量。
+               玩家自述与历史只提供叙事上下文。候选行动可引导询问或准备，不能把仍待引擎确认的事项说成已经可执行。引擎会另外提供直接执行的按钮。
             5. 不要替玩家做决定，不要推进剧情，不要复述规则数值。根据世界设定、玩家行动和当前场景决定是否发生遭遇。玩家行动改变世界状态或开局需要确定地点时，用 updates 声明确认值。location 写具体地点，region 写所属区域的简短文本。时间变化要声明，无变化时 updates 输出 {}。visitedLocations 可用 text 声明一个去过的地点，location 会自动累积到访问记录。
             只输出响应 JSON。
             """;
@@ -63,7 +63,7 @@ public final class DefaultNarrationService implements NarrationService {
     @Override
     public NarrativeResponse opening(NarrativeRequest request, List<SupportedAction> engineActions) {
         if (request == null) throw new IllegalArgumentException("Narrative request is required");
-        var prompt = new NarrativePrompt(systemInstruction(engineActions, true),
+        NarrativePrompt prompt = new NarrativePrompt(systemInstruction(engineActions, true),
                 "游戏开始，请生成开场叙事。", request.snapshot(), request.locale());
         NarrativeResponse response = provider.respond(prompt);
         validate(response);
@@ -78,7 +78,8 @@ public final class DefaultNarrationService implements NarrationService {
         String instruction = """
                 你是文字冒险游戏的 GM。根据 confirmedSnapshot 中已结算的状态和 confirmedEvents 描写本轮已经发生的结果。
                 用自然的短段落承接玩家行动，只描述已确认的效果，不新增事实、数值、行动或世界变更。
-                之后给出 3 至 4 个中文候选行动，每项最多 12 个汉字。只返回 JSON，action 必须为 null，updates 必须为 {}。
+                正文与选项里的状态和数量以快照为准，不能引用与当前状态冲突的自述或历史。引擎会另外提供直接执行的按钮。
+                之后给出 3 至 4 个中文文本建议，每项最多 12 个汉字。只返回 JSON，action 必须为 null，updates 必须为 {}。
                 """;
         NarrativeResponse response = provider.respond(new NarrativePrompt(instruction, request.playerInput(),
                 request.snapshot(), request.locale(), request.history()));
@@ -92,7 +93,7 @@ public final class DefaultNarrationService implements NarrationService {
     /** 拼接引擎无关规则与当前引擎动作清单，构成发送给模型的系统提示。 */
     /** @param engineActions 引擎动作清单 @param opening 是否为开局 */
     private static String systemInstruction(List<SupportedAction> engineActions, boolean opening) {
-        var builder = new StringBuilder(SYSTEM);
+        StringBuilder builder = new StringBuilder(SYSTEM);
         if (opening) builder.append('\n').append(OPENING_HINT);
         builder.append(renderActions(engineActions));
         return builder.toString();
@@ -102,7 +103,7 @@ public final class DefaultNarrationService implements NarrationService {
     /** @param engineActions 引擎动作清单 */
     private static String renderActions(List<SupportedAction> engineActions) {
         if (engineActions == null || engineActions.isEmpty()) {
-            return "\n## 可用行动\n（当前为纯叙事世界，无引擎动作；action 一律返回 null。）\n";
+            return "\n## 可用行动\n（当前没有可提交的引擎动作；action 一律返回 null。）\n";
         }
         StringBuilder builder = new StringBuilder("\n## 可用行动\n");
         for (SupportedAction action : engineActions) {

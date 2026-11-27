@@ -321,8 +321,16 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         }
         if (action instanceof ConsumeRation) return result(state.withResources(state.resources().withRations(state.resources().rations() - 1)), new ApEvent("consume_ration", 1));
         if (action instanceof AdvanceDay) return advanceDay(state, hpRecoveryBonus);
-        if (action instanceof OfferQuest offer) return result(state.withSystems(state.systems().withQuest(offer.quest())), new ApEvent("quest_offered", 1));
-        if (action instanceof AcceptQuest accept) return questTransition(state, accept.questId(), q -> q.accept(), "quest_accepted");
+        if (action instanceof OfferQuest offer) {
+            ApQuest quest = offer.quest();
+            return result(state.withSystems(state.systems().withQuest(quest)),
+                    new ApEvent("quest_offered", 1, "委托「" + quest.title() + "」已发布。", "", quest.questId()));
+        }
+        if (action instanceof AcceptQuest accept) {
+            ApQuest quest = quest(state, accept.questId(), ApQuest.Status.AVAILABLE);
+            return result(state.withSystems(state.systems().replaceQuest(quest.accept())),
+                    new ApEvent("quest_accepted", 1, "已接取委托「" + quest.title() + "」。", "player", quest.questId()));
+        }
         if (action instanceof ProgressQuest progress) return questTransition(state, progress.questId(), q -> q.progress(progress.objectiveIndex(), progress.amount()), "quest_progress");
         if (action instanceof CompleteQuest complete) {
             ApQuest q = quest(state, complete.questId(), ApQuest.Status.ACTIVE);

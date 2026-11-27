@@ -2,6 +2,7 @@ package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.content.ContentCatalog;
+import com.gameneko.aigame.engine.EngineActionChoice;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.GameEngineRuntime;
 import com.gameneko.aigame.engine.SupportedAction;
@@ -70,11 +71,28 @@ public final class NarrativeApplicationService {
                 new NarrativeRequest(gameId, expectedRevision, playerInput, locale, snapshot(instance), history),
                 supportedActions(instance));
         if (response.action() == null && response.updates().isEmpty()) {
-            return new NarratedTurn(instance, response.narration(), response.options(), List.of());
+            return turn(instance, response.narration(), response.options(), List.of());
         }
         GameActionService.AppliedAction applied = gameActionService.applyNarrativeTurn(
                 instance.gameId(), instance.revision(), response.action(), response.updates());
         return toTurn(applied, response, playerInput, locale, history);
+    }
+
+    /** 按当前权威状态解析按钮标识，直接结算后再交给 GM 描写。
+     * @param gameId 游戏存档标识
+     * @param expectedRevision 客户端读取到的修订号
+     * @param choiceId 引擎提供的行动标识
+     * @param locale 叙事语言标识
+     * @param history 仅供模型参考的近期对话
+     */
+    public NarratedTurn choose(String gameId, long expectedRevision, String choiceId, String locale,
+                               List<NarrativeRequest.ConversationMessage> history) {
+        GameInstance<?> instance = load(gameId, expectedRevision);
+        EngineActionChoice choice = gameActionService.actionChoices(instance).stream()
+                .filter(candidate -> candidate.id().equals(choiceId)).findFirst()
+                .orElseThrow(() -> GameRequestException.invalid("此行动已不可用，请选择当前可用的行动。"));
+        return describeTurn(gameActionService.applyIntent(gameId, expectedRevision, choice.intent()),
+                choice.label(), locale, history);
     }
 
     /** 在尚未存档的初始实例上生成并结算开场，返回可一次性持久化的结果。
@@ -85,7 +103,7 @@ public final class NarrativeApplicationService {
         NarrativeResponse response = narrationService.opening(
                 new NarrativeRequest(instance.gameId(), instance.revision(), "", locale, snapshot(instance)), supportedActions(instance));
         if (response.action() == null && response.updates().isEmpty()) {
-            return new NarratedTurn(instance, response.narration(), response.options(), List.of());
+            return turn(instance, response.narration(), response.options(), List.of());
         }
         GameActionService.AppliedAction applied = gameActionService.resolveNarrativeTurn(instance, response.action(), response.updates());
         return toTurn(applied, response, "游戏开始", locale, List.of());
@@ -109,10 +127,21 @@ public final class NarrativeApplicationService {
      */
     private NarratedTurn toTurn(GameActionService.AppliedAction applied, NarrativeResponse response,
                                 String playerInput, String locale, List<NarrativeRequest.ConversationMessage> history) {
-        GameInstance<?> instance = applied.instance();
         if (applied.events().isEmpty() && applied.worldEvents().isEmpty()) {
-            return new NarratedTurn(instance, response.narration(), response.options(), List.of());
+            return turn(applied.instance(), response.narration(), response.options(), List.of());
         }
+        return describeTurn(applied, playerInput, locale, history);
+    }
+
+    /** 将已确认的动作结算交给 GM 描写。
+     * @param applied 已结算的实例及事件
+     * @param playerInput 玩家输入或引擎选项文本
+     * @param locale 叙事语言标识
+     * @param history 仅供模型参考的近期对话
+     */
+    private NarratedTurn describeTurn(GameActionService.AppliedAction applied, String playerInput, String locale,
+                                      List<NarrativeRequest.ConversationMessage> history) {
+        GameInstance<?> instance = applied.instance();
         NarrativeSnapshot snapshot = NarrativeSnapshotFactory.fromConfirmed(instance, applied.events(),
                         applied.worldEvents(), projection(instance))
                 .withWorldbook(contentCatalog.worldBook(instance.worldId()).narrative())
@@ -120,7 +149,7 @@ public final class NarrativeApplicationService {
         try {
             NarrativeResponse description = narrationService.describeConfirmedTurn(new NarrativeRequest(
                     instance.gameId(), instance.revision(), playerInput, locale, snapshot, history));
-            return new NarratedTurn(instance, description.narration(), description.options(), snapshot.confirmedEvents());
+            return turn(instance, description.narration(), description.options(), snapshot.confirmedEvents());
         } catch (NarrativeProviderException exception) {
             return confirmedOnly(instance, snapshot.confirmedEvents());
         } catch (GameRequestException exception) {
@@ -133,22 +162,42 @@ public final class NarrativeApplicationService {
      * @param instance 已结算的权威实例
      * @param events 本轮确认事件
      */
-    private static NarratedTurn confirmedOnly(GameInstance<?> instance, List<ConfirmedEvent> events) {
+    private NarratedTurn confirmedOnly(GameInstance<?> instance, List<ConfirmedEvent> events) {
         String description = String.join("\n", events.stream().map(ConfirmedEvent::outcome).toList());
-        return new NarratedTurn(instance, description, List.of("继续行动", "观察四周", "查看状态"), events);
+        return turn(instance, description, List.of("继续行动", "观察四周", "查看状态"), events);
     }
 
-    /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
-    /** @param instance 结算后的权威游戏实例 */
-    /** @param narration 基于确认状态生成的叙事文本 */
-    /** @param options 引导玩家下一步的纯文本候选行动 */
-    /** @param confirmedEvents 本次引擎与世界层确认事件 */
+    /** 使用同一份权威实例生成回合和可执行选项。
+     * @param instance 当前权威实例
+     * @param narration 本轮叙事文字
+     * @param options GM 提供的文本建议
+     * @param events 本轮已确认事件
+     */
+    private NarratedTurn turn(GameInstance<?> instance, String narration, List<String> options,
+                              List<ConfirmedEvent> events) {
+        return new NarratedTurn(instance, narration, options, events, gameActionService.actionChoices(instance));
+    }
+
+    /** 包含叙事、权威实例与可选动作的回合结果。
+     * @param instance 结算后的权威游戏实例
+     * @param narration 基于确认状态生成的叙事文本
+     * @param options 引导玩家下一步的纯文本建议
+     * @param confirmedEvents 本次引擎与世界层确认事件
+     * @param actionChoices 当前引擎提供的直接行动
+     */
     public record NarratedTurn(GameInstance<?> instance, String narration, List<String> options,
-                               List<ConfirmedEvent> confirmedEvents) {
-        /** 复制选项和确认事件，保持返回快照不可变。 */
+                               List<ConfirmedEvent> confirmedEvents, List<EngineActionChoice> actionChoices) {
+        /** 复制选项和确认事件，保持返回快照不可变。
+         * @param instance 当前权威实例
+         * @param narration 本轮叙事
+         * @param options GM 的文本建议
+         * @param confirmedEvents 本轮已确认事件
+         * @param actionChoices 当前引擎可执行选项
+         */
         public NarratedTurn {
             options = List.copyOf(options);
             confirmedEvents = List.copyOf(confirmedEvents);
+            actionChoices = List.copyOf(actionChoices);
         }
     }
 

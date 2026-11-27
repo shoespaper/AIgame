@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -351,6 +352,52 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.rulesetState.hpCurrent").value(33))
                 .andExpect(jsonPath("$.rulesetState.inventory.length()").value(2))
                 .andExpect(jsonPath("$.confirmedEvents[0].amount").value(5));
+    }
+
+    /** 验证批量登记原子提交，存档恢复后也能通过服务端标识直接接取。 */
+    @Test
+    void questChoicesAreAvailableOnlyAfterConfirmedPublication() throws Exception {
+        String gameId = "ap-quest-choices-" + UUID.randomUUID();
+        openApInTown(gameId);
+        assertRejected(gameId, 0, "offer_quests", Map.of(
+                "questId1", "guard_job", "questTemplateId1", "lost_caravan",
+                "questId2", "broken_job", "questTemplateId2", "missing_quest"), "未知素材");
+        mockMvc.perform(get("/api/games/{gameId}", gameId))
+                .andExpect(jsonPath("$.revision").value(0))
+                .andExpect(jsonPath("$.rulesetState.systems.questLog").isEmpty())
+                .andExpect(jsonPath("$.actionChoices").isEmpty());
+
+        List<ActionIntent.Argument> offers = Map.of(
+                "questId1", "guard_job", "questTemplateId1", "lost_caravan", "questTitle1", "南坡护卫",
+                "questId2", "night_watch", "questTemplateId2", "lost_caravan", "questTitle2", "服役巡夜")
+                .entrySet().stream()
+                .map(entry -> new ActionIntent.Argument(entry.getKey(), new InitializationValue.Text(entry.getValue())))
+                .toList();
+        NarrativeResponse proposal = new NarrativeResponse("记录员拿出两张委托。", new ActionIntent("offer_quests", "", offers),
+                List.of("问问详情"));
+        NarrativeResponse description = new NarrativeResponse("记录员把委托贴上墙。", null, List.of("问问详情"));
+        when(narrativeProvider.respond(any())).thenReturn(proposal, description);
+        mockMvc.perform(post("/api/games/{gameId}/narration", gameId).contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":0,\"playerInput\":\"看看委托板\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.game.revision").value(1))
+                .andExpect(jsonPath("$.game.actionChoices[1].id").value("accept_quest:night_watch"))
+                .andExpect(jsonPath("$.confirmedEvents.length()").value(2));
+        mockMvc.perform(get("/api/games/{gameId}", gameId))
+                .andExpect(jsonPath("$.actionChoices[1].label").value("接取「服役巡夜」"));
+
+        String choose = "{\"expectedRevision\":1,\"choiceId\":\"accept_quest:night_watch\",\"playerInput\":\"查看委托板\"}";
+        mockMvc.perform(post("/api/games/{gameId}/narration", gameId).contentType(APPLICATION_JSON).content(choose))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.game.revision").value(2))
+                .andExpect(jsonPath("$.game.rulesetState.systems.questLog[1].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.game.actionChoices.length()").value(1))
+                .andExpect(jsonPath("$.confirmedEvents[0].type").value("quest_accepted"));
+        mockMvc.perform(post("/api/games/{gameId}/narration", gameId).contentType(APPLICATION_JSON).content(choose))
+                .andExpect(status().isConflict());
+        ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
+        verify(narrativeProvider, times(3)).respond(prompts.capture());
+        assertEquals("接取「服役巡夜」", prompts.getAllValues().getLast().userInput());
     }
 
     /** 验证纯叙事世界在直接动作和模型提案两条路径都明确拒绝引擎动作。 */

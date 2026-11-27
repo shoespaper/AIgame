@@ -127,6 +127,16 @@ public final class GameActionService {
         return runtimeFor(instance, definition);
     }
 
+    /** 从当前权威实例读取选中引擎给出的可选动作。
+     * @param instance 当前游戏实例
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public List<EngineActionChoice> actionChoices(GameInstance<?> instance) {
+        if (instance.rulesetId() == null) return List.of();
+        GameEngineRuntime runtime = runtimeFor(instance, contentCatalog.world(instance.worldId()));
+        return runtime.actionChoices(instance.rulesetState());
+    }
+
     /** 委托所选引擎校验与结算，并为被拒绝的意图附加存档上下文。
      * @param runtime 选中引擎的运行时
      * @param instance 当前权威游戏实例

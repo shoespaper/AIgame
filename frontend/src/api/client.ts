@@ -147,8 +147,11 @@ export function finalizeInitialization(id: string, version: number): Promise<Ini
 /** 将当前输入与近期非权威对话上下文提交给 GM。 */
 /** @param gameId 当前游戏标识 @param expectedRevision 客户端观察到的游戏修订号 @param playerInput 玩家本轮输入 */
 /** @param history 仅用于叙事连贯性的近期玩家与 GM 消息 */
-export function narrate(gameId: string, expectedRevision: number, playerInput: string, history: ConversationMessage[] = []): Promise<NarrativeResponse> {
-  return request<NarrativeResponse>(`${gamePath(gameId)}/narration`, { method: 'POST', body: JSON.stringify({ expectedRevision, playerInput, locale: 'zh-CN', history: history.slice(-40) }) })
+export function narrate(gameId: string, expectedRevision: number, playerInput: string, history: ConversationMessage[] = [], choiceId?: string): Promise<NarrativeResponse> {
+  return request<NarrativeResponse>(`${gamePath(gameId)}/narration`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedRevision, playerInput, choiceId, locale: 'zh-CN', history: history.slice(-40) }),
+  })
 }
 
 /** 创建世界构建 AI 会话。 */

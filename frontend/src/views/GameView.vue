@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { EngineActionChoice } from '../api/types'
 import { useGameStore } from '../stores/game'
 import NarrativeTurn from '../components/NarrativeTurn.vue'
 import CreateGameFlow from '../components/CreateGameFlow.vue'
@@ -16,6 +17,13 @@ const currentWorld = computed(() => store.game?.world)
 /** 将候选行动填入输入框，供玩家编辑和发送。 */
 /** @param label 候选行动的文本 */
 function choose(label: string) { answer.value = label }
+
+/** 执行引擎已确认的选项，并保留输入框里的草稿。
+ * @param choice 当前游戏状态提供的执行选项
+ */
+async function execute(choice: EngineActionChoice) {
+  try { await store.speak(choice.label, choice.id) } catch { /* store 会暴露用户可见错误 */ }
+}
 
 /** 发送当前输入，失败时恢复本次发送的原文。 */
 async function send() {
@@ -74,8 +82,9 @@ watch(gameId, async (id, _, onCleanup) => {
           </div>
           <p v-if="!store.conversation.length && !store.acting" class="empty-timeline">还没有对话。</p>
         </div>
-        <div v-if="store.narration" class="current-options">
-          <NarrativeTurn :turn="{ ...store.narration, narration: '' }" :acting="store.acting" @choose="choose" />
+        <div v-if="store.narration || store.game.actionChoices.length" class="current-options">
+          <NarrativeTurn :turn="store.narration && { ...store.narration, narration: '' }"
+            :action-choices="store.game.actionChoices" :acting="store.acting" @choose="choose" @execute="execute" />
         </div>
         <div class="free-input">
           <input v-model="answer" placeholder="告诉 GM 你要做什么" @keyup.enter="send" />

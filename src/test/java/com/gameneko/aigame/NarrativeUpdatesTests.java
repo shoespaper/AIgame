@@ -144,7 +144,7 @@ class NarrativeUpdatesTests {
         }
     }
 
-    /** 验证三次无效提案后保留 AP 引擎，首次存档重试仍返回无模板开局提示。
+    /** 验证无模板开局保留 AP 引擎、开局提示与通用委托能力。
      * @throws IOException 临时模板目录初始化失败
      */
     @Test
@@ -192,6 +192,20 @@ class NarrativeUpdatesTests {
         assertEquals(1, repository.writes);
         assertTrue(registry.world(result.game().gameId()).isMissingNode());
         assertTrue(Files.notExists(registryFile));
+
+        GameActionService actions = new GameActionService(repository, catalog, engines);
+        GameActionService.AppliedAction offered = actions.applyIntent(saved.gameId(), saved.revision(),
+                new ActionIntent("offer_quest", "night_watch", List.of(
+                        new ActionIntent.Argument("questTitle", text("服役巡夜")),
+                        new ActionIntent.Argument("questDescription", text("到北墙第三段报到。")),
+                        new ActionIntent.Argument("deadlineDays", new InitializationValue.IntegerNumber(10)))));
+        EngineActionChoice choice = actions.actionChoices(offered.instance()).getFirst();
+        assertEquals("接取「服役巡夜」", choice.label());
+        GameActionService.AppliedAction accepted = actions.applyIntent(saved.gameId(), offered.instance().revision(),
+                choice.intent());
+        assertEquals("quest_accepted", accepted.events().getFirst().type());
+        assertTrue(actions.actionChoices(accepted.instance()).isEmpty());
+        assertTrue(registry.world(saved.gameId()).isMissingNode());
     }
 
     /** 验证更新表单会淘汰旧版本并在写档失败后使用新角色生成开场。 */

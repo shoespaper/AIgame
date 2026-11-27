@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { JsonValue } from '../api/types'
+import type { EngineActionChoice, JsonValue } from '../api/types'
 import { useGameStore } from '../stores/game'
 import NarrativeTurn from '../components/NarrativeTurn.vue'
 
@@ -31,6 +31,12 @@ async function speak() {
 /** 将候选行动填入输入框，供玩家编辑和发送。 */
 /** @param label 候选行动的文本 */
 function choose(label: string) { playerInput.value = label }
+/** 执行引擎已确认的选项，并保留输入框里的草稿。
+ * @param choice 当前游戏状态提供的执行选项
+ */
+async function execute(choice: EngineActionChoice) {
+  try { await game.speak(choice.label, choice.id) } catch { /* store 会暴露用户可见错误 */ }
+}
 watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void load() })
 </script>
 
@@ -44,7 +50,11 @@ watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void 
       <main class="story-column">
         <div class="story-heading"><div><span class="panel-kicker">CURRENT SESSION</span><h2>本次操作</h2></div><span class="revision-badge">第 {{ world.day }} 天 · {{ world.time || '未知时刻' }}</span></div>
         <div class="timeline" aria-live="polite"><article v-for="item in game.events" :key="item.id" class="timeline-item" :class="item.kind"><div class="timeline-marker" aria-hidden="true" /><div class="timeline-copy"><div class="timeline-meta"><strong>{{ item.title }}</strong><time>{{ item.time }}</time></div><p>{{ item.detail }}</p></div></article><div v-if="!game.events.length" class="empty-timeline">还没有行动记录。选择右侧的行动，开始这场远征。</div></div>
-        <div class="action-composer"><div class="composer-heading"><div><span class="panel-kicker">GM CONVERSATION</span><h2>你要怎么做？</h2></div><span v-if="game.acting" class="processing-label"><span class="loader small" />处理中</span></div><NarrativeTurn v-if="game.narration" :turn="game.narration" :acting="game.acting" @choose="choose" /><div class="free-input"><input v-model="playerInput" placeholder="自由输入行动或问题" @keyup.enter="speak" /><button class="primary-button" type="button" :disabled="game.acting || !playerInput.trim()" @click="speak">发送</button></div></div>
+        <div class="action-composer"><div class="composer-heading"><div><span class="panel-kicker">GM CONVERSATION</span><h2>你要怎么做？</h2></div><span v-if="game.acting" class="processing-label"><span class="loader small" />处理中</span></div>
+          <NarrativeTurn v-if="game.narration || game.game.actionChoices.length" :turn="game.narration"
+            :action-choices="game.game.actionChoices" :acting="game.acting" @choose="choose" @execute="execute" />
+          <div class="free-input"><input v-model="playerInput" placeholder="自由输入行动或问题" @keyup.enter="speak" /><button class="primary-button" type="button" :disabled="game.acting || !playerInput.trim()" @click="speak">发送</button></div>
+        </div>
       </main>
       <aside class="status-column">
         <section v-if="state" class="status-panel character-panel"><div class="panel-heading compact-heading"><span class="panel-kicker">ENGINE STATE</span><h2>{{ game.game.rulesetId || '纯叙事' }}</h2><p>由所选引擎返回的只读状态。</p></div><pre class="engine-state">{{ formatState(state) }}</pre></section>

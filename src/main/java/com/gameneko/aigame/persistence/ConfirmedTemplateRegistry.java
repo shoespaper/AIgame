@@ -144,13 +144,17 @@ public final class ConfirmedTemplateRegistry {
 
         TemplateDefinitions definitions;
         if (existing.isMissingNode() && !source.has("regions")) {
-            String instruction = "生成完整的 world_template，template_id 为 " + id + "，world_type 为 "
-                    + book.type() + "，素材池结构参考：" + reference;
+            ObjectNode exampleWorld = reference.deepCopy();
+            exampleWorld.put("template_id", id).put("world_type", book.type());
+            ObjectNode example = mapper.createObjectNode();
+            example.set("world_template", exampleWorld);
+            String instruction = "生成完整的 world_template。保留示例中的 template_id、world_type 和全部素材池字段，"
+                    + "每个素材池均为数组。按本次世界书生成素材内容。";
             if (policy != null) {
-                instruction += "\n为每项需要绑定的素材添加 engines." + engine
-                        + "，值为仅含 template_id 的对象，并提供所引用的缺失规则。";
+                instruction += "\n为下文列出的每个引擎素材池中的每个素材添加 engines." + engine
+                        + "，格式为 {\"template_id\":\"规则标识\"}。每个引用必须指向类别匹配的已有规则或本次新增规则。";
             }
-            definitions = generateValidated(book, id, policy, known, instruction,
+            definitions = generateValidated(book, id, policy, known, instruction, example,
                     proposal -> prepareGeneratedWorld(book, id, policy, known, proposal));
         } else {
             ObjectNode world = existing.isMissingNode() ? prepareWorld(source, id, book.type()) : existing.deepCopy();
@@ -251,12 +255,20 @@ public final class ConfirmedTemplateRegistry {
         }
 
         if (allowSupplement && (!missingReferences.isEmpty() || !missingRules.isEmpty())) {
+            ObjectNode example = mapper.createObjectNode();
+            ObjectNode exampleReferences = example.putObject("engine_references");
+            for (Map.Entry<String, JsonNode> group : missingReferences.properties()) {
+                ObjectNode items = exampleReferences.putObject(group.getKey());
+                for (Map.Entry<String, JsonNode> item : group.getValue().properties()) {
+                    items.putObject(item.getKey()).put("template_id", "规则标识");
+                }
+            }
             String instruction = "补齐现有世界素材的引擎资料。缺失引用（按素材池列出素材 ID 和名称）："
-                    + missingReferences + "。在 engine_references 中按素材池和素材 ID 返回对应的 {template_id} 对象。"
+                    + missingReferences + "。在 engine_references 中只返回列出的待补齐引用，并替换示例中的规则标识。"
                     + "\n缺少定义的规则 ID：" + mapper.valueToTree(missingRules)
                     + "。以原 ID 提供这些定义，并提供新引用所需的缺失规则。"
                     + "\n已有世界素材：" + world;
-            return generateValidated(book, id, policy, known, instruction,
+            return generateValidated(book, id, policy, known, instruction, example,
                     proposal -> applySupplement(policy, world, known, missingReferences, proposal));
         }
         validateEngineReferences(policy, world, known);
@@ -353,15 +365,16 @@ public final class ConfirmedTemplateRegistry {
      * @param policy 所选引擎的注册策略，纯叙事时为 null
      * @param known 可供模型按标识复用的引擎规则索引
      * @param task 生成世界模板或引擎补充的原始任务指令
+     * @param example 当前操作的内层提案结构示例
      * @param validate 在独立的临时数据上校验整份提案并返回结果的函数
      */
     private TemplateDefinitions generateValidated(WorldbookDefinition book, String id, EngineTemplatePolicy policy,
-                                                  ObjectNode known, String task,
+                                                   ObjectNode known, String task, ObjectNode example,
                                                   Function<JsonNode, TemplateDefinitions> validate) {
         String feedback = "";
         int remainingAttempts = PROPOSAL_ATTEMPTS;
         while (true) {
-            NarrativeResponse response = requestProposal(book, id, policy, known, task + feedback);
+            NarrativeResponse response = requestProposal(book, policy, known, task + feedback, example);
             String stage = "parse_proposal";
             try {
                 JsonNode proposal = readProposal(response);
@@ -461,24 +474,33 @@ public final class ConfirmedTemplateRegistry {
 
     /** 请求模型返回包含世界模板或引擎补充提案的响应。
      * @param book 提供最终世界设定的世界书
-     * @param id 当前世界模板标识
      * @param policy 所选引擎策略，纯叙事时为 null
      * @param known 所选引擎已可用的规则索引，纯叙事时为空对象
      * @param task 当前缺失内容及预期返回字段
+     * @param example 当前操作的内层提案结构示例
      */
-    private NarrativeResponse requestProposal(WorldbookDefinition book, String id, EngineTemplatePolicy policy,
-                                              ObjectNode known, String task) {
-        String instruction = "在 updates.template 中以 text 类型返回 JSON 对象字符串。当前世界模板标识为 "
-                + id + "。\n" + task;
+    private NarrativeResponse requestProposal(WorldbookDefinition book, EngineTemplatePolicy policy,
+                                              ObjectNode known, String task, ObjectNode example) {
+        ObjectNode payload = example.deepCopy();
+        ObjectNode response = mapper.createObjectNode().put("narration", "").putNull("action");
+        response.putArray("options");
+        String instruction = "当前任务是提交开局模板提案。updates 只包含 template，template.type 固定为 text，"
+                + "template.value 是一个转义后的 JSON 对象字符串。\n" + task;
         if (policy == null) {
             instruction += "\n仅生成叙事素材。";
         } else {
+            payload.putObject(RULE_PROPOSALS).putArray(policy.id());
             instruction += "\n所选引擎：" + policy.id() + "。素材池对应的实体类型：" + policy.referenceTypes()
-                    + "。优先按 template_id 复用已有规则。只在 " + RULE_PROPOSALS + "." + policy.id()
-                    + " 数组中提交当前世界素材引用但尚未定义的规则，规则类型和参数字段须与该类型的预置规则一致。"
+                    + "。优先按 template_id 复用类别匹配的已有规则。只在 " + RULE_PROPOSALS + "." + policy.id()
+                    + " 数组中提交当前世界素材引用但尚未定义的规则。没有新增规则时保留空数组。"
+                    + "新增规则的实体类型、规则类型和参数字段须与对应的预置规则一致。"
                     + "\n可复用的规则：" + known;
         }
-        instruction += "\n各素材项只提供 id、name、description、category 中适用的字段；引擎引用放在 engines，规则数值放在引擎提案中。";
+        response.putObject("updates").putObject("template").put("type", "text").put("value", payload.toString());
+        instruction += "\n各素材项只提供 id、name、description、category 中适用的字段；引擎引用放在 engines，规则数值放在引擎提案中。"
+                + "素材描述保持简短，整个模板使用紧凑 JSON。";
+        instruction += "\n完整响应示例。按这个字段层级返回，value 解码后的顶层字段为 "
+                + payload.properties().stream().map(Map.Entry::getKey).toList() + "：\n" + response;
         NarrativeSnapshot snapshot = new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "", "", "",
                 List.of(), List.of(), List.of()), List.of()).withWorldbook(book);
         return provider.respond(new NarrativePrompt(instruction, book.toString(), snapshot, "zh-CN"));

@@ -309,10 +309,12 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .attr-grid div { background: var(--surface-soft); border: 1px solid var(--line); border-radius: 6px; padding: 7px; text-align: center; }
 .attr-grid b { display: block; color: var(--muted); font-weight: 400; font-size: 11px; }
 .attr-grid strong { display: block; font-size: 14px; color: var(--accent-strong); margin-top: 2px; font-weight: 500; }
+.vital-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .vital-bar { height: 5px; border-radius: 3px; background: #0b1318; overflow: hidden; margin: 3px 0 10px; }
 .vital-bar i { display: block; height: 100%; border-radius: inherit; transition: width .25s ease; }
 .vital-bar i.hp { background: #bd766b; }
 .vital-bar i.sp { background: #669ea7; }
+.vital-bar i.xp { background: var(--accent); }
 .sub-item { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(43, 60, 67, .6); font-size: 12px; }
 .sub-item:last-child { border-bottom: 0; }
 .sub-item strong { font-weight: 500; color: var(--text); }

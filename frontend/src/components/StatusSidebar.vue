@@ -37,8 +37,11 @@ const locationLabel = computed(() => {
 /** 时间展示文案：第 N 天 · 时段。 */
 const timeLabel = computed(() => `第 ${props.world.day ?? 1} 天 · ${props.world.time || '未知'}`)
 
-/** 计算血条/精神条填充百分比（0~100）。 */
-/** @param current 当前值 @param max 上限值 */
+/**
+ * 计算状态条填充百分比（0~100）。
+ * @param current 当前值
+ * @param max 上限值
+ */
 function pct(current: number, max: number): number {
   if (max <= 0) return 0
   return Math.max(0, Math.min(100, Math.round((current / max) * 100)))
@@ -118,10 +121,20 @@ function questStatusClass(statusKey: string): string {
           <div class="attr-grid">
             <div v-for="stat in character.stats" :key="stat.key"><b>{{ stat.label }}</b><strong>{{ stat.value }}</strong></div>
           </div>
-          <div class="kv-row"><span class="kv-key">生命</span><span class="kv-val">{{ character.hpCurrent }} / {{ character.hpMax }}</span></div>
-          <div class="vital-bar"><i class="hp" :style="{ width: pct(character.hpCurrent, character.hpMax) + '%' }" /></div>
-          <div class="kv-row"><span class="kv-key">精神</span><span class="kv-val">{{ character.spCurrent }} / {{ character.spMax }}</span></div>
-          <div class="vital-bar"><i class="sp" :style="{ width: pct(character.spCurrent, character.spMax) + '%' }" /></div>
+          <div class="vital-pair">
+            <div>
+              <div class="kv-row"><span class="kv-key">生命</span><span class="kv-val">{{ character.hpCurrent }} / {{ character.hpMax }}</span></div>
+              <div class="vital-bar"><i class="hp" :style="{ width: pct(character.hpCurrent, character.hpMax) + '%' }" /></div>
+            </div>
+            <div>
+              <div class="kv-row"><span class="kv-key">精神</span><span class="kv-val">{{ character.spCurrent }} / {{ character.spMax }}</span></div>
+              <div class="vital-bar"><i class="sp" :style="{ width: pct(character.spCurrent, character.spMax) + '%' }" /></div>
+            </div>
+          </div>
+          <template v-if="rulesetId === 'ap' && character.xpToNext > 0">
+            <div class="kv-row"><span class="kv-key">经验</span><span class="kv-val">{{ character.xp }} / {{ character.xpToNext }}</span></div>
+            <div class="vital-bar" aria-hidden="true"><i class="xp" :style="{ width: pct(character.xp, character.xpToNext) + '%' }" /></div>
+          </template>
           <details class="side-sub">
             <summary class="side-row">技能 <em v-if="abilities.length" class="side-count">{{ abilities.length }}</em></summary>
             <div class="sub-body">

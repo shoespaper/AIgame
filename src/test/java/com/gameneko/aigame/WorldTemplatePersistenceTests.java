@@ -8,7 +8,6 @@ import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineCatalog;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
-import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.persistence.FileTemplateRepository;
 import com.gameneko.aigame.persistence.FileWorldbookRepository;
 import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ApState;
@@ -45,13 +44,19 @@ class WorldTemplatePersistenceTests {
         assertEquals(base.registrations(), template.registrations());
         assertTrue(reloaded.availableTemplates().stream().anyMatch(item -> item.id().equals("moon_template")));
         AtomicInteger calls = new AtomicInteger();
-        var worldbuild = new WorldbuildNarrationService(prompt -> calls.incrementAndGet() == 1
-                ? response() : response(update("type", "isekai")), mapper);
-        var session = worldbuild.session("reused");
-        var reused = worldbuild.answer(session, "异世界");
-        assertFalse(reused.collected().containsKey("world_tropes"));
-        assertFalse(reused.collected().containsKey("origin_contexts"));
-        assertFalse(reused.collected().containsKey("tone"));
+        String draft = "# 双月港\n\n从封港之夜开始。";
+        WorldbuildNarrationService worldbuild = new WorldbuildNarrationService((instruction, input) ->
+                switch (calls.incrementAndGet()) {
+                    case 1 -> mapper.valueToTree(Map.of("draft", draft, "reply", "草案已生成。"));
+                    case 2 -> mapper.valueToTree(Map.of("status", "PASS"));
+                    case 3 -> mapper.valueToTree(Map.of("name", "双月港", "type", "isekai"));
+                    default -> throw new AssertionError("unexpected model call");
+                }, mapper, worldFiles, catalog, catalog);
+        WorldbuildNarrationService.Session session = worldbuild.session("generated");
+        WorldbuildNarrationService.Turn accepted = worldbuild.answer(session, "异世界");
+        WorldbookDefinition generated = worldbuild.save(session, accepted.version());
+        assertEquals(draft, catalog(worldFiles, templateFiles).worldBook(generated.id()).narrative().descriptionHint());
+        assertEquals("isekai", generated.type());
         api.saveWorldbook(new GameCatalogController.WorldbookRequest("moon_world", "双月世界", "isekai", "moon_template", "hardcore",
                 "双月之下的世界", List.of(), List.of(), List.of("魔法有代价"), Map.of()));
         var fresh = catalog(worldFiles, templateFiles);
@@ -147,21 +152,4 @@ class WorldTemplatePersistenceTests {
         return new GameCatalogController.WorldbookRequest(id, "测试", type, templateId, tone, "", List.of(), List.of(), List.of(), Map.of());
     }
 
-    /** 创建一个类型化确定字段声明。
-     * @param field 世界构建字段标识
-     * @param value 文本或 JSON 数组文本
-     * @return 字段和值的映射项
-     */
-    private static Map.Entry<String, InitializationValue> update(String field, String value) {
-        return Map.entry(field, new InitializationValue.Text(value));
-    }
-
-    /** 创建只声明确定字段值的模型响应。
-     * @param updates 本轮确定字段值
-     * @return 不包含问题结构的叙事响应
-     */
-    @SafeVarargs
-    private static NarrativeResponse response(Map.Entry<String, InitializationValue>... updates) {
-        return new NarrativeResponse("已记录。", null, List.of(), Map.ofEntries(updates));
-    }
 }

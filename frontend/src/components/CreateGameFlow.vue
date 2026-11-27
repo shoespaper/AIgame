@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { GameCatalog, WorldbookDraft } from '../api/types'
-import { loadGameCatalog, saveWorldbook } from '../api/client'
+import MarkdownIt from 'markdown-it'
+import type { GameCatalog } from '../api/types'
+import { loadGameCatalog } from '../api/client'
 import { useGameStore } from '../stores/game'
 import { useWorldbuildStore } from '../stores/worldbuild'
 
@@ -15,6 +16,7 @@ const customMode = ref(false)
 const worldChat = ref<HTMLElement | null>(null)
 const characterChat = ref<HTMLElement | null>(null)
 const worldAnswer = ref('')
+const worldTab = ref<'draft' | 'chat'>('chat')
 const busy = ref(false)
 const error = ref('')
 const answer = ref('')
@@ -22,19 +24,11 @@ const selection = reactive({ worldId: '', engineId: null as string | null })
 const steps = ['世界', '规则', '角色', '确认']
 const selectedWorld = computed(() => catalog.value?.worlds.find((world) => world.id === selection.worldId) || null)
 const selectedEngine = computed(() => catalog.value?.engines.find((engine) => engine.id === selection.engineId) || null)
-const customWorld = computed<WorldbookDraft>(() => {
-  const values = worldbuild.turn?.collected || {}
-  return {
-    name: String(values.name || ''), type: String(values.type || ''), templateId: '',
-    tone: 'balanced', descriptionHint: String(values.description_hint || ''),
-    factions: Array.isArray(values.factions) ? values.factions as WorldbookDraft['factions'] : [],
-    originContexts: Array.isArray(values.origin_contexts) ? values.origin_contexts as string[] : [],
-    worldTropes: Array.isArray(values.world_tropes) ? values.world_tropes as string[] : [],
-  }
-})
+const markdown = new MarkdownIt({ html: false }).disable('image')
+const worldDraftHtml = computed(() => markdown.render(worldbuild.turn?.draft ?? ''))
 
 /** 新消息和等待状态变化后显示对话底部。 */
-watch(() => [worldbuild.history.length, worldbuild.busy], async () => {
+watch(() => [worldbuild.history.length, worldbuild.busy, worldTab.value], async () => {
   await nextTick()
   const chat = worldChat.value
   if (chat) chat.scrollTop = chat.scrollHeight
@@ -95,30 +89,35 @@ function exitCustomWorld() {
 /** 开启全新的世界构建对话。 */
 async function restartWorldbuild() {
   error.value = ''; worldAnswer.value = ''
+  worldTab.value = 'chat'
   try { await worldbuild.start() }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '无法开始世界构建对话。' }
 }
 
-/** 提交世界构建回答。
- * @param value 玩家文本或点击的中文选项
- */
-async function submitWorldAnswer(value = worldAnswer.value) {
-  if (!value.trim() || worldbuild.busy) return
+/** 发送描述或修改意见，失败时保留输入和上一版草案。 */
+async function submitWorldAnswer() {
+  const input = worldAnswer.value.trim()
+  if (!input || worldbuild.busy || busy.value) return
   error.value = ''
-  try { await worldbuild.answer(value.trim()); worldAnswer.value = '' }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '世界构建回答未通过校验。' }
+  const previousVersion = worldbuild.turn?.version
+  try {
+    await worldbuild.answer(input)
+    worldAnswer.value = ''
+    if (worldbuild.turn?.version !== previousVersion) worldTab.value = 'draft'
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : '世界草案处理失败，请重试。'
+    error.value = worldbuild.turn?.done ? `${message} 上次通过验收的草案仍可继续。` : message
+  }
 }
 
 /** 完成世界构建并进入规则选择，进入前将世界书实例落盘。 */
 async function finishCustomWorld() {
-  if (!worldbuild.turn?.done || busy.value) return
+  if (!worldbuild.turn?.done || busy.value || worldbuild.busy) return
   busy.value = true; error.value = ''
   try {
-    const draft = customWorld.value
-    const result = await saveWorldbook(draft)
+    const result = await worldbuild.save()
+    catalog.value = await loadGameCatalog()
     selection.worldId = result.worldbookId
-    if (catalog.value) catalog.value.worlds.push({ id: result.worldbookId, version: '1.0', name: draft.name,
-      description: draft.descriptionHint, type: draft.type, templateId: draft.templateId, editable: true })
     customMode.value = false
     step.value = 2
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '无法进入规则选择。' }
@@ -200,7 +199,7 @@ onMounted(() => { void loadCatalog() })
 </script>
 
 <template>
-  <section class="onboarding" aria-labelledby="onboarding-title">
+  <section class="onboarding" :class="{ 'onboarding-worldbuild': step === 1 && customMode }" aria-labelledby="onboarding-title">
     <main class="onboarding-card">
       <div class="onboarding-heading">
         <div>
@@ -227,22 +226,43 @@ onMounted(() => { void loadCatalog() })
       <div class="onboarding-pane">
         <template v-if="step === 1">
           <template v-if="customMode">
-            <div class="worldbuild-heading"><div><div class="onboarding-label">和 GM 一起构建世界</div><p>用对话确认世界类型和背景，完成后进入规则选择。</p></div>
-              <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="exitCustomWorld">返回世界书</button></div>
-            <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="restartWorldbuild">重新构建</button>
-            <div ref="worldChat" class="onboarding-chat" aria-live="polite" :aria-busy="worldbuild.busy">
-              <div v-for="message in worldbuild.history" :key="message.id" class="onboarding-message" :class="message.role">
-                <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span><p>{{ message.text }}</p>
+            <div class="worldbuild-heading">
+              <div><h2>和 GM 一起构建世界</h2><p>描述你想玩的世界，也可以继续和 GM 修改草案。</p></div>
+              <div class="worldbuild-actions">
+                <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="exitCustomWorld">返回世界书</button>
+                <button type="button" class="onboarding-secondary" :disabled="worldbuild.busy || busy" @click="restartWorldbuild">重新构建</button>
               </div>
-              <div v-if="worldbuild.busy" class="onboarding-message gm thinking"><span class="loader small" />GM 正在思考…</div>
             </div>
-            <div v-if="worldbuild.turn?.options?.length" class="onboarding-options">
-              <button v-for="option in worldbuild.turn.options" :key="option" type="button" class="onboarding-option" :disabled="worldbuild.busy || busy" @click="submitWorldAnswer(option)">{{ option }}</button>
+            <div class="worldbuild-tabs" aria-label="切换面板">
+              <button type="button" class="onboarding-secondary" :aria-pressed="worldTab === 'draft'" @click="worldTab = 'draft'">世界草案</button>
+              <button type="button" class="onboarding-secondary" :aria-pressed="worldTab === 'chat'" @click="worldTab = 'chat'">GM 对话</button>
             </div>
-            <form v-if="worldbuild.turn" class="onboarding-composer" @submit.prevent="submitWorldAnswer()">
-              <input v-model="worldAnswer" aria-label="回答世界构建 GM" placeholder="描述你希望的世界" :disabled="worldbuild.busy || busy" maxlength="8000" />
-              <button type="submit" class="onboarding-primary" :disabled="worldbuild.busy || busy || !worldAnswer.trim()">{{ worldbuild.busy ? '发送中…' : '回答' }}</button>
-            </form>
+            <div class="worldbuild-layout" :data-tab="worldTab">
+              <section class="worldbuild-panel worldbuild-draft" aria-labelledby="world-draft-heading">
+                <header class="worldbuild-panel-header">
+                  <h3 id="world-draft-heading">世界草案</h3>
+                  <span class="worldbuild-status" :class="{ ready: worldbuild.turn?.done && !worldbuild.busy && !busy }" role="status">
+                    {{ busy ? '正在确认世界类型并保存…' : worldbuild.busy ? '正在整理世界草案…' : worldbuild.turn?.done ? '可进入下一步' : '等待生成' }}
+                  </span>
+                </header>
+                <article v-if="worldDraftHtml" class="worldbuild-document" v-html="worldDraftHtml"></article>
+                <p v-else class="worldbuild-empty">通过验收的草案会显示在这里。</p>
+              </section>
+              <section class="worldbuild-panel worldbuild-conversation" aria-labelledby="world-chat-heading">
+                <header class="worldbuild-panel-header"><h3 id="world-chat-heading">GM 对话</h3></header>
+                <div ref="worldChat" class="onboarding-chat" role="log" :aria-busy="worldbuild.busy">
+                  <p v-if="!worldbuild.history.length" class="worldbuild-empty">试着说说题材或核心冲突，例如「剑与魔法，魔物正在入侵边境」。</p>
+                  <div v-for="message in worldbuild.history" :key="message.id" class="onboarding-message" :class="message.role">
+                    <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span><p>{{ message.text }}</p>
+                  </div>
+                  <div v-if="worldbuild.busy" class="onboarding-message gm thinking"><span class="loader small" />正在整理世界草案…</div>
+                </div>
+                <form class="onboarding-composer worldbuild-composer" @submit.prevent="submitWorldAnswer">
+                  <textarea v-model="worldAnswer" aria-label="给 GM 的消息" rows="2" :placeholder="worldbuild.turn?.done ? '告诉 GM 你想调整什么' : '描述你想玩的世界'" :disabled="!worldbuild.sessionId || worldbuild.busy || busy" maxlength="8000"></textarea>
+                  <button type="submit" class="onboarding-primary" :disabled="!worldbuild.sessionId || worldbuild.busy || busy || !worldAnswer.trim()">发送</button>
+                </form>
+              </section>
+            </div>
           </template>
           <template v-else>
           <div class="onboarding-field">

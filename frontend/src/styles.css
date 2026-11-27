@@ -186,7 +186,37 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .onboarding-option:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); }
 .custom-world-entry { margin-top: 18px; }
 .worldbuild-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.worldbuild-heading h2 { margin: 0 0 5px; font-size: 16px; }
 .worldbuild-heading p { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+.onboarding.onboarding-worldbuild { width: min(1200px, calc(100% - 36px)); }
+.worldbuild-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.worldbuild-tabs { display: none; }
+.worldbuild-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); min-height: 430px; height: min(60vh, 650px); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.worldbuild-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.worldbuild-conversation { background: var(--surface-soft); border-left: 1px solid var(--line); }
+.worldbuild-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 49px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.worldbuild-panel-header h3 { margin: 0; font-size: 14px; }
+.worldbuild-status, .worldbuild-empty { color: var(--muted); font-size: 12px; }
+.worldbuild-status.ready { color: var(--teal); }
+.worldbuild-panel > .worldbuild-empty { margin: 20px; }
+.worldbuild-document { flex: 1; padding: 16px 22px; overflow: auto; overflow-wrap: anywhere; line-height: 1.75; }
+.worldbuild-document > :first-child { margin-top: 0; }
+.worldbuild-document a { color: var(--accent-strong); }
+.worldbuild-document pre { overflow: auto; }
+.worldbuild-conversation .onboarding-chat { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; overflow-wrap: anywhere; }
+.worldbuild-conversation .worldbuild-composer { align-items: flex-end; margin: 0; padding: 12px; border-top: 1px solid var(--line); }
+.worldbuild-composer textarea { flex: 1; min-width: 0; min-height: 46px; max-height: 150px; resize: vertical; }
+.worldbuild-composer button { flex-shrink: 0; }
+.world-choice > span:last-child { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+@media (max-width: 720px) {
+  .onboarding.onboarding-worldbuild { width: calc(100% - 28px); }
+  .worldbuild-tabs { display: flex; gap: 8px; margin: 10px 0; }
+  .worldbuild-tabs [aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); }
+  .worldbuild-layout { grid-template-columns: minmax(0, 1fr); }
+  .worldbuild-conversation { border-left: 0; }
+  .worldbuild-layout[data-tab="draft"] .worldbuild-conversation,
+  .worldbuild-layout[data-tab="chat"] .worldbuild-draft { display: none; }
+}
 @media (max-width: 640px) { .worldbuild-heading { flex-wrap: wrap; } .footer-actions { flex-wrap: wrap; } }
 .onboarding-composer { display: flex; gap: 8px; margin-top: 12px; }
 .onboarding-composer input { min-width: 0; }

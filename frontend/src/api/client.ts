@@ -90,10 +90,6 @@ export async function downloadLogs(): Promise<void> {
 function gamePath(gameId: string): string { return `/games/${encodeURIComponent(gameId)}` }
 export function health(): Promise<{ status: string }> { return request<{ status: string }>('/health') }
 export function loadGameCatalog(): Promise<GameCatalog> { return request<GameCatalog>('/games/initialization/catalog') }
-/** 保存结构化自定义世界书并返回其稳定标识。 */
-export function saveWorldbook(draft: WorldbookDraft): Promise<WorldbookResponse> {
-  return request<WorldbookResponse>('/games/initialization/worldbooks', { method: 'POST', body: JSON.stringify(draft) })
-}
 /** 读取单个世界书的完整叙事内容供编辑。
  * @param id 世界书标识
  */
@@ -141,10 +137,18 @@ export function narrate(gameId: string, expectedRevision: number, playerInput: s
 export function createWorldbuildSession(): Promise<WorldbuildSession> {
   return request('/initialization/worldbuild/sessions', { method: 'POST' })
 }
-/** 回答世界构建 GM 问题。
+/** 提交世界描述或修改意见。
  * @param id 世界构建会话标识
  * @param answer 玩家自然语言回答
  */
 export function answerWorldbuild(id: string, answer: string): Promise<{ done: boolean; turn: WorldbuildTurn }> {
   return request(`/initialization/worldbuild/sessions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ answer }) })
+}
+
+/** 保存指定的已验收草案版本。
+ * @param id 世界构建会话标识
+ * @param version 玩家当前看到的草案版本
+ */
+export function saveWorldbuild(id: string, version: number): Promise<WorldbookResponse> {
+  return request(`/initialization/worldbuild/sessions/${encodeURIComponent(id)}/save`, { method: 'POST', body: JSON.stringify({ version }) })
 }

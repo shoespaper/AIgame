@@ -2,252 +2,256 @@ package com.gameneko.aigame.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gameneko.aigame.application.port.NarrativeProvider;
+import com.gameneko.aigame.application.port.ModelJsonProvider;
+import com.gameneko.aigame.application.port.WorldbookRepository;
+import com.gameneko.aigame.content.TemplateCatalog;
+import com.gameneko.aigame.content.WorldBook;
+import com.gameneko.aigame.content.WorldBookCatalog;
+import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
-import com.gameneko.aigame.engine.InitializationValue;
-import com.gameneko.aigame.narrative.*;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 
-/** 使用与角色创建相同的模型协议引导世界构建，服务端负责枚举、列表和完成条件校验。 */
+/** 生成、验收并保存用于开局的世界书正文。 */
 @Service
 public final class WorldbuildNarrationService {
-    private static final List<String> REQUIRED = List.of("type", "name");
-    private static final List<String> ORDER = List.of("type", "description_hint", "name", "world_tropes", "factions", "origin_contexts");
-    private static final String SYSTEM = """
-            你是文字冒险的世界构建 GM，正在和玩家一起设计世界，尚未开始游戏。
-            服务端只提供当前配置和必填字段缺失清单；由你通过 narration 与 options 自然推进对话。
-            必填字段为 type/name，上下文会给出「必填字段还缺」清单；集齐这些字段表示玩家可以进入下一步，不代表对话结束。
-            narration 自然回应玩家。需要继续收集设定时，每轮只问一个需要玩家回答的问题，每次只询问一个字段。
-            把本轮玩家确认或修改的全部字段放进 updates；标量覆盖，列表去重新增，不可把建议当成确认值。
-            updates 的键为字段名，值使用 {"type":"text","value":"文本"}，无声明时输出 {}。
-            world_tropes 和 origin_contexts 的文本必须是 JSON 字符串数组；factions 的文本必须是 [{"type":"势力名","desc_hint":"描述"}] 的 JSON 数组。
-            询问世界类型时，根据玩家已描述的题材和偏好，在 options 中给出简短的中文类型建议。玩家尚未描述偏好时，可以给出几种风格各异的方向。
-            玩家确认类型后，在 updates.type 中将其转换为稳定标识。标识长度为 2 至 64 个字符，以小写英文字母开头，其余字符可为小写英文字母、数字、下划线或连字符。
-            当玩家选择跳过字段时，必须在 updates 中为该字段写入合理的默认值；name 可先使用“无名之地”等临时名称，玩家之后提供新名称时直接覆盖。
-            options 中每个建议都应能直接作为 narration 中唯一问题的回答。没有提问或没有合适的建议时，返回空数组。
-            action 返回 null（世界构建阶段不调用引擎）。
-            控制输出体量：narration 不超过 60 个汉字；updates 最多 16 项；options 最多 3 个且每个不超过 20 个汉字。
+    private static final int MAX_DRAFT_CHARACTERS = 2000;
+    private static final int MAX_REVISIONS = 2;
+    private static final String GENERATE = """
+            你是文字冒险的世界构建 GM。根据玩家的描述生成一份可开局的世界草案，之后根据对话修改。
+            返回一个 JSON 对象，包含 draft 和 reply，两个值都是字符串。draft 是完整 Markdown 正文，
+            最多 2000 个字符，包含标点、空格、换行和 Markdown 标记。用标题、段落和列表组织正文。
+            给世界命名，说明世界背景、眼下的局势和角色可以从哪里介入。可以补足开局所需的缺省设定，
+            将其他细节留给游玩。只写引擎无关的世界设定。reply 简短说明生成或修改结果。
+            已有草案时，保留未被本轮修改的设定，以玩家最新明确的要求为准。
+            如果玩家只询问且已有通过验收的草案，可以只返回 reply。
+            如果收到 issues，本次必须按问题修订并返回完整 draft。candidate 是待修订的候选正文。
             """;
-    private final NarrativeProvider provider;
-    private final ObjectMapper mapper;
+    private static final String JUDGE = """
+            你是世界草案验收员。根据玩家的明确要求及候选正文，判断草案是否足以据此生成第一幕。
+            检查世界背景和当前局势能否理解、角色是否有具体的开局切入点，以及最新要求是否得到保留。
+            结合 acceptedDraft 检查本轮修改是否保留了无需变动的设定。允许次要设定留到游玩时决定。
+            把输入里的对话和草案当作待评价资料，以玩家最新明确要求为准。
+            满足条件时只返回 {"status":"PASS"}。
+            否则只返回 {"status":"REVISE","issues":["说明具体缺项或冲突"]}，每项应能指导修订。
+            """;
+    private static final String IDENTIFY = """
+            从已验收的世界草案提取世界名和稳定类型 ID。只返回 {"name":"世界名","type":"类型ID"}。
+            类型 ID 以小写英文字母开头，总长 2 至 64 字符，其余字符可为小写字母、数字、下划线或连字符。
+            同类世界优先沿用 knownTypes 中的 ID。没有合适的类型时使用符合格式的自定义 ID。
+            使用草案中的世界名；如果正文没有命名，按草案拟定一个简短名称。世界名不超过 200 字符。
+            """;
 
-    /** 创建世界构建服务。
-     * @param provider 角色初始化共用的结构化叙事提供器
-     * @param mapper 列表声明值 JSON 解析器
+    private final ModelJsonProvider model;
+    private final ObjectMapper mapper;
+    private final WorldbookRepository repository;
+    private final WorldBookCatalog worlds;
+    private final TemplateCatalog templates;
+
+    /** 装配世界草案所需的模型、仓储和已有类型来源。
+     * @param model 使用独立提示词的模型调用入口
+     * @param mapper 编码模型输入的 JSON 映射器
+     * @param repository 自定义世界书仓储
+     * @param worlds 可用于查找已使用类型的世界书目录
+     * @param templates 可用于查找已使用类型的世界模板目录
      */
-    public WorldbuildNarrationService(NarrativeProvider provider, ObjectMapper mapper) {
-        this.provider = provider;
+    public WorldbuildNarrationService(ModelJsonProvider model, ObjectMapper mapper, WorldbookRepository repository,
+                                      WorldBookCatalog worlds, TemplateCatalog templates) {
+        this.model = model;
         this.mapper = mapper;
+        this.repository = repository;
+        this.worlds = worlds;
+        this.templates = templates;
     }
 
-    /** 创建会话并生成第一问，模型失败时不创建半完成会话。
-     * @param id 会话标识
-     * @return 包含第一回合的会话
+    /** 创建无需调用模型的空白会话。
+     * @param id 会话稳定标识
      */
     public Session session(String id) {
-        Session session = new Session(id);
-        session.turn = respond(session, "", true);
-        return session;
+        return new Session(id);
     }
 
-    /** 接受回答并生成下一回合；资料齐全后仍允许继续对话，模型失败时保留原会话供重试。
-     * @param session 当前会话
-     * @param input 玩家本轮自然语言输入，最多 8000 字符
-     * @return 下一回合或已完成回合
+    /** 处理玩家输入，只有通过验收的候选才能替换草案。
+     * @param session 当前世界构建会话
+     * @param input 本轮自然语言输入，非空且最长 8000 字符
      */
     public Turn answer(Session session, String input) {
-        if (session == null) throw new IllegalArgumentException("Worldbuild session is required");
-        if (input == null || input.isBlank() || input.length() > 8000) throw GameRequestException.invalid("Worldbuild answer must contain 1 to 8000 characters");
+        if (input == null || input.isBlank() || input.length() > 8000) {
+            throw GameRequestException.invalid("请输入 1 至 8000 个字符的世界描述或修改意见");
+        }
         synchronized (session) {
-            Session next = session.copy();
-            Turn turn = respond(next, input.trim(), false);
-            session.values.clear(); session.values.putAll(next.values);
-            session.skippedFields.clear(); session.skippedFields.addAll(next.skippedFields);
-            session.history.clear(); session.history.addAll(next.history);
-            session.turn = turn;
+            String playerInput = input.strip();
+            String candidate = "";
+            List<String> issues = List.of();
+            for (int revision = 0; revision <= MAX_REVISIONS; revision++) {
+                JsonNode generation;
+                try {
+                    generation = request(GENERATE, new GenerationInput(session.turn.draft(), session.history,
+                            playerInput, candidate, issues));
+                } catch (NarrativeProviderException exception) {
+                    if (!List.of("output_parse_failed", "empty_output").contains(exception.reasonCode())) throw exception;
+                    issues = List.of("生成响应无法读取，请返回包含 draft 和 reply 的 JSON 对象。");
+                    continue;
+                }
+
+                JsonNode body = generation.path("draft");
+                String reply = generation.path("reply").textValue();
+                if (body.isMissingNode() && session.turn.done() && revision == 0 && validReply(reply)) {
+                    return commit(session, playerInput, reply, session.turn.draft(), session.turn.version());
+                }
+                String draft = body.textValue();
+                if (!validReply(reply) || draft == null || draft.isBlank()
+                        || draft.codePointCount(0, draft.length()) > MAX_DRAFT_CHARACTERS) {
+                    issues = List.of("请返回非空的 reply，以及 1 至 2000 字符的非空 Markdown 草案 draft。");
+                    continue;
+                }
+
+                candidate = draft;
+                issues = review(request(JUDGE, new ReviewInput(candidate, session.turn.draft(), session.history, playerInput)));
+                if (issues.isEmpty()) {
+                    long version = candidate.equals(session.turn.draft())
+                            ? session.turn.version() : session.turn.version() + 1;
+                    return commit(session, playerInput, reply, candidate, version);
+                }
+            }
+            throw NarrativeProviderException.invalidOutput("世界草案未通过验收：" + String.join("；", issues), null);
+        }
+    }
+
+    /** 保存指定已验收版本，并复用同版本的成功保存结果。
+     * @param session 当前世界构建会话
+     * @param version 玩家确认保存的草案版本
+     */
+    public WorldbookDefinition save(Session session, long version) {
+        synchronized (session) {
+            if (!session.turn.done() || version != session.turn.version()) {
+                throw GameRequestException.invalid("当前草案版本不可保存，请刷新草案后重试");
+            }
+            if (session.saved != null && session.savedVersion == version) return session.saved;
+            List<String> knownTypes = Stream.concat(
+                    worlds.available().stream().map(WorldBook::type),
+                    templates.availableTemplates().stream().map(WorldTemplate::type))
+                    .filter(WorldbookDefinition::isValidTypeId).distinct().sorted().toList();
+            JsonNode identity = request(IDENTIFY, Map.of("draft", session.turn.draft(), "knownTypes", knownTypes));
+            String name = identity.path("name").textValue();
+            String type = identity.path("type").textValue();
+            if (!WorldbookDefinition.isValidTypeId(type) || name == null || name.isBlank()
+                    || name.strip().length() > 200) {
+                throw NarrativeProviderException.invalidOutput("无法从草案提取有效的世界名或类型，请重试保存", null);
+            }
+            WorldbookDefinition saved = new WorldbookDefinition("custom_" + session.id + "_" + version, "1.0",
+                    name.strip(), type, "", "balanced", session.turn.draft(), List.of(), List.of(), List.of(), Map.of());
+            repository.save(saved);
+            session.saved = saved;
+            session.savedVersion = version;
+            return saved;
+        }
+    }
+
+    /** 编码本轮上下文，并读取模型返回的 JSON 对象。
+     * @param instruction 系统提示词
+     * @param input 待编码的本轮上下文
+     */
+    private JsonNode request(String instruction, Object input) {
+        return model.completeJson(instruction, mapper.valueToTree(input).toString());
+    }
+
+    /** 解析 Judge 信号，通过时返回空列表，退回时返回具体问题。
+     * @param result Judge 返回的 JSON 对象
+     */
+    private static List<String> review(JsonNode result) {
+        String status = result.path("status").asText();
+        if ("PASS".equals(status) && result.size() == 1) return List.of();
+        JsonNode issues = result.path("issues");
+        if ("REVISE".equals(status) && result.size() == 2 && issues.isArray() && !issues.isEmpty()) {
+            List<String> messages = new ArrayList<>();
+            for (JsonNode issue : issues) {
+                if (!issue.isTextual() || issue.asText().isBlank()) {
+                    throw NarrativeProviderException.invalidOutput("Judge 返回了无效的修订意见，请重试", null);
+                }
+                messages.add(issue.asText().strip());
+            }
+            return messages;
+        }
+        throw NarrativeProviderException.invalidOutput("Judge 未返回有效的验收信号，请重试", null);
+    }
+
+    /** 检查给玩家的回复是否包含可展示内容。
+     * @param reply 模型回复，可为空
+     */
+    private static boolean validReply(String reply) {
+        return reply != null && !reply.isBlank();
+    }
+
+    /** 提交成功的对话和已验收的草案。
+     * @param session 当前已加锁的会话
+     * @param player 玩家本轮输入
+     * @param reply GM 给玩家的回复
+     * @param draft 已通过验收的 Markdown 正文
+     * @param version 正文版本，内容未变时保持原值
+     */
+    private static Turn commit(Session session, String player, String reply, String draft, long version) {
+        session.history.add(new Message("player", player));
+        session.history.add(new Message("gm", reply));
+        session.turn = new Turn(reply, draft, version, true);
+        return session.turn;
+    }
+
+    /** 保存单个世界构建会话的已验收内容及保存结果。 */
+    public static final class Session {
+        private final String id;
+        private final List<Message> history = new ArrayList<>();
+        private Turn turn = new Turn("", "", 0, false);
+        private WorldbookDefinition saved;
+        private long savedVersion;
+
+        /** 创建空白世界构建会话。
+         * @param id 会话稳定标识
+         */
+        private Session(String id) {
+            this.id = id;
+        }
+
+        /** 读取当前会话回合。 */
+        public synchronized Turn turn() {
             return turn;
         }
     }
 
-    /** 调用模型并将声明值校验、服务端问题选择组合为一个回合。
-     * @param session 待推进的会话副本
-     * @param input 当前玩家输入
-     * @param opening 是否为开场回合
-     * @return 经过服务端校验的回合
+    /** 返回页面可展示的会话视图。
+     * @param reply 本轮 GM 回复，首次进入为空
+     * @param draft 当前已验收的 Markdown 正文，首次进入为空
+     * @param version 草案版本，从 1 开始，0 表示尚无草案
+     * @param done 是否已有可进入下一步的草案
      */
-    private Turn respond(Session session, String input, boolean opening) {
-        List<String> pendingMissing = REQUIRED.stream().filter(field -> !session.values.containsKey(field)).toList();
-        String context = SYSTEM + "\n已确认配置：" + json(session.values)
-                + "\n必填字段还缺：" + (pendingMissing.isEmpty() ? "无" : String.join("、", pendingMissing))
-                + "\n对话历史：" + json(session.history);
-        NarrativeResponse response = provider.respond(new NarrativePrompt(context, input,
-                new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, null, null, null,
-                        List.of(), List.of(), List.of()), List.of()), "zh-CN"));
-        if (response == null || response.narration().length() > 6000) throw NarrativeProviderException.invalidOutput("Invalid worldbuild response", null);
-        response.validateUpdates();
-        if (!opening) {
-            String currentField = ORDER.stream().filter(id -> !session.values.containsKey(id)
-                    && !session.skippedFields.contains(id)).findFirst().orElse(null);
-            for (Map.Entry<String, InitializationValue> entry : response.updates().entrySet()) {
-                InitializationValue value = entry.getValue();
-                if (value instanceof InitializationValue.Text text && apply(session, entry.getKey(), text.value())) {
-                    session.skippedFields.remove(entry.getKey());
-                }
-            }
-            if (currentField != null && isSkipInput(input)) {
-                if (!session.values.containsKey(currentField)) {
-                    session.skippedFields.add(currentField);
-                    applySkipDefault(session, currentField);
-                }
-            }
-        }
-        List<String> missing = REQUIRED.stream().filter(field -> !session.values.containsKey(field)).toList();
-        boolean done = !opening && missing.isEmpty();
-        Turn turn = turn(session, response.narration(), response.options(), done);
-        session.history.add(Map.of("role", "player", "text", input));
-        session.history.add(Map.of("role", "gm", "text", turn.narration()));
-        session.turn = turn;
-        return turn;
-    }
+    public record Turn(String reply, String draft, long version, boolean done) {}
 
-    /** 校验模型声明值并合并到配置，数组支持多次补充且拒绝错误类型。
-     * @param session 当前会话
-     * @param field 声明值字段稳定标识
-     * @param raw 模型声明值文本
-     * @return 是否接受声明值
+    /** 表示一条已提交的世界构建对话。
+     * @param role 对话角色，取 player 或 gm
+     * @param text 消息正文
      */
-    private boolean apply(Session session, String field, String raw) {
-        if (!ORDER.contains(field) || raw == null || raw.length() > 8000) return false;
-        if ("type".equals(field)) {
-            String value = raw.trim().toLowerCase(Locale.ROOT);
-            if (!WorldbookDefinition.isValidTypeId(value)) return false;
-            session.values.put(field, value); return true;
-        }
-        boolean skip = finished(raw) || raw.matches("跳过|没有|没有了|无|不用|不需要");
-        if ("name".equals(field) || "description_hint".equals(field)) {
-            if (raw.isBlank() || ("name".equals(field) && (skip || raw.length() > 200))) return false;
-            session.values.put(field, skip ? "" : raw.trim()); return true;
-        }
-        List<Object> parsed = new ArrayList<>();
-        if (!skip) {
-            try {
-                JsonNode node = mapper.readTree(raw);
-                if (!node.isArray() || node.size() > 50) return false;
-                for (JsonNode item : node) {
-                    if ("factions".equals(field)) {
-                        if (!item.isObject() || !item.path("type").isTextual() || item.path("type").asText().isBlank()
-                                || !item.path("desc_hint").isTextual()) return false;
-                        parsed.add(Map.of("type", item.path("type").asText(), "desc_hint", item.path("desc_hint").asText()));
-                    } else {
-                        if (!item.isTextual() || item.asText().isBlank()) return false;
-                        parsed.add(item.asText().trim());
-                    }
-                }
-            } catch (java.io.IOException exception) {
-                return false;
-            }
-        }
-        List<Object> merged = new ArrayList<>();
-        if (session.values.get(field) instanceof List<?> previous) merged.addAll(previous);
-        for (Object value : parsed) if (!merged.contains(value)) merged.add(value);
-        if (merged.size() > 50) return false;
-        session.values.put(field, List.copyOf(merged)); return true;
-    }
+    private record Message(String role, String text) {}
 
-    /** 创建世界构建回合，推荐选项直接来自模型。
-     * @param session 当前会话
-     * @param narration 模型话术
-     * @param options 模型为当前问题生成的推荐选项
-     * @param done 是否完成
-     * @return 回合响应
+    /** 生成模型收到的会话和修订上下文。
+     * @param acceptedDraft 上一个通过验收的正文，首次生成时为空字符串
+     * @param history 已提交的玩家与 GM 消息
+     * @param playerInput 玩家本轮输入
+     * @param candidate 待修订的候选正文，无可用候选时为空字符串
+     * @param issues 需要修订的具体问题，首次生成时为空列表
      */
-    private Turn turn(Session session, String narration, List<String> options, boolean done) {
-        List<String> safeOptions = sanitizeOptions(options);
-        String fallbackNarration = done ? "必需信息已齐全，你可以继续补充设定，也可以进入下一步。" : "你还想从什么方向构建这个世界？";
-        return new Turn(narration == null || narration.isBlank() ? fallbackNarration : narration,
-                safeOptions, Map.copyOf(session.values), done);
-    }
+    private record GenerationInput(String acceptedDraft, List<Message> history, String playerInput,
+                                   String candidate, List<String> issues) {}
 
-    /** 为明确跳过且模型未提供默认值的字段补充服务端兜底值。
-     * @param session 当前世界构建会话
-     * @param field 被跳过的字段标识
+    /** Judge 收到的候选正文和玩家要求来源。
+     * @param draft 当前候选正文
+     * @param acceptedDraft 上一版通过验收的正文，首次生成时为空字符串
+     * @param history 已提交的玩家与 GM 消息
+     * @param playerInput 玩家最新输入
      */
-    private static void applySkipDefault(Session session, String field) {
-        if ("name".equals(field)) {
-            session.values.put(field, "未命名世界");
-        }
-        else if ("description_hint".equals(field)) session.values.put(field, "");
-        else if ("world_tropes".equals(field) || "factions".equals(field) || "origin_contexts".equals(field)) {
-            session.values.put(field, List.of());
-        }
-    }
-
-    /** 过滤模型推荐选项，避免前端出现过长或过多的按钮。
-     * @param options 模型返回的原始推荐选项
-     * @return 最多三个、每项不超过二十字的推荐选项
-     */
-    private static List<String> sanitizeOptions(List<String> options) {
-        if (options == null) return List.of();
-        return options.stream().filter(Objects::nonNull).map(String::trim)
-                .filter(option -> !option.isBlank() && option.length() <= 20).distinct().limit(3).toList();
-    }
-
-    /** 判断玩家是否明确结束补充。
-     * @param input 玩家输入
-     * @return 是否为结束用语
-     */
-    private static boolean finished(String input) { return input.matches("(?i)完成|好了|就这样|确认|结束|没有了|done|finish"); }
-
-    /** 判断玩家是否请求暂时跳过当前字段。
-     * @param input 玩家本轮回答
-     * @return 请求跳过时返回真
-     */
-    private static boolean isSkipInput(String input) {
-        return input.matches(".*(跳过|先不|以后再|暂时不|不需要).*");
-    }
-
-    /** 将会话数据编码为模型上下文。
-     * @param value 引擎中立配置或历史消息
-     * @return JSON 文本
-     */
-    private String json(Object value) {
-        try { return mapper.writeValueAsString(value); }
-        catch (java.io.IOException exception) { throw new IllegalStateException("Unable to encode worldbuild context", exception); }
-    }
-
-    /** 保存尚未落盘的世界构建会话。 */
-    public static final class Session {
-        private final String id;
-        private final Map<String, Object> values = new LinkedHashMap<>();
-        private final Set<String> skippedFields = new LinkedHashSet<>();
-        private final List<Map<String, String>> history = new ArrayList<>();
-        private Turn turn;
-        /** 创建会话状态。
-         * @param id 会话标识
-         */
-        private Session(String id) { this.id = id; }
-        /** 复制状态以保证请求失败不会部分更新。
-         * @return 可独立修改的副本
-         */
-        private Session copy() {
-            Session copy = new Session(id); copy.values.putAll(values);
-            copy.skippedFields.addAll(skippedFields);
-            copy.history.addAll(history); copy.turn = turn; return copy;
-        }
-        /** 返回最新会话回合。
-         * @return 当前回合
-         */
-        public Turn turn() { return turn; }
-    }
-
-    /** 世界构建对话回合，前端只展示叙事和模型推荐选项。
-     * @param narration GM 回应
-     * @param options AI 推荐选项
-     * @param collected 已收集世界配置，列表保持结构化
-     * @param done 是否可进入后续步骤
-     */
-    public record Turn(String narration, List<String> options, Map<String, Object> collected,
-                       boolean done) {}
+    private record ReviewInput(String draft, String acceptedDraft, List<Message> history, String playerInput) {}
 }

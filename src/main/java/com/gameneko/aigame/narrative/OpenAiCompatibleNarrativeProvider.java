@@ -1,6 +1,7 @@
 package com.gameneko.aigame.narrative;
 
 import com.gameneko.aigame.application.NarrativeRuntimeSettingsService;
+import com.gameneko.aigame.application.port.ModelJsonProvider;
 import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.ActionIntent;
 import com.gameneko.aigame.logging.DiagnosticLog;
@@ -21,9 +22,10 @@ import java.net.http.HttpTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /** OpenAI Chat Completions 兼容服务的结构化叙事适配器，带瞬时错误重试、截断自动扩容与明确失败。 */
-public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvider {
+public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvider, ModelJsonProvider {
     private static final int MAX_ATTEMPTS = 3;
     private final RestClient client;
     private final ObjectMapper objectMapper;
@@ -60,13 +62,45 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
      */
     @Override
     public NarrativeResponse respond(NarrativePrompt prompt) {
+        return complete(call -> {
+            String system = prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION;
+            String user;
+            try {
+                user = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
+            } catch (IOException exception) {
+                call.systemMessage = system;
+                throw call.failure("无法编码叙事请求", false, exception, "request_encoding_failed");
+            }
+            return toResponse(readStrict(request(system, user, call)));
+        }, result -> result.action() == null ? null : result.action().type());
+    }
+
+    /** 使用独立提示词请求 JSON 对象，并沿用模型重试和日志。
+     * @param instruction 约定输出格式的系统提示词
+     * @param input 已序列化的用户消息
+     */
+    @Override
+    public JsonNode completeJson(String instruction, String input) {
+        return complete(call -> readObject(request(instruction, input, call)), result -> null);
+    }
+
+    /** 执行模型请求、解析响应并逐轮记录诊断。
+     * @param operation 读取并解析单次调用的操作
+     * @param actionType 可从业务结果提取的动作类型
+     * @param <T> 业务响应类型
+     */
+    private <T> T complete(ModelOperation<T> operation, Function<T, String> actionType) {
         int budget = maxTokens;
         for (int attempt = 1; ; attempt++) {
             CallAttempt call = new CallAttempt(attempt, budget, System.nanoTime());
             try {
-                NarrativeResponse result = doRespond(prompt, call);
-                String actionType = result.action() == null ? null : result.action().type();
-                DiagnosticLog.modelAttempt(metrics(call, actionType), "success", null, null);
+                T result;
+                try {
+                    result = operation.run(call);
+                } catch (IOException | IllegalArgumentException exception) {
+                    throw call.failure("模型返回的内容无法解析", false, exception, "output_parse_failed");
+                }
+                DiagnosticLog.modelAttempt(metrics(call, actionType.apply(result)), "success", null, null);
                 return result;
             } catch (NarrativeProviderException exception) {
                 String reason = exception.reasonCode();
@@ -94,17 +128,14 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         }
     }
 
-    /** 执行一次模型调用，采集状态和用量，并将响应转换为叙事结果。
-     * @param prompt 本次叙事提示
+    /** 发送模型请求并返回模型回复原文。
+     * @param system 系统提示词
+     * @param user 模型实际收到的用户消息
      * @param call 本次调用的诊断数据与输出 token 预算
      */
-    private NarrativeResponse doRespond(NarrativePrompt prompt, CallAttempt call) {
-        call.systemMessage = prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION;
-        try {
-            call.userMessage = objectMapper.writeValueAsString(new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history()));
-        } catch (IOException exception) {
-            throw call.failure("无法编码叙事请求", false, exception, "request_encoding_failed");
-        }
+    private String request(String system, String user, CallAttempt call) {
+        call.systemMessage = system;
+        call.userMessage = user;
         ChatRequest request = new ChatRequest(model, List.of(
                 new ChatMessage("system", call.systemMessage), new ChatMessage("user", call.userMessage)), call.budget,
                 NarrativeProviderConfiguration.jsonObjectResponseFormat(objectMapper));
@@ -151,11 +182,18 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         }
         String content = call.modelResponse;
         if (content == null || content.isBlank()) throw call.failure("模型返回了空内容", false, null, "empty_output");
-        try {
-            return toResponse(readStrict(content));
-        } catch (IOException | IllegalArgumentException exception) {
-            throw call.failure("模型返回的内容无法解析", false, exception, "output_parse_failed");
-        }
+        return content;
+    }
+
+    /** 读取单次调用的业务结果。
+     * @param <T> 业务响应类型
+     */
+    @FunctionalInterface
+    private interface ModelOperation<T> {
+        /** 执行请求并解析响应。
+         * @param call 当前尝试的诊断数据
+         */
+        T run(CallAttempt call) throws IOException;
     }
 
     /** 提取本次尝试的指标以及发往模型的消息和收到的原文。
@@ -173,14 +211,22 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     /** 解析模型 JSON：剥离代码围栏并截取首个对象，容忍未知字段但拒绝重复键。 */
     /** @param content 模型返回的文本 */
     WireResponse readStrict(String content) throws IOException {
-        String json = extractJson(content);
-        try (JsonParser parser = objectMapper.getFactory().createParser(json)) {
+        return objectMapper.readerFor(WireResponse.class)
+                .without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .readValue(readObject(content));
+    }
+
+    /** 读取单个 JSON 对象并拒绝重复键。
+     * @param content 模型返回的原始文本
+     */
+    private JsonNode readObject(String content) throws IOException {
+        try (JsonParser parser = objectMapper.getFactory().createParser(extractJson(content))) {
             parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
             JsonNode tree = objectMapper.readTree(parser);
-            if (tree == null || parser.nextToken() != null) throw new IllegalArgumentException("叙事 JSON 必须且只能包含一个根对象");
-            return objectMapper.readerFor(WireResponse.class)
-                    .without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                    .readValue(tree);
+            if (tree == null || !tree.isObject() || parser.nextToken() != null) {
+                throw new IllegalArgumentException("叙事 JSON 必须且只能包含一个根对象");
+            }
+            return tree;
         }
     }
 

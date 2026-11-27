@@ -62,11 +62,11 @@ export interface InitializationAnswerResult { done: boolean; turn: Initializatio
 /** 创建游戏的开场结果。模板三次校验失败时，templateBuildFailed 为 true。 */
 export interface InitializationFinalizeResult { game: GameInstanceResponse; opening: NarrativeResponse; templateBuildFailed: boolean }
 
-/** 世界构建回合；配置中的列表保持结构化。 */
+/** 世界构建回合，包含后端已验收的 Markdown 草案及版本。 */
 export interface WorldbuildTurn {
-  narration: string
-  options: string[]
-  collected: Record<string, JsonValue>
+  reply: string
+  draft: string
+  version: number
   done: boolean
 }
 export interface WorldbuildSession { id: string; turn: WorldbuildTurn }

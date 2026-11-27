@@ -1,8 +1,8 @@
 package com.gameneko.aigame.api;
 
 import com.gameneko.aigame.application.GameRequestException;
-
 import com.gameneko.aigame.application.WorldbuildNarrationService;
+import com.gameneko.aigame.content.WorldbookDefinition;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,7 +28,7 @@ public final class WorldbuildSessionController {
     }
 
     /** 创建世界构建会话。
-     * @return 会话标识和第一回合
+     * @return 会话标识及初始空白状态
      */
     @PostMapping
     public SessionResponse create() {
@@ -46,9 +46,20 @@ public final class WorldbuildSessionController {
     @PostMapping("/{id}/answer")
     public AnswerResponse answer(@PathVariable String id, @RequestBody AnswerRequest request) {
         if (request == null || request.answer() == null) throw GameRequestException.invalid("Answer is required");
-        var session = require(id);
-        var turn = worldbuild.answer(session, request.answer());
+        WorldbuildNarrationService.Turn turn = worldbuild.answer(require(id), request.answer());
         return new AnswerResponse(turn.done(), turn);
+    }
+
+    /** 将当前已通过验收的草案保存为世界书。
+     * @param id 会话标识
+     * @param request 玩家确认保存的版本
+     * @return 新世界书标识
+     */
+    @PostMapping("/{id}/save")
+    public SaveResponse save(@PathVariable String id, @RequestBody SaveRequest request) {
+        if (request == null) throw GameRequestException.invalid("草案版本不能为空");
+        WorldbookDefinition worldbook = worldbuild.save(require(id), request.version());
+        return new SaveResponse(worldbook.id());
     }
 
     /** 读取内存世界构建会话。
@@ -56,14 +67,14 @@ public final class WorldbuildSessionController {
      * @return 当前会话
      */
     private WorldbuildNarrationService.Session require(String id) {
-        var session = sessions.get(id);
+        WorldbuildNarrationService.Session session = sessions.get(id);
         if (session == null) throw new GameRequestException(GameRequestException.Code.SESSION_NOT_FOUND, "Worldbuild session not found: " + id);
         return session;
     }
 
     /** 世界构建会话创建响应。
      * @param id 会话标识
-     * @param turn 第一回合
+     * @param turn 初始空白状态
      */
     public record SessionResponse(String id, WorldbuildNarrationService.Turn turn) {}
 
@@ -78,4 +89,14 @@ public final class WorldbuildSessionController {
      * @param turn 最新回合
      */
     public record AnswerResponse(boolean done, WorldbuildNarrationService.Turn turn) {}
+
+    /** 保存已验收的草案版本。
+     * @param version 玩家当前看到的草案版本
+     */
+    public record SaveRequest(long version) {}
+
+    /** 返回可用于后续初始化的世界书标识。
+     * @param worldbookId 已保存的世界书标识
+     */
+    public record SaveResponse(String worldbookId) {}
 }

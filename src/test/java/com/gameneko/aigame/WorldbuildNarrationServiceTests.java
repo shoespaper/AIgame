@@ -1,165 +1,129 @@
 package com.gameneko.aigame;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.WorldbuildNarrationService;
-import com.gameneko.aigame.application.port.NarrativeProvider;
-import com.gameneko.aigame.engine.InitializationValue;
-import com.gameneko.aigame.narrative.*;
+import com.gameneko.aigame.application.port.WorldbookRepository;
+import com.gameneko.aigame.content.TemplateCatalog;
+import com.gameneko.aigame.content.WorldBookCatalog;
+import com.gameneko.aigame.content.WorldTemplate;
+import com.gameneko.aigame.content.WorldbookDefinition;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/** 验证世界构建对话的 AI 声明驱动收集、枚举校验、列表合并、模板复用和失败重试。 */
+/** 验证世界草案验收、版本和保存协议。 */
 class WorldbuildNarrationServiceTests {
     private final ObjectMapper mapper = new ObjectMapper();
+    private final WorldbookRepository repository = mock(WorldbookRepository.class);
+    private final WorldBookCatalog worlds = mock(WorldBookCatalog.class);
+    private final TemplateCatalog templates = mock(TemplateCatalog.class);
 
-    /** 验证字段值由 AI 声明驱动，必填字段依次收集，非法枚举声明被服务端拒绝。 */
+    /** 验证正文长度边界、自动修订和有效 Judge 信号。 */
     @Test
-    void requiredFieldsCollectedFromUpdatesAndEnumsValidated() {
-        var service = new WorldbuildNarrationService(prompt -> {
-            String input = prompt.userInput();
-            if (input.contains("蒸汽")) return response(update("type", "蒸汽朋克"));
-            if (input.contains("异世界")) return response(update("type", "isekai"));
-            if (input.contains("改名")) return response(update("name", "灰烬王座"));
-            if (input.contains("群星")) return response(update("name", "群星之城"));
-            return response();
-        }, mapper);
-        var session = service.session("required");
+    void revisesInvalidLengthAndJudgeIssuesWithinOneAnswer() {
+        String boundary = "荒".repeat(1997) + "。\n🌙";
+        Deque<ModelCall> calls = new ArrayDeque<>();
+        calls.add(new ModelCall("世界构建 GM", null, generation(boundary + "！")));
+        calls.add(new ModelCall("世界构建 GM", "2000", generation("背景与当前局势")));
+        calls.add(new ModelCall("世界草案验收员", "背景与当前局势",
+                mapper.valueToTree(Map.of("status", "REVISE", "issues", List.of("缺少开局切入点")))));
+        calls.add(new ModelCall("世界构建 GM", "缺少开局切入点", generation(boundary)));
+        calls.add(new ModelCall("世界草案验收员", null, pass()));
+        WorldbuildNarrationService service = service(calls);
+        WorldbuildNarrationService.Session session = service.session("boundary");
         assertFalse(session.turn().done());
 
-        var invalid = service.answer(session, "蒸汽朋克");
-        assertFalse(invalid.collected().containsKey("type"));
-
-        var type = service.answer(session, "异世界");
-        assertEquals("isekai", type.collected().get("type"));
-        assertFalse(type.done());
-
-        var name = service.answer(session, "群星之城");
-        assertTrue(name.done());
-        var renamed = service.answer(session, "我想改名");
-        assertTrue(renamed.done());
-        assertEquals("灰烬王座", renamed.collected().get("name"));
+        WorldbuildNarrationService.Turn turn = service.answer(session, "帮我构建异世界");
+        assertTrue(turn.done());
+        assertEquals(boundary, turn.draft());
+        assertEquals(1L, turn.version());
+        assertTrue(calls.isEmpty());
     }
 
-    /** 验证模型可以按服务端顺序提问并结构化合并多轮规则、势力与出身，非法声明不进入配置。 */
+    /** 验证纯对话沿用已验收版本，非法 Judge 信号无法覆盖旧稿。 */
     @Test
-    void schemaQuestionsCollectStructuredListsAndIgnoreInvalidUpdates() {
-        var responses = new ArrayDeque<>(List.of(response(),
-                response(update("type", "isekai")),
-                response(update("world_tropes", "[\"双月\",\"魔法有代价\"]")),
-                response(update("factions", "[{\"type\":\"联盟\",\"desc_hint\":\"守护双月\"}]")),
-                response(update("name", "群星之城"), update("world_tropes", "[\"魔法有代价\",\"潮汐变幻\"]"), update("origin_contexts", "[\"流亡者\"]"))));
-        var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper);
-        var session = service.session("lists");
-        service.answer(session, "异世界");
-        service.answer(session, "双月，魔法有代价");
-        service.answer(session, "联盟守护双月");
-        service.answer(session, "群星之城，补充潮汐变幻，流亡者开局");
-        var done = session.turn();
-        assertTrue(done.done());
-        assertEquals(List.of("双月", "魔法有代价", "潮汐变幻"), done.collected().get("world_tropes"));
-        assertEquals(List.of(Map.of("type", "联盟", "desc_hint", "守护双月")), done.collected().get("factions"));
-        assertEquals(List.of("流亡者"), done.collected().get("origin_contexts"));
+    void retainsAcceptedDraftOnQuestionsAndFailedReview() {
+        Deque<ModelCall> calls = new ArrayDeque<>();
+        calls.add(new ModelCall("世界构建 GM", null, generation("已验收草案")));
+        calls.add(new ModelCall("世界草案验收员", null, pass()));
+        calls.add(new ModelCall("世界构建 GM", null, mapper.valueToTree(Map.of("reply", "公会各自筹粮。"))));
+        calls.add(new ModelCall("世界构建 GM", null, generation("尚未验收的修改")));
+        calls.add(new ModelCall("世界草案验收员", null, mapper.valueToTree(Map.of("status", "ALLOW"))));
+        WorldbuildNarrationService service = service(calls);
+        WorldbuildNarrationService.Session session = service.session("review");
+        WorldbuildNarrationService.Turn accepted = service.answer(session, "松散的公会");
+        WorldbuildNarrationService.Turn discussion = service.answer(session, "公会为什么难以合作？");
+        assertEquals(accepted.version(), discussion.version());
+        assertEquals(accepted.draft(), discussion.draft());
+        assertThrows(NarrativeProviderException.class, () -> service.answer(session, "换个开局"));
+        assertSame(discussion, session.turn());
+        assertTrue(calls.isEmpty());
     }
 
-    /** 验证外部模型失败后不会部分写入答案，且下一次请求仍可重试。 */
+    /** 验证保存时提取身份、失败后可重试、成功后可重放。 */
     @Test
-    void providerFailureLeavesSessionUnchanged() {
-        AtomicInteger calls = new AtomicInteger();
-        NarrativeProvider provider = prompt -> {
-            int call = calls.incrementAndGet();
-            if (call == 2) throw new NarrativeProviderException("暂时失败", true);
-            if (call == 1) return response();
-            return response(update("type", "fantasy"));
-        };
-        var service = new WorldbuildNarrationService(provider, mapper);
-        var session = service.session("retry");
-        assertThrows(NarrativeProviderException.class, () -> service.answer(session, "奇幻"));
-        assertTrue(session.turn().collected().isEmpty());
-        assertEquals("fantasy", service.answer(session, "奇幻").collected().get("type"));
+    void extractsTypeOnlyWhenSavingTheAcceptedVersion() {
+        when(worlds.available()).thenReturn(List.of());
+        when(templates.availableTemplates()).thenReturn(List.of(WorldTemplate.empty("isekai", "异世界")));
+        Deque<ModelCall> calls = new ArrayDeque<>();
+        calls.add(new ModelCall("世界构建 GM", null, generation("# 双月城\n\n双月初升，港口封锁。")));
+        calls.add(new ModelCall("世界草案验收员", null, pass()));
+        calls.add(new ModelCall("稳定类型 ID", "isekai", mapper.valueToTree(Map.of("name", "双月城", "type", "异世界"))));
+        calls.add(new ModelCall("稳定类型 ID", "isekai", mapper.valueToTree(Map.of("name", "双月城", "type", "isekai"))));
+        WorldbuildNarrationService service = service(calls);
+        WorldbuildNarrationService.Session session = service.session("saving");
+        WorldbuildNarrationService.Turn turn = service.answer(session, "双月照耀的异世界");
+        assertThrows(GameRequestException.class, () -> service.save(session, 0));
+        assertThrows(NarrativeProviderException.class, () -> service.save(session, turn.version()));
+        assertSame(turn, session.turn());
+
+        WorldbookDefinition saved = service.save(session, turn.version());
+        assertEquals("isekai", saved.type());
+        assertEquals(turn.draft(), saved.descriptionHint());
+        assertSame(saved, service.save(session, turn.version()));
+        verify(repository).save(saved);
+        assertTrue(calls.isEmpty());
     }
 
-    /** 验证非法列表声明不会进入配置，玩家明确跳过（空数组声明）后可以继续。 */
-    @Test
-    void malformedFactionsAreRejectedAndCanBeSkipped() {
-        var responses = new ArrayDeque<>(List.of(response(),
-                response(update("type", "isekai")),
-                response(update("factions", "[{\"name\":\"错误结构\"}]")),
-                response(update("factions", "[]"))));
-        var service = new WorldbuildNarrationService(prompt -> responses.removeFirst(), mapper);
-        var session = service.session("invalid-lists");
-        service.answer(session, "异世界");
-        var rejected = service.answer(session, "错误势力格式");
-        assertFalse(rejected.collected().containsKey("factions"));
-        assertEquals(List.of(), service.answer(session, "跳过").collected().get("factions"));
-    }
-
-    /** 验证未配置模板的新 ASCII 类型可以作为稳定标识被接受。 */
-    @Test
-    void acceptsNewAsciiWorldTypeWithoutTemplate() {
-        WorldbuildNarrationService service = new WorldbuildNarrationService(prompt ->
-                prompt.userInput().contains("steampunk")
-                        ? response(update("type", "steampunk"))
-                        : response(update("name", "铜雾城")), mapper);
-        WorldbuildNarrationService.Session session = service.session("new-type");
-        service.answer(session, "steampunk");
-        WorldbuildNarrationService.Turn done = service.answer(session, "铜雾城");
-        assertTrue(done.done());
-        assertEquals("steampunk", done.collected().get("type"));
-    }
-
-    /** 验证世界类型推荐按钮来自 AI 的 options，而不是模板目录。 */
-    @Test
-    void forwardsAiGeneratedOptionsToQuestion() {
-        WorldbuildNarrationService service = new WorldbuildNarrationService(prompt ->
-                responseWithOptions(List.of("蒸汽朋克", "海洋殖民", "过长的推荐选项应该被过滤掉，因为超过二十字")), mapper);
-        WorldbuildNarrationService.Session session = service.session("ai-options");
-        assertEquals(List.of("蒸汽朋克", "海洋殖民"), session.turn().options());
-    }
-
-    /** 验证跳过必填字段后不会立刻重复提问，同时仍保留缺失状态等待后续补填。 */
-    @Test
-    void skippedRequiredFieldIsNotAskedAgainImmediately() {
-        WorldbuildNarrationService service = new WorldbuildNarrationService(prompt ->
-                prompt.userInput().contains("异世界") ? response(update("type", "isekai")) : response(), mapper);
-        WorldbuildNarrationService.Session session = service.session("skip-required");
-        service.answer(session, "异世界");
-        service.answer(session, "跳过");
-        service.answer(session, "跳过");
-        WorldbuildNarrationService.Turn afterNameSkip = service.answer(session, "跳过");
-        assertTrue(afterNameSkip.done());
-        assertFalse(afterNameSkip.options().contains("这个世界叫什么名字？"));
-        assertEquals("未命名世界", afterNameSkip.collected().get("name"));
-    }
-
-    /** 创建一个类型化确定字段声明。
-     * @param field 世界构建字段标识
-     * @param value 文本或 JSON 数组文本
-     * @return 字段和值的映射项
+    /** 按预期顺序模拟模型请求。
+     * @param calls 预期的提示词、用户消息片段和模型结果
      */
-    private static Map.Entry<String, InitializationValue> update(String field, String value) {
-        return Map.entry(field, new InitializationValue.Text(value));
+    private WorldbuildNarrationService service(Deque<ModelCall> calls) {
+        return new WorldbuildNarrationService((instruction, input) -> {
+            ModelCall call = calls.removeFirst();
+            assertTrue(instruction.contains(call.instruction()));
+            if (call.input() != null) assertTrue(input.contains(call.input()), input);
+            return call.result();
+        }, mapper, repository, worlds, templates);
     }
 
-    /** 创建只声明确定字段值的模型响应。
-     * @param updates 本轮确定字段值
-     * @return 不包含问题结构的叙事响应
+    /** 构造生成结果。
+     * @param draft 完整 Markdown 正文
      */
-    @SafeVarargs
-    private static NarrativeResponse response(Map.Entry<String, InitializationValue>... updates) {
-        return new NarrativeResponse("已记录。", null, List.of(), Map.ofEntries(updates));
+    private JsonNode generation(String draft) {
+        return mapper.valueToTree(Map.of("draft", draft, "reply", "草案已更新。"));
     }
 
-    /** 创建带有 AI 推荐选项的模型响应。
-     * @param options 模型生成的推荐选项
-     * @return 带推荐选项且不声明字段的叙事响应
-     */
-    private static NarrativeResponse responseWithOptions(List<String> options) {
-        return new NarrativeResponse("请选择一种方向。", null, options, Map.of());
+    /** 构造 Judge 通过信号。 */
+    private JsonNode pass() {
+        return mapper.valueToTree(Map.of("status", "PASS"));
     }
+
+    /** 记录一次预期模型调用和返回内容。 */
+    private record ModelCall(String instruction, String input, JsonNode result) {}
 }

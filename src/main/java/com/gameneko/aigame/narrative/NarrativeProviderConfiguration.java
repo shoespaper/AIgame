@@ -1,25 +1,42 @@
 package com.gameneko.aigame.narrative;
 
-import com.gameneko.aigame.application.port.NarrativeProvider;
-import com.gameneko.aigame.application.NarrativeRuntimeSettingsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.gameneko.aigame.application.NarrativeRuntimeSettingsService;
+import com.gameneko.aigame.application.port.ModelJsonProvider;
+import com.gameneko.aigame.application.port.NarrativeProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
-/** 叙事提供器的 Spring 装配配置，支持本地回退与外部结构化模型。 */
+/** 装配游玩叙事和世界构建共用的模型连接。 */
 @Configuration(proxyBeanMethods = false)
 public class NarrativeProviderConfiguration {
-    /** 装配可按运行时设置切换本地与外部模型的叙事提供器。
+    /** 装配按运行时设置读取外部模型连接的提供器。
      * @param restClientBuilder 模型 HTTP 客户端构造器
      * @param objectMapper 模型 JSON 序列化与解析器
      * @param settings 模型运行时设置服务
      */
     @Bean
-    NarrativeProvider runtimeNarrativePort(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
+    RuntimeNarrativeProvider runtimeProvider(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
                                            NarrativeRuntimeSettingsService settings) {
         return new RuntimeNarrativeProvider(restClientBuilder, objectMapper, settings);
+    }
+
+    /** 导出游玩与角色初始化使用的叙事端口。
+     * @param provider 共享的运行时模型提供器
+     */
+    @Bean
+    NarrativeProvider runtimeNarrativePort(RuntimeNarrativeProvider provider) {
+        return provider::respond;
+    }
+
+    /** 导出世界构建使用的独立 JSON 协议端口。
+     * @param provider 共享的运行时模型提供器
+     */
+    @Bean
+    ModelJsonProvider runtimeModelJsonPort(RuntimeNarrativeProvider provider) {
+        return provider::completeJson;
     }
 
     /** 期望模型输出的叙事 JSON 结构描述，供 json_object 模式下模型对齐字段。 */

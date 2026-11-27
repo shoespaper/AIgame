@@ -39,6 +39,8 @@ public class NarrativeProviderConfiguration {
         return provider::completeJson;
     }
 
+    static final String JSON_OBJECT_FORMAT = "json_object";
+
     /** 期望模型输出的叙事 JSON 结构描述，供 json_object 模式下模型对齐字段。 */
     static final String SCHEMA_DESCRIPTION = """
             Respond with a single JSON object containing exactly these four fields (all required; use [] for empty options and {} for empty updates):
@@ -59,10 +61,6 @@ public class NarrativeProviderConfiguration {
      * @param objectMapper 用于解析内置响应格式的映射器
      */
     static ObjectNode jsonObjectResponseFormat(ObjectMapper objectMapper) {
-        try {
-            return (ObjectNode) objectMapper.readTree("{\"type\": \"json_object\"}");
-        } catch (java.io.IOException exception) {
-            throw new IllegalStateException("内置叙事 JSON 响应格式无法解析", exception);
-        }
+        return objectMapper.createObjectNode().put("type", JSON_OBJECT_FORMAT);
     }
 }

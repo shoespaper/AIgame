@@ -5,9 +5,13 @@ import com.gameneko.aigame.application.port.ModelJsonProvider;
 import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.ActionIntent;
 import com.gameneko.aigame.logging.DiagnosticLog;
+import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
@@ -23,10 +27,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** OpenAI Chat Completions 兼容服务的结构化叙事适配器，带瞬时错误重试、截断自动扩容与明确失败。 */
 public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvider, ModelJsonProvider {
     private static final int MAX_ATTEMPTS = 3;
+    private static final List<String> LOG_FIELDS = List.of("narration", "action", "options", "updates",
+            "draft", "reply", "status", "issues", "type", "value", "target", "arguments", "name");
     private final RestClient client;
     private final ObjectMapper objectMapper;
     private final String model;
@@ -62,7 +69,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
      */
     @Override
     public NarrativeResponse respond(NarrativePrompt prompt) {
-        return complete(call -> {
+        return complete("narration", call -> {
             String system = prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION;
             String user;
             try {
@@ -76,28 +83,32 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
     }
 
     /** 使用独立提示词请求 JSON 对象，并沿用模型重试和日志。
+     * @param stage 用于诊断的固定业务阶段标识
      * @param instruction 约定输出格式的系统提示词
      * @param input 已序列化的用户消息
      */
     @Override
-    public JsonNode completeJson(String instruction, String input) {
-        return complete(call -> readObject(request(instruction, input, call)), result -> null);
+    public JsonNode completeJson(String stage, String instruction, String input) {
+        return complete(stage, call -> readObject(request(instruction, input, call)), result -> null);
     }
 
     /** 执行模型请求、解析响应并逐轮记录诊断。
+     * @param stage 用于诊断的固定业务阶段标识
      * @param operation 读取并解析单次调用的操作
      * @param actionType 可从业务结果提取的动作类型
      * @param <T> 业务响应类型
      */
-    private <T> T complete(ModelOperation<T> operation, Function<T, String> actionType) {
+    private <T> T complete(String stage, ModelOperation<T> operation, Function<T, String> actionType) {
+        DiagnosticLog.ModelCall modelCall = DiagnosticLog.modelCall(stage, NarrativeProviderConfiguration.JSON_OBJECT_FORMAT);
         int budget = maxTokens;
         for (int attempt = 1; ; attempt++) {
-            CallAttempt call = new CallAttempt(attempt, budget, System.nanoTime());
+            CallAttempt call = new CallAttempt(modelCall, attempt, budget, System.nanoTime());
             try {
                 T result;
                 try {
                     result = operation.run(call);
                 } catch (IOException | IllegalArgumentException exception) {
+                    call.outputError = outputError(exception);
                     throw call.failure("模型返回的内容无法解析", false, exception, "output_parse_failed");
                 }
                 DiagnosticLog.modelAttempt(metrics(call, actionType.apply(result)), "success", null, null);
@@ -110,7 +121,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
                 if (attempt < MAX_ATTEMPTS && (exception.retryable() || truncated && nextBudget > budget)) {
                     long delay = truncated ? 0 : backoffMillis(attempt);
                     DiagnosticLog.modelAttempt(metrics(call, null), "retry", reason, delay);
-                    if (truncated) DiagnosticLog.modelBudgetChanged(budget, nextBudget);
+                    if (truncated) DiagnosticLog.modelBudgetChanged(modelCall, attempt, budget, nextBudget);
                     budget = nextBudget;
                     if (delay > 0) sleep(delay);
                     continue;
@@ -148,6 +159,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
             response = upstream.getBody();
         } catch (RestClientResponseException exception) {
             call.status = exception.getStatusCode().value();
+            call.upstreamError = ModelHttpErrorDiagnostics.classify(objectMapper, exception, call.modelCall.format(), system, user);
             boolean retryable = call.status == 429 || call.status >= 500;
             throw call.failure("模型服务返回 HTTP " + call.status, retryable, exception,
                     call.status == 429 ? "rate_limited" : "upstream_http_error");
@@ -159,7 +171,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         } catch (RestClientException exception) {
             throw call.failure("无法解析模型服务响应", false, exception, "response_decoding_failed");
         } finally {
-            DiagnosticLog.modelUpstream(call.number, call.status,
+            DiagnosticLog.modelUpstream(call.modelCall, call.number, call.status,
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - upstreamStarted));
         }
         if (response != null) call.usage = response.usage();
@@ -205,7 +217,31 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         return new DiagnosticLog.ModelAttempt(model, call.number, call.status, call.budget,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - call.started),
                 usage == null ? null : usage.prompt_tokens(), usage == null ? null : usage.completion_tokens(), actionType,
-                call.systemMessage, call.userMessage, call.modelResponse, call.modelRefusal);
+                call.systemMessage, call.userMessage, call.modelResponse, call.modelRefusal,
+                call.modelCall, call.upstreamError, call.outputError);
+    }
+
+    /** 提取解析位置和预期类型，省略包含原文的异常消息。
+     * @param exception 解析模型回复时发生的异常
+     */
+    private static DiagnosticLog.ModelOutputError outputError(Exception exception) {
+        String field = null;
+        String expectedType = null;
+        JsonLocation location = exception instanceof JsonProcessingException json ? json.getLocation() : null;
+        if (exception instanceof JsonMappingException mapping && !mapping.getPath().isEmpty()) {
+            field = mapping.getPath().stream()
+                    .map(reference -> {
+                        String name = reference.getFieldName();
+                        if (name != null) return LOG_FIELDS.contains(name) ? name : "*";
+                        return reference.getIndex() >= 0 ? Integer.toString(reference.getIndex()) : "*";
+                    }).collect(Collectors.joining("."));
+        }
+        if (exception instanceof MismatchedInputException mismatch && mismatch.getTargetType() != null) {
+            expectedType = mismatch.getTargetType().getSimpleName();
+        }
+        return new DiagnosticLog.ModelOutputError(field, expectedType,
+                location == null || location.getLineNr() < 1 ? null : location.getLineNr(),
+                location == null || location.getColumnNr() < 1 ? null : location.getColumnNr());
     }
 
     /** 解析模型 JSON：剥离代码围栏并截取首个对象，容忍未知字段但拒绝重复键。 */
@@ -294,6 +330,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
 
     /** 保存一次模型调用的预算、计时与可用的上游元数据。 */
     private static final class CallAttempt {
+        private final DiagnosticLog.ModelCall modelCall;
         private final int number;
         private final int budget;
         private final long started;
@@ -303,13 +340,17 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         private String userMessage;
         private String modelResponse;
         private String modelRefusal;
+        private DiagnosticLog.UpstreamModelError upstreamError;
+        private DiagnosticLog.ModelOutputError outputError;
 
         /** 创建一次模型调用的诊断状态。
-         * @param number 从 1 开始的调用次数
+         * @param modelCall 本次逻辑调用共用的诊断字段
+         * @param number 从 1 开始的网络尝试次数
          * @param budget 本次调用的输出 token 上限
          * @param started 本次调用开始时的单调时钟纳秒数
          */
-        private CallAttempt(int number, int budget, long started) {
+        private CallAttempt(DiagnosticLog.ModelCall modelCall, int number, int budget, long started) {
+            this.modelCall = modelCall;
             this.number = number;
             this.budget = budget;
             this.started = started;

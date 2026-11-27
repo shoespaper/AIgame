@@ -8,6 +8,14 @@ import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.InitializationValue;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.List;
 
@@ -15,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 /** 验证叙事模型的结构化输出约束、服务端校验与解析健壮性。 */
 class NarrationOutputReliabilityTests {
@@ -156,6 +166,67 @@ class NarrationOutputReliabilityTests {
             assertEquals("system\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION, logField(attempt, "systemMessage"));
             assertEquals("input", new ObjectMapper().readTree((String) logField(attempt, "userMessage"))
                     .path("playerInput").asText());
+        }
+        server.verify();
+    }
+
+    /** 验证同一请求内可区分上游证据、本地推断和未知错误，并确认敏感响应不进入日志。 */
+    @Test
+    void upstreamErrorsLogOnlyClassifiedDiagnostics() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://model.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        String url = "https://model.test/chat/completions";
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"error":{"message":"json_object requires messages: must contain the word 'json'. private-upstream-text",
+                                  "code":"invalid_request_error","param":"response_format"}}
+                        """));
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.BAD_REQUEST).body("private-proxy-text"));
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"error":{"message":"private-unknown-text","code":"private-code","param":"private-param"}}
+                        """));
+
+        OpenAiCompatibleNarrativeProvider provider = new OpenAiCompatibleNarrativeProvider(builder.build(),
+                new ObjectMapper(), "test-model");
+        Logger logger = (Logger) LoggerFactory.getLogger("com.gameneko.aigame.narrative.diagnostics");
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        RequestAttributes previous = RequestContextHolder.getRequestAttributes();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        try {
+            assertThrows(NarrativeProviderException.class,
+                    () -> provider.completeJson("world_draft_judge", "判定", "草案"));
+            assertThrows(NarrativeProviderException.class,
+                    () -> provider.completeJson("world_draft_identify", "识别", "草案"));
+            assertThrows(NarrativeProviderException.class,
+                    () -> provider.completeJson("world_draft_generation", "输出 JSON", "世界描述"));
+        } finally {
+            RequestContextHolder.setRequestAttributes(previous);
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        List<ILoggingEvent> attempts = appender.list.stream()
+                .filter(event -> "narrative.completed".equals(event.getMessage())).toList();
+        assertEquals(3, attempts.size());
+        ILoggingEvent judge = attempts.getFirst();
+        assertEquals("world_draft_judge", logField(judge, "operation"));
+        assertEquals(1, logField(judge, "callIndex"));
+        assertEquals(1, logField(judge, "attempt"));
+        assertEquals("json_object", logField(judge, "responseFormat"));
+        assertEquals(400, logField(judge, "upstreamStatus"));
+        assertEquals("json_mode_prompt_missing_keyword", logField(judge, "upstreamDiagnosis"));
+        assertEquals("upstream_error", logField(judge, "diagnosisSource"));
+        assertEquals("response_format", logField(judge, "upstreamErrorParam"));
+        assertEquals(2, logField(attempts.get(1), "callIndex"));
+        assertEquals("request_inspection", logField(attempts.get(1), "diagnosisSource"));
+        assertEquals(3, logField(attempts.get(2), "callIndex"));
+        assertEquals("unclassified_upstream_error", logField(attempts.get(2), "upstreamDiagnosis"));
+        for (ILoggingEvent attempt : attempts) {
+            assertFalse(attempt.getKeyValuePairs().toString().contains("private-"));
+            assertEquals(null, logField(attempt, "modelResponse"));
         }
         server.verify();
     }

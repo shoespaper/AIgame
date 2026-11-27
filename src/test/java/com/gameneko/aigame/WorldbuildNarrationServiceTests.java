@@ -10,6 +10,7 @@ import com.gameneko.aigame.content.WorldBookCatalog;
 import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.narrative.NarrativeProviderException;
+import com.gameneko.aigame.narrative.WorldDraftModel;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayDeque;
@@ -104,12 +105,12 @@ class WorldbuildNarrationServiceTests {
      * @param calls 预期的提示词、用户消息片段和模型结果
      */
     private WorldbuildNarrationService service(Deque<ModelCall> calls) {
-        return new WorldbuildNarrationService((instruction, input) -> {
+        return new WorldbuildNarrationService(new WorldDraftModel((operation, instruction, input) -> {
             ModelCall call = calls.removeFirst();
             assertTrue(instruction.contains(call.instruction()));
             if (call.input() != null) assertTrue(input.contains(call.input()), input);
             return call.result();
-        }, mapper, repository, worlds, templates);
+        }, mapper), repository, worlds, templates);
     }
 
     /** 构造生成结果。

@@ -31,11 +31,12 @@ public final class RuntimeNarrativeProvider {
     }
 
     /** 使用当前配置请求调用方定义的 JSON 对象。
+     * @param operation 用于诊断的固定业务阶段标识
      * @param instruction 约定输出格式的系统提示词
      * @param input 已序列化的用户消息
      */
-    public JsonNode completeJson(String instruction, String input) {
-        return provider().completeJson(instruction, input);
+    public JsonNode completeJson(String operation, String instruction, String input) {
+        return provider().completeJson(operation, instruction, input);
     }
 
     /** 根据当前设置创建模型适配器。 */

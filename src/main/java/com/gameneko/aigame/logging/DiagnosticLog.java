@@ -3,6 +3,8 @@ package com.gameneko.aigame.logging;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import java.util.regex.Pattern;
 
@@ -11,6 +13,7 @@ public final class DiagnosticLog {
     private static final Logger HTTP = LoggerFactory.getLogger("com.gameneko.aigame.api.diagnostics");
     private static final Logger MODEL = LoggerFactory.getLogger("com.gameneko.aigame.narrative.diagnostics");
     private static final Logger STORAGE = LoggerFactory.getLogger("com.gameneko.aigame.persistence.diagnostics");
+    private static final String MODEL_CALL_INDEX = DiagnosticLog.class.getName() + ".modelCallIndex";
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}");
 
     /** 工具类无需实例。 */
@@ -91,7 +94,25 @@ public final class DiagnosticLog {
      * @param retryDelayMs 下一次尝试前的等待毫秒数，未重试时为空
      */
     public static void modelAttempt(ModelAttempt attempt, String outcome, String reason, Long retryDelayMs) {
-        LoggingEventBuilder event = retryDelayMs == null ? MODEL.atInfo() : MODEL.atWarn();
+        LoggingEventBuilder event = switch (outcome) {
+            case "failed" -> MODEL.atError();
+            case "retry" -> MODEL.atWarn();
+            default -> MODEL.atInfo();
+        };
+        modelCallFields(event, attempt.call());
+        if (attempt.upstreamError() != null) {
+            UpstreamModelError error = attempt.upstreamError();
+            event.addKeyValue("upstreamDiagnosis", identifier(error.diagnosis()))
+                    .addKeyValue("diagnosisSource", identifier(error.source()))
+                    .addKeyValue("upstreamErrorCode", identifier(error.code()))
+                    .addKeyValue("upstreamErrorParam", identifier(error.parameter()))
+                    .addKeyValue("upstreamRequestId", identifier(error.requestId()));
+        }
+        if (attempt.outputError() != null) {
+            ModelOutputError error = attempt.outputError();
+            event.addKeyValue("field", error.field()).addKeyValue("expectedType", identifier(error.expectedType()))
+                    .addKeyValue("line", error.line()).addKeyValue("column", error.column());
+        }
         event.addKeyValue("model", identifier(attempt.model())).addKeyValue("attempt", attempt.number())
                 .addKeyValue("upstreamStatus", attempt.status()).addKeyValue("maxTokens", attempt.maxTokens())
                 .addKeyValue("durationMs", attempt.durationMs()).addKeyValue("promptTokens", attempt.promptTokens())
@@ -102,22 +123,76 @@ public final class DiagnosticLog {
                 .addKeyValue("delayMs", retryDelayMs).log(retryDelayMs == null ? "narrative.completed" : "narrative.retry");
     }
 
+    /** 分配当前 HTTP 请求内的逻辑模型调用序号。
+     * @param operation 固定的业务阶段标识
+     * @param format 实际请求的响应格式
+     */
+    public static ModelCall modelCall(String operation, String format) {
+        RequestAttributes request = RequestContextHolder.getRequestAttributes();
+        Integer index = currentModelCallIndex();
+        if (request != null) {
+            index = index == null ? 1 : index + 1;
+            request.setAttribute(MODEL_CALL_INDEX, index, RequestAttributes.SCOPE_REQUEST);
+        }
+        return new ModelCall(operation, index, format);
+    }
+
+    /** 获取当前请求内最近的逻辑模型调用序号，后台调用时为空。 */
+    private static Integer currentModelCallIndex() {
+        RequestAttributes request = RequestContextHolder.getRequestAttributes();
+        return request == null ? null : (Integer) request.getAttribute(MODEL_CALL_INDEX, RequestAttributes.SCOPE_REQUEST);
+    }
+
+    /** 写入可关联逻辑调用的通用字段。
+     * @param event 待写入的模型日志事件
+     * @param call 逻辑调用元数据
+     */
+    private static void modelCallFields(LoggingEventBuilder event, ModelCall call) {
+        event.addKeyValue("operation", identifier(call.operation())).addKeyValue("callIndex", call.index())
+                .addKeyValue("responseFormat", identifier(call.format()));
+    }
+
     /** 记录上游调用阶段的调试耗时。
-     * @param attempt 从 1 开始的尝试次数
+     * @param call 本次逻辑模型调用
+     * @param attempt 从 1 开始的网络尝试次数
      * @param status 可用的上游 HTTP 状态码
      * @param durationMs 上游阶段耗时，单位毫秒
      */
-    public static void modelUpstream(int attempt, Integer status, long durationMs) {
-        MODEL.atDebug().addKeyValue("attempt", attempt).addKeyValue("upstreamStatus", status)
+    public static void modelUpstream(ModelCall call, int attempt, Integer status, long durationMs) {
+        LoggingEventBuilder event = MODEL.atDebug();
+        modelCallFields(event, call);
+        event.addKeyValue("attempt", attempt).addKeyValue("upstreamStatus", status)
                 .addKeyValue("durationMs", durationMs).log("narrative.upstream.completed");
     }
 
+    /** 记录上游响应解析成功后的业务验收结果。
+     * @param operation 固定的业务阶段标识
+     * @param outcome 通过、退回或无效输出
+     * @param reason 可空的固定原因码
+     * @param field 可空的固定协议字段名
+     * @param actual 可空的实际值，例如正文字符数或 Judge 问题数
+     * @param limit 可空的字段上限
+     */
+    public static void modelValidation(String operation, String outcome, String reason, String field,
+                                       Integer actual, Integer limit) {
+        LoggingEventBuilder event = "invalid".equals(outcome) ? MODEL.atWarn() : MODEL.atInfo();
+        event.addKeyValue("operation", identifier(operation)).addKeyValue("callIndex", currentModelCallIndex())
+                .addKeyValue("outcome", identifier(outcome)).addKeyValue("reason", identifier(reason))
+                .addKeyValue("field", identifier(field)).addKeyValue("actual", actual).addKeyValue("limit", limit)
+                .log("narrative.validation.completed");
+    }
+
     /** 记录模型输出截断后的预算变化。
+     * @param call 本次逻辑模型调用
+     * @param attempt 发生截断的网络尝试次数，从 1 开始
      * @param current 本次输出 token 上限
      * @param next 下次输出 token 上限
      */
-    public static void modelBudgetChanged(int current, int next) {
-        MODEL.atDebug().addKeyValue("maxTokens", current).addKeyValue("nextMaxTokens", next).log("narrative.budget.changed");
+    public static void modelBudgetChanged(ModelCall call, int attempt, int current, int next) {
+        LoggingEventBuilder event = MODEL.atDebug();
+        modelCallFields(event, call);
+        event.addKeyValue("attempt", attempt).addKeyValue("maxTokens", current)
+                .addKeyValue("nextMaxTokens", next).log("narrative.budget.changed");
     }
 
     /** 记录每次模板提案的失败阶段和校验代码位置。
@@ -208,8 +283,36 @@ public final class DiagnosticLog {
      * @param userMessage 发往模型的用户消息，未编码时为空
      * @param modelResponse 模型在解析前的回复正文，上游未返回正文时为空
      * @param modelRefusal 模型返回的拒绝说明，未返回时为空
+     * @param call 逻辑调用与响应格式
+     * @param upstreamError 可空的安全上游错误诊断
+     * @param outputError 可空的结构化回复解析详情
      */
     public record ModelAttempt(String model, int number, Integer status, int maxTokens, long durationMs,
                                Integer promptTokens, Integer completionTokens, String proposedActionType,
-                               String systemMessage, String userMessage, String modelResponse, String modelRefusal) {}
+                               String systemMessage, String userMessage, String modelResponse, String modelRefusal,
+                               ModelCall call, UpstreamModelError upstreamError, ModelOutputError outputError) {}
+
+    /** 同一逻辑模型调用共用的字段。
+     * @param operation 固定业务阶段标识
+     * @param index 当前 HTTP 请求内的调用序号，后台调用时为空
+     * @param format 实际请求的响应格式
+     */
+    public record ModelCall(String operation, Integer index, String format) {}
+
+    /** 经白名单或规则映射得到的上游错误信息。
+     * @param diagnosis 本地稳定诊断码
+     * @param source 诊断依据，取 upstream_error、request_inspection、http_status 或 unknown
+     * @param code 可空的白名单上游错误码
+     * @param parameter 可空的白名单上游参数名
+     * @param requestId 可空的安全上游请求 ID
+     */
+    public record UpstreamModelError(String diagnosis, String source, String code, String parameter, String requestId) {}
+
+    /** 安全的模型输出解析位置。
+     * @param field 可空的协议字段路径，动态字段名用星号表示
+     * @param expectedType 可空的目标 Java 类型
+     * @param line 可空的行号
+     * @param column 可空的列号
+     */
+    public record ModelOutputError(String field, String expectedType, Integer line, Integer column) {}
 }

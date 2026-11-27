@@ -11,6 +11,7 @@ import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.gameneko.aigame.persistence.FileTemplateRepository;
 import com.gameneko.aigame.persistence.FileWorldbookRepository;
 import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ApState;
+import com.gameneko.aigame.narrative.WorldDraftModel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -45,13 +46,13 @@ class WorldTemplatePersistenceTests {
         assertTrue(reloaded.availableTemplates().stream().anyMatch(item -> item.id().equals("moon_template")));
         AtomicInteger calls = new AtomicInteger();
         String draft = "# 双月港\n\n从封港之夜开始。";
-        WorldbuildNarrationService worldbuild = new WorldbuildNarrationService((instruction, input) ->
+        WorldbuildNarrationService worldbuild = new WorldbuildNarrationService(new WorldDraftModel((operation, instruction, input) ->
                 switch (calls.incrementAndGet()) {
                     case 1 -> mapper.valueToTree(Map.of("draft", draft, "reply", "草案已生成。"));
                     case 2 -> mapper.valueToTree(Map.of("status", "PASS"));
                     case 3 -> mapper.valueToTree(Map.of("name", "双月港", "type", "isekai"));
                     default -> throw new AssertionError("unexpected model call");
-                }, mapper, worldFiles, catalog, catalog);
+                }, mapper), worldFiles, catalog, catalog);
         WorldbuildNarrationService.Session session = worldbuild.session("generated");
         WorldbuildNarrationService.Turn accepted = worldbuild.answer(session, "异世界");
         WorldbookDefinition generated = worldbuild.save(session, accepted.version());

@@ -7,6 +7,7 @@ import com.gameneko.aigame.application.WorldbuildNarrationService;
 import com.gameneko.aigame.application.port.WorldbookRepository;
 import com.gameneko.aigame.content.TemplateCatalog;
 import com.gameneko.aigame.content.WorldBookCatalog;
+import com.gameneko.aigame.narrative.WorldDraftModel;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -34,13 +35,13 @@ class WorldbuildApiTests {
         when(worlds.available()).thenReturn(List.of());
         when(templates.availableTemplates()).thenReturn(List.of());
         AtomicInteger calls = new AtomicInteger();
-        WorldbuildNarrationService service = new WorldbuildNarrationService((instruction, input) ->
+        WorldbuildNarrationService service = new WorldbuildNarrationService(new WorldDraftModel((operation, instruction, input) ->
                 switch (calls.incrementAndGet()) {
                     case 1 -> mapper.valueToTree(Map.of("draft", "# 双月世界", "reply", "草案已生成。"));
                     case 2 -> mapper.valueToTree(Map.of("status", "PASS"));
                     case 3 -> mapper.valueToTree(Map.of("name", "双月世界", "type", "isekai"));
                     default -> throw new AssertionError("unexpected model call");
-                }, mapper, mock(WorldbookRepository.class), worlds, templates);
+                }, mapper), mock(WorldbookRepository.class), worlds, templates);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new WorldbuildSessionController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         String route = "/api/initialization/worldbuild/sessions";

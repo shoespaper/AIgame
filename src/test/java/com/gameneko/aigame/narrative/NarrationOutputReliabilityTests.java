@@ -8,21 +8,25 @@ import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.InitializationValue;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
@@ -170,19 +174,27 @@ class NarrationOutputReliabilityTests {
         server.verify();
     }
 
-    /** 验证同一请求内可区分上游证据、本地推断和未知错误，并确认敏感响应不进入日志。 */
+    /** 验证 JSON 模式发送的消息包含关键词，且上游诊断依据实际请求。 */
     @Test
     void upstreamErrorsLogOnlyClassifiedDiagnostics() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://model.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         String url = "https://model.test/chat/completions";
-        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+        server.expect(requestTo(url))
+                .andExpect(jsonPath("$.response_format.type").value("json_object"))
+                .andExpect(jsonPath("$.messages[0].content").value("判定\n\n只返回一个 JSON 对象。"))
+                .andExpect(jsonPath("$.messages[1].content").value("草案"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
                 .body("""
                         {"error":{"message":"json_object requires messages: must contain the word 'json'. private-upstream-text",
                                   "code":"invalid_request_error","param":"response_format"}}
                         """));
-        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.BAD_REQUEST).body("private-proxy-text"));
-        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+        server.expect(requestTo(url))
+                .andExpect(jsonPath("$.messages[0].content").value("识别\n\n只返回一个 JSON 对象。"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).body("private-proxy-text"));
+        server.expect(requestTo(url))
+                .andExpect(jsonPath("$.messages[0].content").value("输出 JSON"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
                 .body("""
                         {"error":{"message":"private-unknown-text","code":"private-code","param":"private-param"}}
                         """));
@@ -220,8 +232,9 @@ class NarrationOutputReliabilityTests {
         assertEquals("json_mode_prompt_missing_keyword", logField(judge, "upstreamDiagnosis"));
         assertEquals("upstream_error", logField(judge, "diagnosisSource"));
         assertEquals("response_format", logField(judge, "upstreamErrorParam"));
+        assertEquals("判定\n\n只返回一个 JSON 对象。", logField(judge, "systemMessage"));
         assertEquals(2, logField(attempts.get(1), "callIndex"));
-        assertEquals("request_inspection", logField(attempts.get(1), "diagnosisSource"));
+        assertEquals("unknown", logField(attempts.get(1), "diagnosisSource"));
         assertEquals(3, logField(attempts.get(2), "callIndex"));
         assertEquals("unclassified_upstream_error", logField(attempts.get(2), "upstreamDiagnosis"));
         for (ILoggingEvent attempt : attempts) {
@@ -229,6 +242,16 @@ class NarrationOutputReliabilityTests {
             assertEquals(null, logField(attempt, "modelResponse"));
         }
         server.verify();
+    }
+
+    /** 验证缺少关键词的原始请求仍可按本地证据归类。 */
+    @Test
+    void diagnosesMissingKeywordWhenOnlyRequestProvidesEvidence() {
+        HttpClientErrorException error = HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "Bad Request",
+                new HttpHeaders(), new byte[0], StandardCharsets.UTF_8);
+
+        assertEquals("request_inspection", ModelHttpErrorDiagnostics.classify(new ObjectMapper(), error,
+                "json_object", "判定草案", "世界描述").source());
     }
 
     /** 获取结构化日志中的指定字段。

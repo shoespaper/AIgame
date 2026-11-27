@@ -55,7 +55,7 @@ final class ModelHttpErrorDiagnostics {
             return new UpstreamModelError("rate_limited", "http_status", code, parameter, id);
         }
         if (status == 400 && jsonMode && (parameter == null || "response_format".equals(parameter) || "messages".equals(parameter))
-                && !mentionsJson(system) && !mentionsJson(user)) {
+                && !NarrativeProviderConfiguration.mentionsJson(system) && !NarrativeProviderConfiguration.mentionsJson(user)) {
             return new UpstreamModelError("json_mode_prompt_missing_keyword", "request_inspection", code, parameter, id);
         }
         return new UpstreamModelError("unclassified_upstream_error", "unknown", code, parameter, id);
@@ -85,10 +85,4 @@ final class ModelHttpErrorDiagnostics {
         return value != null && values.contains(value) ? value : null;
     }
 
-    /** 判断实际发出的消息是否提到 JSON。
-     * @param message 系统消息或用户消息
-     */
-    private static boolean mentionsJson(String message) {
-        return message != null && message.toLowerCase(Locale.ROOT).contains("json");
-    }
 }

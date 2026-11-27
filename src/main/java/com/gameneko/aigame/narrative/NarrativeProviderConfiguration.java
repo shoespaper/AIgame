@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
+import java.util.Locale;
+
 /** 装配游玩叙事和世界构建共用的模型连接。 */
 @Configuration(proxyBeanMethods = false)
 public class NarrativeProviderConfiguration {
@@ -40,6 +42,20 @@ public class NarrativeProviderConfiguration {
     }
 
     static final String JSON_OBJECT_FORMAT = "json_object";
+
+    /** 在 JSON 模式的系统消息中补齐兼容服务商要求的关键词。
+     * @param instruction 原始系统提示词
+     */
+    static String jsonModeSystemMessage(String instruction) {
+        return mentionsJson(instruction) ? instruction : instruction + "\n\n只返回一个 JSON 对象。";
+    }
+
+    /** 检查消息文本是否包含服务商识别的 JSON 关键词。
+     * @param message 系统消息或用户消息，可为空
+     */
+    static boolean mentionsJson(String message) {
+        return message != null && message.toLowerCase(Locale.ROOT).contains("json");
+    }
 
     /** 期望模型输出的叙事 JSON 结构描述，供 json_object 模式下模型对齐字段。 */
     static final String SCHEMA_DESCRIPTION = """

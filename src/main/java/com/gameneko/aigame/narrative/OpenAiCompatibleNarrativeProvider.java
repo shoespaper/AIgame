@@ -145,7 +145,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
      * @param call 本次调用的诊断数据与输出 token 预算
      */
     private String request(String system, String user, CallAttempt call) {
-        call.systemMessage = system;
+        call.systemMessage = NarrativeProviderConfiguration.jsonModeSystemMessage(system);
         call.userMessage = user;
         ChatRequest request = new ChatRequest(model, List.of(
                 new ChatMessage("system", call.systemMessage), new ChatMessage("user", call.userMessage)), call.budget,
@@ -159,7 +159,8 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
             response = upstream.getBody();
         } catch (RestClientResponseException exception) {
             call.status = exception.getStatusCode().value();
-            call.upstreamError = ModelHttpErrorDiagnostics.classify(objectMapper, exception, call.modelCall.format(), system, user);
+            call.upstreamError = ModelHttpErrorDiagnostics.classify(objectMapper, exception, call.modelCall.format(),
+                    call.systemMessage, call.userMessage);
             boolean retryable = call.status == 429 || call.status >= 500;
             throw call.failure("模型服务返回 HTTP " + call.status, retryable, exception,
                     call.status == 429 ? "rate_limited" : "upstream_http_error");

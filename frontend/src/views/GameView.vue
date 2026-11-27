@@ -13,16 +13,20 @@ const gameId = computed(() => !showSaves.value && typeof route.params.gameId ===
 const answer = ref(''); const error = ref('')
 const currentWorld = computed(() => store.game?.world)
 
-/** 点选候选行动：当作玩家输入发送。 */
+/** 将候选行动填入输入框，供玩家编辑和发送。 */
 /** @param label 候选行动的文本 */
-function choose(label: string) { void store.speak(label) }
+function choose(label: string) { answer.value = label }
 
-/** 发送自由输入并清空输入框。 */
+/** 发送当前输入，失败时恢复本次发送的原文。 */
 async function send() {
-  const text = answer.value.trim()
-  if (!text || store.acting) return
+  const text = answer.value
+  const id = gameId.value
+  if (!text.trim() || store.acting) return
   answer.value = ''
-  try { await store.speak(text) } catch { /* store 会暴露用户可见错误 */ }
+  try {
+    if (await store.speak(text)) return
+  } catch { /* store 会暴露用户可见错误 */ }
+  if (gameId.value === id && answer.value === '') answer.value = text
 }
 
 watch(gameId, async (id, _, onCleanup) => {

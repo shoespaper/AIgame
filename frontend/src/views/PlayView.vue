@@ -17,11 +17,20 @@ async function load() { const id = idFromRoute(); if (!id) { await router.replac
 function formatState(value: JsonValue): string { return JSON.stringify(value, null, 2) }
 /** 保存当前游戏的服务端快照。 */
 async function save() { try { await game.save() } catch { /* store exposes the user-facing error */ } }
-/** 将自由输入发送到 GM 叙事接口。 */
-async function speak() { try { await game.speak(playerInput.value); playerInput.value = '' } catch { /* store exposes the user-facing error */ } }
-/** 点选候选行动：当作玩家输入发送。 */
+/** 发送当前输入，失败时恢复本次发送的原文。 */
+async function speak() {
+  const text = playerInput.value
+  const id = idFromRoute()
+  if (!text.trim() || game.acting) return
+  playerInput.value = ''
+  try {
+    if (await game.speak(text)) return
+  } catch { /* store 会暴露用户可见错误 */ }
+  if (idFromRoute() === id && playerInput.value === '') playerInput.value = text
+}
+/** 将候选行动填入输入框，供玩家编辑和发送。 */
 /** @param label 候选行动的文本 */
-async function choose(label: string) { try { await game.speak(label); playerInput.value = '' } catch { /* store exposes the user-facing error */ } }
+function choose(label: string) { playerInput.value = label }
 watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void load() })
 </script>
 

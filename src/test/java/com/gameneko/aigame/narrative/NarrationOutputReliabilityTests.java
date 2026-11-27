@@ -3,16 +3,23 @@ package com.gameneko.aigame.narrative;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.engine.InitializationValue;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.client.ResponseCreator;
+import org.springframework.http.client.ClientHttpRequest;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.context.request.RequestAttributes;
@@ -20,6 +27,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /** 验证叙事模型的结构化输出约束、服务端校验与解析健壮性。 */
 class NarrationOutputReliabilityTests {
@@ -105,6 +114,76 @@ class NarrationOutputReliabilityTests {
         assertEquals(new InitializationValue.DecimalNumber(1.5), wire.updates().get("ratio"));
         assertEquals(new InitializationValue.Flag(true), wire.updates().get("enabled"));
         assertThrows(Exception.class, () -> provider.readStrict(json.replace("\"flag\"", "\"array\"")));
+    }
+
+    /** 验证第二次纠错收到原稿、上一版和最新错误，且纠错次数有上限。
+     * @param finalReplyValid 第二次纠错是否保留原文并修复地点格式
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void correctsPlayReplyAtMostTwice(boolean finalReplyValid) {
+        ObjectMapper mapper = new ObjectMapper();
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://model.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        String url = "https://model.test/chat/completions";
+        String original = """
+                {"narration":"你走到柜台前。","action":null,"options":["询问登记"],"updates":{"location":"柜台前"}}
+                """;
+        String firstCorrection = original.replace("\"location\":\"柜台前\"",
+                "\"location\":{\"type\":\"text\",\"name\":\"柜台前\"}");
+        String fixed = firstCorrection.replace("\"name\"", "\"value\"");
+
+        server.expect(requestTo(url)).andRespond(modelReply(mapper, original));
+        server.expect(requestTo(url)).andExpect(request -> {
+            JsonNode messages = mapper.readTree(((MockClientHttpRequest) request).getBodyAsString()).path("messages");
+            assertTrue(messages.path(0).path("content").asText().contains("\"location\":{\"type\":\"text\",\"value\""));
+            JsonNode input = mapper.readTree(messages.path(1).path("content").asText());
+            assertEquals(original, input.path("originalReply").asText());
+            assertTrue(input.path("previousCorrection").isNull());
+            assertTrue(input.path("latestError").asText().contains("updates.location"));
+        }).andRespond(modelReply(mapper, firstCorrection));
+        server.expect(requestTo(url)).andExpect(request -> {
+            JsonNode input = modelUserInput(mapper, request);
+            assertEquals(original, input.path("originalReply").asText());
+            assertEquals(firstCorrection, input.path("previousCorrection").asText());
+            assertTrue(input.path("latestError").asText().contains("value"));
+        }).andRespond(modelReply(mapper, finalReplyValid ? fixed : fixed.replace("你走到柜台前。", "你已完成登记。")));
+
+        DefaultNarrationService service = new DefaultNarrationService(
+                new OpenAiCompatibleNarrativeProvider(builder.build(), mapper, "test-model"));
+        if (finalReplyValid) {
+            NarrativeResponse response = service.narrate(request(), List.of());
+            assertEquals("你走到柜台前。", response.narration());
+            assertEquals(List.of("询问登记"), response.options());
+            assertEquals(new InitializationValue.Text("柜台前"), response.updates().get("location"));
+        } else {
+            NarrativeProviderException failure = assertThrows(NarrativeProviderException.class,
+                    () -> service.narrate(request(), List.of()));
+            assertEquals("output_parse_failed", failure.reasonCode());
+            assertTrue(failure.getMessage().contains("已纠错两次"));
+        }
+        server.verify();
+    }
+
+    /** 构造返回指定模型文本的正常上游响应。
+     * @param mapper JSON 映射器
+     * @param text 模型回复原文
+     */
+    private static ResponseCreator modelReply(ObjectMapper mapper, String text) {
+        ObjectNode body = mapper.createObjectNode();
+        ObjectNode choice = body.putArray("choices").addObject();
+        choice.put("finish_reason", "stop");
+        choice.putObject("message").put("content", text);
+        return withSuccess(body.toString(), MediaType.APPLICATION_JSON);
+    }
+
+    /** 读取模型请求中序列化后的用户输入对象。
+     * @param mapper JSON 映射器
+     * @param request 待检查的模型请求
+     */
+    private static JsonNode modelUserInput(ObjectMapper mapper, ClientHttpRequest request) throws IOException {
+        JsonNode messages = mapper.readTree(((MockClientHttpRequest) request).getBodyAsString()).path("messages");
+        return mapper.readTree(messages.path(1).path("content").asText());
     }
 
     /** 验证输出上限缺失或越界时收敛到允许区间，避免旧配置文件读出 0。 */

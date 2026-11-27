@@ -1,8 +1,6 @@
 package com.gameneko.aigame.narrative;
 
 import com.gameneko.aigame.application.port.NarrativeProvider;
-import com.gameneko.aigame.engine.ActionIntent;
-import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.engine.SupportedAction;
 import org.springframework.stereotype.Service;
 
@@ -52,8 +50,8 @@ public final class DefaultNarrationService implements NarrationService {
     @Override
     public NarrativeResponse narrate(NarrativeRequest request, List<SupportedAction> engineActions) {
         if (request == null) throw new IllegalArgumentException("Narrative request is required");
-        var prompt = new NarrativePrompt(systemInstruction(engineActions, false), request.playerInput(),
-                request.snapshot(), request.locale(), request.history());
+        NarrativePrompt prompt = new NarrativePrompt(systemInstruction(engineActions, false), request.playerInput(),
+                request.snapshot(), request.locale(), request.history(), true);
         NarrativeResponse response = provider.respond(prompt);
         validate(response);
         return response;
@@ -129,34 +127,6 @@ public final class DefaultNarrationService implements NarrationService {
      */
     private static void validate(NarrativeResponse response) {
         if (response == null) throw NarrativeProviderException.invalidOutput("叙事响应不能为空", null);
-        if (response.narration().isBlank() || response.narration().length() > 6000) throw NarrativeProviderException.invalidOutput("叙述文本长度无效", null);
-        if (response.options().isEmpty()) throw NarrativeProviderException.invalidOutput("叙事响应缺少候选行动", null);
-        if (response.options().size() > 4 || response.options().stream().anyMatch(option -> option == null || option.isBlank() || option.length() > 12)) {
-            throw NarrativeProviderException.invalidOutput("候选行动字段无效", null);
-        }
-        response.validateUpdates();
-        if (response.action() != null) validateActionStructure(response.action());
-    }
-
-    /** 检查意图的协议格式，具体动作校验由所选引擎结算。
-     * @param intent 待检查的行动意图
-     */
-    private static void validateActionStructure(ActionIntent intent) {
-        if (!identifier(intent.type(), 64)) throw NarrativeProviderException.invalidOutput("行动意图类型无效", null);
-        if (intent.target().length() > 256 || intent.arguments().size() > 32) throw NarrativeProviderException.invalidOutput("行动意图无效", null);
-        intent.arguments().forEach(argument -> {
-            if (!identifier(argument.name(), 64)) throw NarrativeProviderException.invalidOutput("行动参数名无效", null);
-            if (argument.value() instanceof InitializationValue.Text text
-                    && text.value().length() > 1000) throw NarrativeProviderException.invalidOutput("行动文本参数过长", null);
-        });
-    }
-
-    /**
-     * 判断字段名是否为受限协议标识符。
-     * @param value 待检查的标识符文本
-     * @param maxLength 标识符允许的最大长度
-     */
-    private static boolean identifier(String value, int maxLength) {
-        return value != null && value.length() <= maxLength && value.matches("[a-zA-Z][a-zA-Z0-9_]*");
+        response.validateProtocol();
     }
 }

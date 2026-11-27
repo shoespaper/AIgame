@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, InitializationAnswerResult, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn, ConversationMessage } from './types'
+import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, CheckedInitialization, InitializationFormValues, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn, ConversationMessage } from './types'
 
 const apiRoot = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
@@ -123,9 +123,27 @@ export function loadWorldProjection(gameId: string): Promise<WorldState> { retur
 export function getNarrativeSettings(): Promise<NarrativeSettings> { return request<NarrativeSettings>('/settings/narrative') }
 export function saveNarrativeSettings(settings: NarrativeSettings): Promise<NarrativeSettings> { return request<NarrativeSettings>('/settings/narrative', { method: 'PUT', body: JSON.stringify(settings) }) }
 export function listGames(): Promise<SaveMetadata[]> { return request<SaveMetadata[]>('/games') }
-export function createInitializationSession(selection: GameSelection): Promise<InitializationSession> { return request<InitializationSession>('/initialization/sessions', { method: 'POST', body: JSON.stringify(selection) }) }
-export function answerInitialization(id: string, answer: string): Promise<InitializationAnswerResult> { return request<InitializationAnswerResult>(`/initialization/sessions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }) }
-export function finalizeInitialization(id: string): Promise<InitializationFinalizeResult> { return request<InitializationFinalizeResult>(`/initialization/sessions/${encodeURIComponent(id)}/finalize`, { method: 'POST' }) }
+/** 加载所选世界和规则对应的角色表单。
+ * @param selection 本局的世界和可选引擎
+ */
+export function createInitializationSession(selection: GameSelection): Promise<InitializationSession> {
+  return request('/initialization/sessions', { method: 'POST', body: JSON.stringify(selection) })
+}
+/** 由服务端校验整份角色表单。
+ * @param id 表单会话标识
+ * @param profile 通用角色字段
+ * @param engineConfig 引擎配置字段，纯叙事时为空
+ */
+export function validateInitialization(id: string, profile: InitializationFormValues, engineConfig: InitializationFormValues): Promise<CheckedInitialization> {
+  return request(`/initialization/sessions/${encodeURIComponent(id)}/validate`, { method: 'POST', body: JSON.stringify({ profile, engineConfig }) })
+}
+/** 确认已通过校验的角色资料并生成开场。
+ * @param id 表单会话标识
+ * @param version 玩家核对过的校验版本
+ */
+export function finalizeInitialization(id: string, version: number): Promise<InitializationFinalizeResult> {
+  return request(`/initialization/sessions/${encodeURIComponent(id)}/finalize`, { method: 'POST', body: JSON.stringify({ version }) })
+}
 /** 将当前输入与近期非权威对话上下文提交给 GM。 */
 /** @param gameId 当前游戏标识 @param expectedRevision 客户端观察到的游戏修订号 @param playerInput 玩家本轮输入 */
 /** @param history 仅用于叙事连贯性的近期玩家与 GM 消息 */

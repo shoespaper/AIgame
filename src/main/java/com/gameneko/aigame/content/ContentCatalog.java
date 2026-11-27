@@ -7,6 +7,6 @@ public interface ContentCatalog extends WorldBookCatalog, TemplateCatalog {
     @Override
     default WorldBook worldBook(String worldId) {
         WorldDefinition definition = world(worldId);
-        return new WorldBook(definition, definition.initializationSchema());
+        return new WorldBook(definition);
     }
 }

@@ -2,8 +2,9 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
-import type { GameCatalog } from '../api/types'
-import { loadGameCatalog } from '../api/client'
+import type { CheckedInitialization, GameCatalog, GameSelection, InitializationField, InitializationFormValues, InitializationSession } from '../api/types'
+import { ApiError, createInitializationSession, loadGameCatalog, validateInitialization } from '../api/client'
+import InitializationFormField from './InitializationFormField.vue'
 import { useGameStore } from '../stores/game'
 import { useWorldbuildStore } from '../stores/worldbuild'
 
@@ -14,13 +15,18 @@ const catalog = ref<GameCatalog | null>(null)
 const step = ref(1)
 const customMode = ref(false)
 const worldChat = ref<HTMLElement | null>(null)
-const characterChat = ref<HTMLElement | null>(null)
 const worldAnswer = ref('')
 const worldTab = ref<'draft' | 'chat'>('chat')
 const busy = ref(false)
 const error = ref('')
-const answer = ref('')
-const selection = reactive({ worldId: '', engineId: null as string | null })
+const selection = reactive<GameSelection>({ worldId: '', engineId: null })
+const form = ref<InitializationSession | null>(null)
+const formSelection = ref<GameSelection | null>(null)
+const loadingForm = ref(false)
+const profileInput = reactive<Record<string, string>>(Object.create(null))
+const engineInput = ref<Record<string, string>>(Object.create(null))
+const checked = ref<CheckedInitialization | null>(null)
+let formRequest = 0
 const steps = ['世界', '规则', '角色', '确认']
 const selectedWorld = computed(() => catalog.value?.worlds.find((world) => world.id === selection.worldId) || null)
 const selectedEngine = computed(() => catalog.value?.engines.find((engine) => engine.id === selection.engineId) || null)
@@ -33,35 +39,68 @@ watch(() => [worldbuild.history.length, worldbuild.busy, worldTab.value], async 
   const chat = worldChat.value
   if (chat) chat.scrollTop = chat.scrollHeight
 })
-/** 显示角色访谈的最新消息，包括从确认页返回时。 */
-watch(() => [step.value, store.initializationHistory.length, store.initializationBusy], async () => {
-  await nextTick()
-  const chat = characterChat.value
-  if (chat) chat.scrollTop = chat.scrollHeight
-})
-const collectedEntries = computed(() => Object.entries(store.initializationTurn?.collected || {}))
-/** 初始化字段 ID 到中文标签的映射，用于确认页展示。 */
-const FIELD_LABELS: Record<string, string> = {
-  characterName: '角色名字', age: '年龄', gender: '性别', archetype: '职业', difficulty: '难度',
-  name: '世界名', description: '世界描述', location: '地点', region: '区域',
-  time: '时间', mainQuest: '主线方向', originScene: '开场场景',
-}
-/** 枚举字段值到中文标签的映射。 */
-const VALUE_LABELS: Record<string, string> = {
-  swordsman: '剑士', mage: '法师', ranger: '游侠', alchemist: '炼金术师',
-  adventure: '冒险', hard: '艰难', nightmare: '噩梦', narrative: '叙事',
-}
-/** 将字段 ID 转成中文标签，未知字段原样返回。
- * @param key 字段标识
+const reviewed = computed(() => checked.value?.setup)
+const reviewedEngine = computed(() => form.value?.engineFields.flatMap(field => {
+  const value = reviewed.value?.engineConfig[field.id]?.value
+  if (value === undefined) return []
+  const label = typeof value === 'boolean' ? (value ? '是' : '否') : field.optionLabels[String(value)] ?? String(value)
+  return [{ id: field.id, label: field.label, value: label }]
+}) ?? [])
+
+/** 将字段错误码转换为页面提示。
+ * @param field 服务端声明的字段
+ * @param code 校验错误码，字段正常时为空
  */
-function fieldLabel(key: string): string { return FIELD_LABELS[key] || key }
-/** 将字段值转成便于玩家核对的中文标签。
- * @param key 字段标识
- * @param value 字段原始值
+function fieldError(field: InitializationField, code?: string) {
+  switch (code) {
+    case undefined: return undefined
+    case 'field_required': return field.options.length || field.type === 'BOOLEAN' ? '请选择' + field.label + '。' : '请填写' + field.label + '。'
+    case 'field_type_invalid': return field.type === 'INTEGER' ? '请输入整数。' : '请输入有效的' + field.label + '。'
+    case 'field_out_of_range': {
+      if (field.minimum !== null && field.maximum !== null) return '请输入 ' + field.minimum + ' 至 ' + field.maximum + ' 之间的值。'
+      if (field.minimum !== null) return '请输入不小于 ' + field.minimum + ' 的值。'
+      return '请输入不大于 ' + field.maximum + ' 的值。'
+    }
+    case 'field_option_invalid': return '请从当前可用选项中选择。'
+    default: return '当前值不符合配置要求，请检查后重试。'
+  }
+}
+
+/** 按字段定义序列化当前输入，跳过未填写的值。
+ * @param fields 服务端声明的有序字段
+ * @param input 玩家输入的控件原始值
  */
-function valueLabel(key: string, value: unknown): string {
-  const raw = String(value)
-  return (key === 'archetype' || key === 'difficulty') ? (VALUE_LABELS[raw] || raw) : raw
+function formValues(fields: InitializationField[], input: Record<string, string>): InitializationFormValues {
+  const values: InitializationFormValues = Object.create(null)
+  for (const field of fields) {
+    const text = input[field.id]?.trim()
+    if (!text) continue
+    if (field.type === 'BOOLEAN') {
+      values[field.id] = text === 'true'
+    } else if (field.type === 'INTEGER' || field.type === 'DECIMAL') {
+      const number = Number(text)
+      const valid = field.type === 'INTEGER' ? Number.isSafeInteger(number) : Number.isFinite(number)
+      values[field.id] = valid ? number : text
+    } else {
+      values[field.id] = text
+    }
+  }
+  return values
+}
+
+/** 保留已填内容，并在字段修改时清除此字段上一次的错误。
+ * @param group 通用角色资料或引擎配置分组
+ * @param id 修改的字段标识
+ * @param value 当前控件的原始值
+ */
+function setField(group: 'profile' | 'engine', id: string, value: string) {
+  const input = group === 'profile' ? profileInput : engineInput.value
+  input[id] = value
+  if (checked.value) {
+    const errors = group === 'profile' ? checked.value.profileErrors : checked.value.engineErrors
+    delete errors[id]
+  }
+  error.value = ''
 }
 
 /** 加载可选世界书和规则引擎目录。 */
@@ -124,75 +163,94 @@ async function finishCustomWorld() {
   finally { busy.value = false }
 }
 
-/** 进入角色初始化步骤并启动 GM 会话。 */
+/** 进入角色页并加载所选引擎的字段，丢弃过期的加载结果。 */
 async function startCharacterSetup() {
   if (!selection.worldId) return
   error.value = ''
+  store.clearMessages()
+  const selected = { ...selection }
+  const previous = formSelection.value
+  if (previous && previous.engineId !== selected.engineId) engineInput.value = Object.create(null)
+  step.value = 3
+  if (form.value && previous?.worldId === selected.worldId && previous.engineId === selected.engineId) return
+
+  checked.value = null
+  form.value = null
+  formSelection.value = selected
+  const request = ++formRequest
+  loadingForm.value = true
+  try {
+    const loaded = await createInitializationSession(selected)
+    if (request === formRequest) form.value = loaded
+  } catch (cause) {
+    if (request === formRequest) error.value = cause instanceof Error ? cause.message : '无法加载角色表单。'
+  } finally {
+    if (request === formRequest) loadingForm.value = false
+  }
+}
+
+/** 送整份表单给服务端校验，通过后显示服务端确认的资料。 */
+async function reviewSetup() {
+  const session = form.value
+  if (!session || busy.value || loadingForm.value) return
+  error.value = ''
   busy.value = true
   try {
-    await store.startInitialization(selection)
-    answer.value = ''
-    step.value = 3
+    checked.value = await validateInitialization(session.id,
+      formValues(session.profileFields, profileInput), formValues(session.engineFields, engineInput.value))
+    if (checked.value.version !== null && checked.value.setup) {
+      step.value = 4
+    } else {
+      error.value = '请检查角色资料和引擎配置。'
+    }
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '无法开始开局确认。'
+    if (cause instanceof ApiError && cause.code === 'SESSION_NOT_FOUND') form.value = null
+    error.value = cause instanceof Error ? cause.message : '无法校验角色表单。'
   } finally {
     busy.value = false
   }
-}
-
-/** 提交玩家对 GM 初始化问题的回答。
- * @param value 玩家输入的回答文本
- */
-async function submitAnswer(value = answer.value) {
-  const normalized = value.trim()
-  if (!normalized || store.initializationBusy) return
-  error.value = ''
-  try {
-    await store.answerInitialization(normalized)
-    answer.value = ''
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '答案未通过服务器校验。'
+  if (step.value === 3 && checked.value) {
+    await nextTick()
+    document.querySelector<HTMLElement>('#character-form [aria-invalid="true"]')?.focus()
   }
 }
 
-/** 在本轮回答处理完且必填资料齐备后预览开局资料。 */
-function reviewSetup() {
-  if (store.initializationBusy || !store.initializationTurn?.done) return
-  error.value = ''
-  step.value = 4
-}
-
-/** 创建正式游戏并打开首轮游玩页面。 */
+/** 确认已校验的表单版本，创建正式游戏并进入游玩页。 */
 async function createGame() {
-  if (!store.initializationTurn?.done || busy.value || store.initializationBusy) return
+  const session = form.value
+  const version = checked.value?.version
+  if (!session || version == null || busy.value) return
   error.value = ''
+  store.clearMessages()
   busy.value = true
   try {
-    const created = await store.finalizeInitialization()
-    if (created) await router.replace(`/game/${encodeURIComponent(created.gameId)}`)
+    const created = await store.finalizeInitialization(session.id, version)
+    await router.replace('/game/' + encodeURIComponent(created.gameId))
   } catch (cause) {
+    if (cause instanceof ApiError && cause.code === 'SESSION_NOT_FOUND') {
+      form.value = null
+      checked.value = null
+      step.value = 3
+    }
     error.value = cause instanceof Error ? cause.message : '创建游戏失败。'
   } finally {
     busy.value = false
   }
 }
 
-/** 从确认页返回时保留访谈，返回规则选择时清空访谈。 */
-function goBack() {
-  if (busy.value || store.initializationBusy) return
-  if (customMode.value) {
-    exitCustomWorld()
-    return
+/** 返回前序步骤，同时停止使用正在加载的旧表单。
+ * @param target 要返回的步骤号，默认为上一步
+ */
+function goBack(target = step.value - 1) {
+  if (busy.value || worldbuild.busy) return
+  error.value = ''
+  store.clearMessages()
+  if (step.value === 3 && loadingForm.value) {
+    formRequest++
+    loadingForm.value = false
   }
-  if (step.value === 4) {
-    step.value = 3
-    return
-  }
-  if (step.value === 2) { step.value = 1; return }
-  if (step.value === 3) {
-    step.value = 2
-    store.reset()
-  }
+  checked.value = null
+  step.value = target
 }
 
 onMounted(() => { void loadCatalog() })
@@ -205,7 +263,7 @@ onMounted(() => { void loadCatalog() })
         <div>
           <p class="onboarding-kicker">NEW ADVENTURE</p>
           <h1 id="onboarding-title">创建新冒险</h1>
-          <p>选择世界与规则，再和 GM 一起确认角色资料。</p>
+          <p>选择世界与规则，填写角色资料后开始冒险。</p>
         </div>
       </div>
 
@@ -216,8 +274,8 @@ onMounted(() => { void loadCatalog() })
           type="button"
           class="onboarding-step"
           :class="{ current: step === index + 1, complete: step > index + 1 }"
-          :disabled="busy || worldbuild.busy || store.initializationBusy || step <= index + 1 || index > 1"
-          @click="step = index + 1"
+          :disabled="busy || worldbuild.busy || step <= index + 1 || index > 1"
+          @click="goBack(index + 1)"
         >
           <span>{{ index + 1 }}</span>{{ name }}
         </button>
@@ -257,7 +315,7 @@ onMounted(() => { void loadCatalog() })
                   </div>
                   <div v-if="worldbuild.busy" class="onboarding-message gm thinking"><span class="loader small" />正在整理世界草案…</div>
                 </div>
-                <form class="onboarding-composer worldbuild-composer" @submit.prevent="submitWorldAnswer">
+                <form class="worldbuild-composer" @submit.prevent="submitWorldAnswer">
                   <textarea v-model="worldAnswer" aria-label="给 GM 的消息" rows="2" :placeholder="worldbuild.turn?.done ? '告诉 GM 你想调整什么' : '描述你想玩的世界'" :disabled="!worldbuild.sessionId || worldbuild.busy || busy" maxlength="8000"></textarea>
                   <button type="submit" class="onboarding-primary" :disabled="!worldbuild.sessionId || worldbuild.busy || busy || !worldAnswer.trim()">发送</button>
                 </form>
@@ -324,28 +382,35 @@ onMounted(() => { void loadCatalog() })
             <div><span>世界</span><strong>{{ selectedWorld?.name }}</strong></div>
             <div><span>规则</span><strong>{{ selectedEngine?.displayName || '纯叙事' }}</strong></div>
           </div>
-          <div ref="characterChat" class="onboarding-chat" aria-live="polite" :aria-busy="store.initializationBusy">
-            <div v-for="message in store.initializationHistory" :key="message.id" class="onboarding-message" :class="message.role">
-              <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span>
-              <p>{{ message.text }}</p>
-            </div>
-            <div v-if="store.initializationBusy" class="onboarding-message gm thinking"><span class="loader small" />GM 正在思考…</div>
-          </div>
-          <div v-if="store.initializationTurn?.options?.length" class="onboarding-options">
-            <button
-              v-for="option in store.initializationTurn.options"
-              :key="option"
-              type="button"
-              class="onboarding-option"
-              :disabled="store.initializationBusy"
-              @click="submitAnswer(option)"
-            >{{ option }}</button>
-          </div>
-          <form v-if="store.initializationTurn" class="onboarding-composer" @submit.prevent="submitAnswer()">
-            <input v-model="answer" aria-label="给 GM 发消息" placeholder="提问、补充或修改开局资料" :disabled="store.initializationBusy" />
-            <button type="submit" class="onboarding-primary" :disabled="store.initializationBusy || !answer.trim()">{{ store.initializationBusy ? '发送中…' : '发送' }}</button>
+          <p v-if="loadingForm" class="onboarding-empty" role="status">正在加载角色表单…</p>
+          <button v-else-if="!form" type="button" class="onboarding-secondary" @click="startCharacterSetup">重新加载</button>
+          <form v-else id="character-form" class="character-form" novalidate @submit.prevent="reviewSetup">
+            <fieldset class="character-section" :disabled="busy" aria-labelledby="character-profile-title">
+              <div class="character-section-heading">
+                <h2 id="character-profile-title">角色基本资料</h2><span class="character-hint">* 为必填项</span>
+              </div>
+              <div class="character-profile-fields">
+                <InitializationFormField
+                  v-for="field in form.profileFields" :key="field.id" group="profile" :field="field"
+                  :value="profileInput[field.id]" :error="fieldError(field, checked?.profileErrors[field.id])"
+                  @change="setField('profile', field.id, $event)"
+                />
+              </div>
+            </fieldset>
+            <fieldset v-if="selectedEngine" class="character-section" :disabled="busy" aria-labelledby="character-engine-title">
+              <div class="character-section-heading">
+                <h2 id="character-engine-title">引擎配置</h2><span class="character-hint">{{ selectedEngine.displayName }}</span>
+              </div>
+              <div v-if="form.engineFields.length" class="character-engine-fields">
+                <InitializationFormField
+                  v-for="field in form.engineFields" :key="field.id" group="engine" :field="field"
+                  :value="engineInput[field.id]" :error="fieldError(field, checked?.engineErrors[field.id])"
+                  @change="setField('engine', field.id, $event)"
+                />
+              </div>
+              <p v-else class="onboarding-empty">当前引擎无需额外配置。</p>
+            </fieldset>
           </form>
-          <p v-if="store.initializationTurn?.done" class="onboarding-ready">必填资料已齐备，可以继续和 GM 交流，也可以进入下一步。</p>
         </template>
 
         <template v-else>
@@ -353,9 +418,14 @@ onMounted(() => { void loadCatalog() })
           <dl class="review-list">
             <div><dt>世界</dt><dd>{{ selectedWorld?.name || selection.worldId }}</dd></div>
             <div><dt>规则</dt><dd>{{ selectedEngine?.displayName || '纯叙事' }}</dd></div>
-            <div v-for="([key, value]) in collectedEntries" :key="key"><dt>{{ fieldLabel(key) }}</dt><dd>{{ valueLabel(key, value) }}</dd></div>
+            <template v-if="reviewed">
+              <div><dt>姓名</dt><dd>{{ reviewed.character.name }}</dd></div>
+              <div><dt>年龄</dt><dd>{{ reviewed.character.age }} 岁</dd></div>
+              <div><dt>性别</dt><dd>{{ reviewed.character.gender }}</dd></div>
+              <div><dt>角色背景</dt><dd class="character-review-background">{{ reviewed.character.background || '未填写' }}</dd></div>
+            </template>
+            <div v-for="field in reviewedEngine" :key="field.id"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>
           </dl>
-          <p v-if="!collectedEntries.length" class="onboarding-empty">没有额外的角色字段；世界与规则信息已准备好。</p>
         </template>
       </div>
 
@@ -364,14 +434,14 @@ onMounted(() => { void loadCatalog() })
         <span>{{ step < 3 ? `第 ${step} / 4 步` : step === 3 ? '角色与开局资料' : '准备就绪' }}</span>
         <div class="footer-actions">
           <button type="button" class="onboarding-secondary" @click="router.push('/')">取消</button>
-          <button v-if="step > 1" type="button" class="onboarding-secondary" :disabled="busy || store.initializationBusy" @click="goBack">{{ step === 4 ? '返回角色' : '上一步' }}</button>
+          <button v-if="step > 1" type="button" class="onboarding-secondary" :disabled="busy" @click="goBack()">{{ step === 4 ? '返回角色' : '上一步' }}</button>
           <template v-if="step === 1 && customMode">
             <button type="button" class="onboarding-primary" :disabled="busy || worldbuild.busy || !worldbuild.turn?.done" @click="finishCustomWorld">{{ busy ? '处理中…' : '下一步' }}</button>
           </template>
           <button v-else-if="step === 1" type="button" class="onboarding-primary" :disabled="!selection.worldId || !catalog" @click="step = 2">下一步</button>
           <button v-else-if="step === 2" type="button" class="onboarding-primary" :disabled="busy || !selection.worldId" @click="startCharacterSetup">{{ busy ? '准备中…' : '下一步' }}</button>
-          <button v-else-if="step === 3" type="button" class="onboarding-primary" :disabled="store.initializationBusy || !store.initializationTurn?.done" @click="reviewSetup">下一步</button>
-          <button v-else type="button" class="onboarding-primary" :disabled="busy || store.initializationBusy || !store.initializationTurn?.done" @click="createGame">{{ busy ? '创建中…' : '创建并进入' }}</button>
+          <button v-else-if="step === 3" type="submit" form="character-form" class="onboarding-primary" :disabled="busy || !form || loadingForm">{{ busy ? '校验中…' : '下一步' }}</button>
+          <button v-else type="button" class="onboarding-primary" :disabled="busy || checked?.version == null" @click="createGame">{{ busy ? '创建中…' : '创建并进入' }}</button>
         </div>
       </footer>
     </main>

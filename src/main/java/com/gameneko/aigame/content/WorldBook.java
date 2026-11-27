@@ -1,46 +1,39 @@
 package com.gameneko.aigame.content;
 
-import com.gameneko.aigame.engine.InitializationSchema;
+import java.util.List;
+import java.util.Map;
 
-/** 兼容旧引擎投影的世界书包装，同时保留拆分后的叙事数据。 */
-public record WorldBook(WorldDefinition definition, InitializationSchema initializationSchema,
-                        WorldbookDefinition narrative) {
-    /** 兼容旧调用方的两参数构造器。
-     * @param definition 引擎使用的合并世界内容
-     * @param initializationSchema 世界书初始化字段
+/** 提供世界初始化所需的定义与完整的叙事资料。
+ * @param definition 世界初始化用的元数据
+ * @param narrative 世界书正文及结构化设定
+ */
+public record WorldBook(WorldDefinition definition, WorldbookDefinition narrative) {
+    /** 从基础世界定义生成叙事包装。
+     * @param definition 世界初始化用的元数据
      */
-    public WorldBook(WorldDefinition definition, InitializationSchema initializationSchema) {
-        this(definition, initializationSchema, new WorldbookDefinition(definition.worldId(), definition.contentVersion(),
+    public WorldBook(WorldDefinition definition) {
+        this(definition, new WorldbookDefinition(definition.worldId(), definition.contentVersion(),
                 definition.nameHint(), "", "legacy", "balanced", definition.descriptionHint(),
-                java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.Map.of()));
+                List.of(), List.of(), List.of(), Map.of()));
     }
 
+    /** 校验世界定义与叙事资料都已提供。 */
     public WorldBook {
-        if (definition == null || initializationSchema == null || narrative == null) throw new IllegalArgumentException("World book content and schema are required");
+        if (definition == null || narrative == null) throw new IllegalArgumentException("World book content is required");
     }
 
-    /** 返回世界书稳定标识。
-     * @return 世界书标识
-     */
+    /** 返回世界书稳定标识。 */
     public String id() { return definition.worldId(); }
 
-    /** 返回世界书内容版本。
-     * @return 内容版本
-     */
+    /** 返回世界书内容版本。 */
     public String version() { return definition.contentVersion(); }
 
-    /** 返回引用模板标识。
-     * @return 模板标识
-     */
+    /** 返回引用模板标识。 */
     public String templateId() { return narrative.templateId(); }
 
-    /** 返回世界类型。
-     * @return 世界类型稳定标识
-     */
+    /** 返回世界类型。 */
     public String type() { return narrative.type(); }
 
-    /** 返回故事基调。
-     * @return 基调标识
-     */
+    /** 返回故事基调。 */
     public String tone() { return narrative.tone(); }
 }

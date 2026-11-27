@@ -2,87 +2,83 @@ package com.gameneko.aigame.api;
 
 import com.gameneko.aigame.application.GameInitializationFlow;
 import com.gameneko.aigame.application.GameRequestException;
-import com.gameneko.aigame.application.InitializationNarrationService;
+import com.gameneko.aigame.engine.CharacterProfile;
 import com.gameneko.aigame.engine.GameSelection;
+import com.gameneko.aigame.engine.InitializationField;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 提供由 AI 驱动的内存态初始化会话接口，正式游戏只在 finalize 后创建。 */
+import java.util.List;
+import java.util.Map;
+
+/** 提供角色表单加载、校验和开局确认接口。 */
 @RestController
 @RequestMapping("/api/initialization/sessions")
 public final class InitializationSessionController {
     private final GameInitializationFlow initialization;
 
-    /** 创建初始化会话控制器。
-     * @param initialization 负责访谈与开局确认的应用服务
+    /** 创建开局表单控制器。
+     * @param initialization 管理表单会话和开局确认的服务
      */
     public InitializationSessionController(GameInitializationFlow initialization) {
         this.initialization = initialization;
     }
 
-    /** 创建会话并返回 GM 开场回合。
-     * @param request 世界书和可选引擎选择
-     * @return 会话标识和首个初始化回合
+    /** 根据选定的世界和规则加载角色表单。
+     * @param selection 世界书及可选引擎选择
      */
     @PostMapping
-    public SessionResponse create(@RequestBody SelectionRequest request) {
-        if (request == null) throw GameRequestException.invalid("Selection is required");
-        GameSelection selection = new GameSelection(request.worldId(), request.engineId());
+    public SessionResponse create(@RequestBody GameSelection selection) {
         GameInitializationFlow.StartedSession started = initialization.start(selection);
-        return new SessionResponse(started.id(), started.turn());
+        return new SessionResponse(started.id(), CharacterProfile.SCHEMA.fields(), started.engineFields());
     }
 
-    /** 接收玩家回答并返回下一回合。
-     * @param id 初始化会话标识
-     * @param request 玩家自然语言回答
-     * @return 更新后的回合
+    /** 校验玩家填写的通用资料及引擎配置。
+     * @param id 表单会话标识
+     * @param request 当前表单提交
      */
-    @PostMapping("/{id}/answer")
-    public AnswerResponse answer(@PathVariable String id, @RequestBody AnswerRequest request) {
-        if (request == null) throw GameRequestException.invalid("Answer is required");
-        InitializationNarrationService.Turn turn = initialization.answer(id, request.answer());
-        return new AnswerResponse(turn.done(), turn);
+    @PostMapping("/{id}/validate")
+    public GameInitializationFlow.CheckedForm validate(@PathVariable String id, @RequestBody FormRequest request) {
+        return initialization.validate(id, request.profile(), request.engineConfig());
     }
 
-    /** 确认开局并返回同一会话对应的游戏和首段叙事。
-     * @param id 已完成访谈的初始化会话标识
+    /** 确认已校验的版本并返回开场。
+     * @param id 表单会话标识
+     * @param request 玩家在确认页核对的版本
      */
     @PostMapping("/{id}/finalize")
-    public FinalizeResponse finalizeSession(@PathVariable String id) {
-        GameInitializationFlow.ConfirmedGame confirmed = initialization.confirm(id);
+    public FinalizeResponse finalizeSession(@PathVariable String id, @RequestBody ConfirmRequest request) {
+        if (request.version() <= 0) throw GameRequestException.invalid("请先校验角色表单。");
+        GameInitializationFlow.ConfirmedGame confirmed = initialization.confirm(id, request.version());
         NarrationHttpResponse opening = NarrationHttpResponse.from(confirmed.opening());
         return new FinalizeResponse(opening.game(), opening, confirmed.templateBuildFailed());
     }
 
-    /** 创建会话请求。
-     * @param worldId 世界书标识
-     * @param engineId 可空的引擎标识
+    /** 返回会话标识以及两组字段定义。
+     * @param id 表单会话标识
+     * @param profileFields 通用角色字段
+     * @param engineFields 引擎专用字段
      */
-    public record SelectionRequest(String worldId, String engineId) {}
+    public record SessionResponse(String id, List<InitializationField> profileFields,
+                                  List<InitializationField> engineFields) {}
 
-    /** 创建会话响应。
-     * @param id 会话标识
-     * @param turn GM 初始化回合
+    /** 接收表单输入，服务端根据字段定义验证类型及范围。
+     * @param profile 通用角色字段值
+     * @param engineConfig 引擎专用字段值，纯叙事时应为空
      */
-    public record SessionResponse(String id, InitializationNarrationService.Turn turn) {}
+    public record FormRequest(Map<String, Object> profile, Map<String, Object> engineConfig) {}
 
-    /** 回答请求。
-     * @param answer 玩家自然语言回答
+    /** 指定待确认的已校验版本。
+     * @param version 表单版本
      */
-    public record AnswerRequest(String answer) {}
+    public record ConfirmRequest(long version) {}
 
-    /** 回答响应。
-     * @param done 是否可 finalize
-     * @param turn GM 初始化回合
-     */
-    public record AnswerResponse(boolean done, InitializationNarrationService.Turn turn) {}
-
-    /** finalize 响应。
+    /** 返回可进入游玩的存档及开场。
      * @param game 新建的游戏实例
-     * @param opening 开局首段叙事与初始行动建议
+     * @param opening 开场叙事与初始行动建议
      * @param templateBuildFailed 模板构建失败并已无模板开局时为 true
      */
     public record FinalizeResponse(GameInstanceResponse game, NarrationHttpResponse opening, boolean templateBuildFailed) {}

@@ -1,20 +1,28 @@
 package com.gameneko.aigame.narrative;
 
 import com.gameneko.aigame.content.WorldbookDefinition;
+import com.gameneko.aigame.engine.CharacterProfile;
 
 import java.util.List;
 
-/** 将动态世界事实、确认事件、引擎投影及世界书设定作为只读数据传给叙事模型。 */
+/** 将已确认的角色、世界事实及引擎投影作为只读叙事上下文。
+ * @param world 世界动态视图
+ * @param confirmedEvents 已确认事件
+ * @param engineProjection 可空的引擎中立展示投影
+ * @param worldbook 可空的世界书叙事设定
+ * @param templateMaterials 可空的创作素材
+ * @param character 已确认的通用角色资料，世界模板提案阶段为空
+ */
 public record NarrativeSnapshot(WorldView world,
                                 List<ConfirmedEvent> confirmedEvents, Object engineProjection,
-                                WorldbookDefinition worldbook, Object templateMaterials) {
+                                WorldbookDefinition worldbook, Object templateMaterials, CharacterProfile character) {
     /** 创建不附带世界书资料的快照。
      * @param world 世界动态视图
      * @param confirmedEvents 已确认事件
      * @param engineProjection 引擎中立的展示投影
      */
     public NarrativeSnapshot(WorldView world, List<ConfirmedEvent> confirmedEvents, Object engineProjection) {
-        this(world, confirmedEvents, engineProjection, null, null);
+        this(world, confirmedEvents, engineProjection, null, null, null);
     }
     /** 创建不附带引擎和世界书资料的快照。
      * @param world 世界动态视图
@@ -23,12 +31,7 @@ public record NarrativeSnapshot(WorldView world,
     public NarrativeSnapshot(WorldView world, List<ConfirmedEvent> confirmedEvents) {
         this(world, confirmedEvents, null);
     }
-    /** 校验叙事快照并复制确认事件。
-     * @param world 世界动态视图
-     * @param confirmedEvents 已确认事件
-     * @param engineProjection 引擎中立的展示投影
-     * @param worldbook 可空的世界书叙事设定
-     */
+    /** 校验叙事快照并复制确认事件。 */
     public NarrativeSnapshot {
         if (world == null) throw new IllegalArgumentException("Narrative snapshot world is required");
         confirmedEvents = confirmedEvents == null ? List.of() : List.copyOf(confirmedEvents);
@@ -39,14 +42,14 @@ public record NarrativeSnapshot(WorldView world,
      * @return 附带叙事设定的新快照
      */
     public NarrativeSnapshot withWorldbook(WorldbookDefinition setting) {
-        return new NarrativeSnapshot(world, confirmedEvents, engineProjection, setting, templateMaterials);
+        return new NarrativeSnapshot(world, confirmedEvents, engineProjection, setting, templateMaterials, character);
     }
 
     /** 补充确认阶段登记的世界创作素材。
      * @param materials 世界类型对应的叙事素材
      */
     public NarrativeSnapshot withMaterials(Object materials) {
-        return new NarrativeSnapshot(world, confirmedEvents, engineProjection, worldbook, materials);
+        return new NarrativeSnapshot(world, confirmedEvents, engineProjection, worldbook, materials, character);
     }
 
     public record WorldView(long day, String time,

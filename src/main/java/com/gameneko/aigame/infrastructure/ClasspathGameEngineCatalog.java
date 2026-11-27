@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gameneko.aigame.engine.EngineTemplatePolicy;
 import com.gameneko.aigame.engine.GameEngineCatalog;
 import com.gameneko.aigame.engine.GameEngineDescriptor;
-import com.gameneko.aigame.engine.InitializationField;
-import com.gameneko.aigame.engine.InitializationSchema;
 import com.gameneko.aigame.rulesets.ap.ApTemplatePolicy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
@@ -33,12 +31,8 @@ public final class ClasspathGameEngineCatalog implements GameEngineCatalog {
         throw new IllegalArgumentException("Unsupported game engine: " + engineId);
     }
 
+    /** 返回 AP 的规则选择目录项。 */
     private static GameEngineDescriptor descriptor() {
-        return new GameEngineDescriptor("ap", "baseline-1", "AP",
-                new InitializationSchema(List.of(
-                        new InitializationField("archetype", "职业", InitializationField.ValueType.TEXT,
-                                true, List.of("swordsman", "mage", "ranger", "alchemist"), null, null, "请选择职业"),
-                        new InitializationField("difficulty", "难度", InitializationField.ValueType.TEXT,
-                                true, List.of(), null, null, "请选择难度"))));
+        return new GameEngineDescriptor("ap", "baseline-1", "AP");
     }
 }

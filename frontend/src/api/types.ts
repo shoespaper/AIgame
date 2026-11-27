@@ -50,15 +50,32 @@ export interface WorldPriceModifier { category: string; percent: number; source:
 /** 引擎中立的权威世界状态。 */
 export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; originScene: string; deadlineEvents: TimedWorldEvent[]; worldEvents: WorldEvent[]; activePriceModifiers: Record<string, WorldPriceModifier> }
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
-export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[] }
+export interface CharacterProfile { name: string; age: number; gender: string; background: string }
+export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; character: CharacterProfile; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[] }
 /** 后端错误响应的提示、稳定错误码和可选请求 ID。 */
 export interface ApiErrorPayload { error?: string; code?: string; requestId?: string }
 export interface NarrativeSettings { apiKey: string; enabled: boolean; baseUrl: string; model: string; maxTokens: number }
 export interface SaveMetadata { gameId: string; worldId: string; engineId: string | null; day: number; revision: number; updatedAt: string }
-export interface InitializationQuestion { fieldId: string; prompt: string; options: string[] }
-export interface InitializationTurn { narration: string; options: string[]; collected: Record<string, string | number | boolean>; done: boolean }
-export interface InitializationSession { id: string; turn: InitializationTurn }
-export interface InitializationAnswerResult { done: boolean; turn: InitializationTurn }
+/** 由服务端提供的通用角色字段或引擎配置字段。 */
+export interface InitializationField {
+  id: string
+  label: string
+  type: 'TEXT' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN'
+  required: boolean
+  options: string[]
+  optionLabels: Record<string, string>
+  minimum: number | null
+  maximum: number | null
+  prompt: string
+}
+export interface InitializationSession { id: string; profileFields: InitializationField[]; engineFields: InitializationField[] }
+export type InitializationFormValues = Record<string, string | number | boolean>
+export interface CheckedInitialization {
+  version: number | null
+  setup: { character: CharacterProfile; engineConfig: Record<string, InitializationValue> } | null
+  profileErrors: Record<string, string>
+  engineErrors: Record<string, string>
+}
 /** 创建游戏的开场结果。模板三次校验失败时，templateBuildFailed 为 true。 */
 export interface InitializationFinalizeResult { game: GameInstanceResponse; opening: NarrativeResponse; templateBuildFailed: boolean }
 

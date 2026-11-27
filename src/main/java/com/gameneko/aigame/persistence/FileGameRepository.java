@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
 /** 将当前游戏状态读写到本地 JSON 存档。 */
 @Component
 public final class FileGameRepository implements GameRepository {
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final Pattern SAFE_GAME_ID = Pattern.compile("[A-Za-z0-9_-]{1,80}");
     private final ObjectMapper objectMapper;
     private final Path saveRoot;
@@ -54,6 +54,14 @@ public final class FileGameRepository implements GameRepository {
      */
     @Override
     public Optional<GameInstance<?>> load(String gameId) {
+        return read(gameId, false);
+    }
+
+    /** 读取当前格式的存档，浏览目录时可略过已停用的格式。
+     * @param gameId 游戏存档标识
+     * @param skipObsolete 浏览目录时为 true，直接加载时为 false
+     */
+    private Optional<GameInstance<?>> read(String gameId, boolean skipObsolete) {
         Path path = savePath(gameId);
         String document;
         try {
@@ -66,6 +74,13 @@ public final class FileGameRepository implements GameRepository {
         }
         try {
             JsonNode envelope = objectMapper.readTree(document);
+            if (skipObsolete && envelope != null) {
+                JsonNode version = envelope.path("schemaVersion");
+                if (version.isIntegralNumber() && version.canConvertToInt()
+                        && version.intValue() > 0 && version.intValue() < SCHEMA_VERSION) {
+                    return Optional.empty();
+                }
+            }
             validateEnvelope(envelope, gameId);
             JsonNode state = envelope.get("state");
             String rulesetId = state.path("rulesetId").asText("");
@@ -140,7 +155,7 @@ public final class FileGameRepository implements GameRepository {
         }
     }
 
-    /** 读取存档和文件最后写入时间，按保存时间从新到旧排列。 */
+    /** 列出当前格式的存档和最后写入时间，按保存时间从新到旧排列。 */
     @Override
     public synchronized List<SavedGame> list() {
         if (!Files.isDirectory(saveRoot)) return List.of();
@@ -148,7 +163,7 @@ public final class FileGameRepository implements GameRepository {
             List<SavedGame> saves = new ArrayList<>();
             for (Path path : files.filter(file -> file.getFileName().toString().endsWith(".json")).toList()) {
                 String fileName = path.getFileName().toString();
-                Optional<GameInstance<?>> instance = load(fileName.substring(0, fileName.length() - ".json".length()));
+                Optional<GameInstance<?>> instance = read(fileName.substring(0, fileName.length() - ".json".length()), true);
                 if (instance.isEmpty()) continue;
                 try {
                     saves.add(new SavedGame(instance.get(), Files.getLastModifiedTime(path).toInstant()));

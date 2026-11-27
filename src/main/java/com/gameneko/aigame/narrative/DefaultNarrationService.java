@@ -31,7 +31,7 @@ public final class DefaultNarrationService implements NarrationService {
     /** 开局额外提示：引导玩家做出第一个选择，其余规则与普通回合一致。 */
     private static final String OPENING_HINT = """
             这是游戏开局的第一段叙事。若 confirmedSnapshot.worldbook.descriptionHint 中有开局切入点，
-            请结合已确认的角色与世界状态从那里展开。自然带出玩家的初始状态，最后引导玩家决定第一步行动。
+            请结合 confirmedSnapshot.character 中已确认的角色资料与世界状态从那里展开。角色背景用于叙事，请保留玩家填写的身份资料。最后引导玩家决定第一步行动。
             """;
 
     private final NarrativeProvider provider;

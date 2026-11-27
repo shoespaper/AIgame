@@ -1,7 +1,7 @@
 package com.gameneko.aigame.engine;
 
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 
 /** Minimal contract for an optional, typed game engine selected at game creation. */
 public interface GameEngineRuntime<S extends GameState, P> {
@@ -9,19 +9,28 @@ public interface GameEngineRuntime<S extends GameState, P> {
 
     String version();
 
-    /** 返回当前引擎专属的多轮开局访谈提示模板。
-     * @return 指导叙事模型收集引擎字段的系统提示
-     */
-    String initializationPrompt();
-
     /** 返回可供兼容创建入口使用的引擎字段默认答案。
      * @return 当前引擎拥有的默认初始化字段
      */
     Map<String, InitializationValue> defaultInitializationAnswers();
 
+    /** 返回引擎配置表单的字段及约束。 */
     InitializationSchema initializationSchema();
 
-    S initialize(Map<String, InitializationValue> answers);
+    /** 追加依赖多个配置字段或角色资料的引擎规则。
+     * @param character 已通过基础校验的角色资料
+     * @param config 引擎专用配置字段
+     */
+    default InitializationSchema.ValidationResult validateInitialization(CharacterProfile character,
+                                                                         Map<String, InitializationValue> config) {
+        return new InitializationSchema.ValidationResult(true, Map.of());
+    }
+
+    /** 根据已确认的资料创建引擎初始状态。
+     * @param character 通用角色资料
+     * @param config 引擎专用配置字段
+     */
+    S initialize(CharacterProfile character, Map<String, InitializationValue> config);
 
     /** 返回当前引擎可执行的动作清单，供叙事层生成结构化意图。 */
     default List<SupportedAction> supportedActions() {

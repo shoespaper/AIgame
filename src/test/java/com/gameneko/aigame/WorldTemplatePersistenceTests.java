@@ -64,7 +64,7 @@ class WorldTemplatePersistenceTests {
         GameInstance<?> instance = new GameInstanceService(new WorldInitializationService(fresh), fresh, new ClasspathGameEngineFactory())
                 .initialize("moon_game", InitializeWorldRequest.defaults("moon_world"), "ap", Map.of(
                         "characterName", new InitializationValue.Text("旅者"), "age", new InitializationValue.IntegerNumber(20),
-                        "archetype", new InitializationValue.Text("mage"), "difficulty", new InitializationValue.Text("hard")));
+                        "gender", new InitializationValue.Text("未指定"), "archetype", new InitializationValue.Text("mage"), "difficulty", new InitializationValue.Text("hard")));
         assertEquals("ap", instance.rulesetId());
         assertEquals(5L,
                 assertInstanceOf(ApState.class, instance.rulesetState()).resources().copper());
@@ -84,7 +84,8 @@ class WorldTemplatePersistenceTests {
         var fresh = catalog(worldFiles, templateFiles);
         var service = new GameInstanceService(new WorldInitializationService(fresh), fresh, new ClasspathGameEngineFactory());
         var instance = service.initialize("neon_game", InitializeWorldRequest.defaults("neon_world"), null,
-                Map.of("characterName", new InitializationValue.Text("旅者"), "age", new InitializationValue.IntegerNumber(20)));
+                Map.of("characterName", new InitializationValue.Text("旅者"), "age", new InitializationValue.IntegerNumber(20),
+                        "gender", new InitializationValue.Text("未指定")));
         assertNull(instance.rulesetId());
         assertEquals("neon", fresh.worldBook("neon_world").templateId());
         GameInstance<?> apInstance = service.initializeWithDefaults("neon_ap", InitializeWorldRequest.defaults("neon_world"), "ap");

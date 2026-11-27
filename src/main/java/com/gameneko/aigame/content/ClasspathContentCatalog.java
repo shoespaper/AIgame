@@ -118,7 +118,7 @@ public final class ClasspathContentCatalog implements ContentCatalog {
         WorldDefinition definition = world(worldId);
         String narrativeId = "isekai_grey".equals(worldId) ? "cinder_continent" : worldId;
         WorldbookDefinition narrative = loadWorldbookData(narrativeId);
-        return new WorldBook(definition, definition.initializationSchema(), narrative);
+        return new WorldBook(definition, narrative);
     }
 
     /** 根据世界书创建基础世界定义。

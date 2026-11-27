@@ -6,6 +6,7 @@ import com.gameneko.aigame.application.WorldInitializationService;
 import com.gameneko.aigame.content.ClasspathContentCatalog;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.GameInstance;
+import com.gameneko.aigame.engine.CharacterProfile;
 import com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory;
 import com.gameneko.aigame.persistence.FileTemplateRepository;
 import com.gameneko.aigame.persistence.FileWorldbookRepository;
@@ -44,7 +45,7 @@ class GameEngineSelectionTests {
         GameInstanceService service = new GameInstanceService(new WorldInitializationService(catalog), catalog, engines);
         ApGameEngineRuntime runtime = new ApGameEngineRuntime();
 
-        assertTrue(runtime.initializationPrompt().contains("adventure（冒险）"));
+        assertEquals("冒险", runtime.initializationSchema().fields().getLast().optionLabels().get("adventure"));
         GameInstance<?> game = service.initializeWithDefaults("ap-custom", InitializeWorldRequest.defaults("custom"), "ap");
         ApRulesetRuntime.ApState state = assertInstanceOf(ApRulesetRuntime.ApState.class, game.rulesetState());
 
@@ -56,7 +57,7 @@ class GameEngineSelectionTests {
     @Test
     void noEngineCreatesNarrativeOnlyGame() {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
+        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog, new ClasspathGameEngineFactory());
         var game = service.initialize("story", InitializeWorldRequest.defaults("isekai_grey"), null, Map.of(
                 "characterName", new InitializationValue.Text("旅人"),
                 "age", new InitializationValue.IntegerNumber(16),
@@ -68,39 +69,33 @@ class GameEngineSelectionTests {
     @Test
     void apIsSelectedThroughEngineBoundary() {
         var catalog = new ClasspathContentCatalog(new ObjectMapper(), new DefaultResourceLoader());
-        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog, new com.gameneko.aigame.infrastructure.ClasspathGameEngineFactory());
+        var service = new GameInstanceService(new WorldInitializationService(catalog), catalog, new ClasspathGameEngineFactory());
         var game = service.initialize("ap", InitializeWorldRequest.defaults("isekai_grey"), "ap", Map.of(
                 "characterName", new InitializationValue.Text("旅人"),
                 "age", new InitializationValue.IntegerNumber(16),
                 "gender", new InitializationValue.Text("未定"),
                 "archetype", new InitializationValue.Text("swordsman"),
                 "difficulty", new InitializationValue.Text("adventure")));
-        assertInstanceOf(com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ApState.class, game.rulesetState());
+        assertInstanceOf(ApRulesetRuntime.ApState.class, game.rulesetState());
     }
 
     @Test
-    void apAdapterAcceptsSharedWorldBookInitializationFields() {
+    void apAdapterUsesCommonCharacterProfile() {
         ApGameEngineRuntime runtime = new ApGameEngineRuntime();
-        var state = runtime.initialize(Map.of(
-                "characterName", new InitializationValue.Text("测试角色"),
-                "age", new InitializationValue.IntegerNumber(20),
-                "gender", new InitializationValue.Text("未定"),
+        var state = runtime.initialize(new CharacterProfile("测试角色", 20, "未定", ""), Map.of(
                 "archetype", new InitializationValue.Text("swordsman"),
                 "difficulty", new InitializationValue.Text("adventure")));
-        org.junit.jupiter.api.Assertions.assertEquals("测试角色", state.characterName());
+        assertEquals("测试角色", state.characterName());
     }
 
     @Test
     void apAdapterValidatesAndResolvesGenericIntent() {
         ApGameEngineRuntime runtime = new ApGameEngineRuntime();
-        var state = runtime.initialize(Map.of(
-                "characterName", new InitializationValue.Text("测试角色"),
-                "age", new InitializationValue.IntegerNumber(20),
-                "gender", new InitializationValue.Text("未定"),
+        var state = runtime.initialize(new CharacterProfile("测试角色", 20, "未定", ""), Map.of(
                 "archetype", new InitializationValue.Text("swordsman"),
                 "difficulty", new InitializationValue.Text("adventure")));
-        var intent = new ActionIntent("rest", "", java.util.List.of());
+        var intent = new ActionIntent("rest", "", List.of());
         var resolution = runtime.resolve(state, intent);
-        org.junit.jupiter.api.Assertions.assertEquals("rest", resolution.events().getFirst().type());
+        assertEquals("rest", resolution.events().getFirst().type());
     }
 }

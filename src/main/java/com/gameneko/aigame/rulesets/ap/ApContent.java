@@ -23,7 +23,7 @@ public record ApContent(Map<String, TalentDefinition> talents, Map<String, Abili
         itemTemplates = Map.copyOf(itemTemplates);
     }
 
-    /** 返回开局访谈使用的空素材。 */
+    /** 返回加载表单时使用的空素材。 */
     static ApContent empty() {
         return new ApContent(Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }

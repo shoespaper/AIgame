@@ -1,6 +1,7 @@
 package com.gameneko.aigame.api;
 
 import com.gameneko.aigame.engine.GameInstance;
+import com.gameneko.aigame.engine.CharacterProfile;
 import com.gameneko.aigame.engine.ConfirmedEvent;
 
 import java.util.List;
@@ -15,6 +16,7 @@ public record GameInstanceResponse(
         GameInstance.Lifecycle lifecycle,
         long revision,
         WorldInitializationResponse world,
+        CharacterProfile character,
         Object rulesetState,
         List<ConfirmedEvent> confirmedEvents
 ) {
@@ -32,6 +34,6 @@ public record GameInstanceResponse(
     public static GameInstanceResponse from(GameInstance<?> instance, List<ConfirmedEvent> events) {
         return new GameInstanceResponse(instance.gameId(), instance.worldId(), instance.contentVersion(),
                 instance.rulesetId(), instance.rulesetVersion(), instance.lifecycle(), instance.revision(),
-                WorldInitializationResponse.from(instance.worldState()), instance.rulesetState(), List.copyOf(events));
+                WorldInitializationResponse.from(instance.worldState()), instance.character(), instance.rulesetState(), List.copyOf(events));
     }
 }

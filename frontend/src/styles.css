@@ -180,10 +180,6 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .message-role { display: block; margin-bottom: 4px; color: var(--accent-strong); font-size: 11px; font-weight: 600; }
 .onboarding-message p { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
 .onboarding-message.thinking { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
-.onboarding-question { margin: 8px 0 0 !important; padding-left: 8px; border-left: 2px solid var(--accent); color: var(--accent-strong); font-weight: 600; }
-.onboarding-options { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
-.onboarding-option { border: 1px solid var(--line); border-radius: 16px; padding: 6px 12px; color: var(--text); background: transparent; font-size: 12px; }
-.onboarding-option:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); }
 .custom-world-entry { margin-top: 18px; }
 .worldbuild-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .worldbuild-heading h2 { margin: 0 0 5px; font-size: 16px; }
@@ -204,7 +200,7 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .worldbuild-document a { color: var(--accent-strong); }
 .worldbuild-document pre { overflow: auto; }
 .worldbuild-conversation .onboarding-chat { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; overflow-wrap: anywhere; }
-.worldbuild-conversation .worldbuild-composer { align-items: flex-end; margin: 0; padding: 12px; border-top: 1px solid var(--line); }
+.worldbuild-conversation .worldbuild-composer { display: flex; gap: 8px; align-items: flex-end; margin: 0; padding: 12px; border-top: 1px solid var(--line); }
 .worldbuild-composer textarea { flex: 1; min-width: 0; min-height: 46px; max-height: 150px; resize: vertical; }
 .worldbuild-composer button { flex-shrink: 0; }
 .world-choice > span:last-child { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
@@ -218,9 +214,6 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
   .worldbuild-layout[data-tab="chat"] .worldbuild-draft { display: none; }
 }
 @media (max-width: 640px) { .worldbuild-heading { flex-wrap: wrap; } .footer-actions { flex-wrap: wrap; } }
-.onboarding-composer { display: flex; gap: 8px; margin-top: 12px; }
-.onboarding-composer input { min-width: 0; }
-.onboarding-ready { margin: 15px 0 0; color: var(--teal); font-size: 13px; }
 .review-intro { display: flex; align-items: center; gap: 11px; margin-bottom: 15px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .review-mark { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--teal); border-radius: 50%; color: var(--teal); font-size: 13px; }
 .review-intro strong { display: block; font-size: 14px; }
@@ -229,6 +222,54 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .review-list div { display: flex; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .review-list dt { color: var(--muted); }
 .review-list dd { max-width: 68%; margin: 0; text-align: right; overflow-wrap: anywhere; }
+.character-form { display: grid; gap: 14px; }
+.character-section {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.character-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.character-section-heading h2 { margin: 0; font-size: 15px; }
+.character-profile-fields, .character-engine-fields { display: grid; gap: 15px; padding: 16px; }
+.character-profile-fields { grid-template-columns: minmax(0, 1.35fr) minmax(0, .7fr) minmax(0, 1fr); }
+.character-engine-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.character-background { grid-column: 1 / -1; }
+.character-field { display: grid; align-content: start; min-width: 0; gap: 6px; font-size: 13px; }
+.character-field label { font-weight: 600; }
+.character-field :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.character-field textarea { min-height: 84px; resize: vertical; }
+.character-field :is(input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.character-field [aria-invalid="true"] { border-color: var(--danger); }
+.character-field-error, .character-hint { margin: 0; font-size: 12px; }
+.character-field-error { color: var(--danger); }
+.character-hint { color: var(--muted); font-weight: normal; }
+.character-required { color: var(--accent-strong); }
+.character-section > .onboarding-empty { margin: 0; padding: 16px; }
+.character-review-background { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .character-profile-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .character-name { grid-column: 1 / -1; }
+  .character-profile-fields, .character-engine-fields { gap: 10px; padding: 12px; }
+}
 .onboarding-empty { color: var(--muted); font-size: 12px; }
 .onboarding-error { margin: 0 26px 10px; color: var(--danger); font-size: 12px; }
 .onboarding-footer { display: flex; align-items: center; gap: 9px; padding: 14px 26px; border-top: 1px solid var(--line); background: var(--surface-soft); color: var(--muted); font-size: 12px; }

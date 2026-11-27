@@ -82,8 +82,7 @@ public final class GameActionService {
             if (accepted.isEmpty()) return new AppliedAction(loaded, List.of(), List.of());
             long revision = loaded.revision() + 1;
             WorldState world = loaded.worldState().applyWorldUpdates(accepted).withRevision(revision);
-            GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
-                    loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, revision, world, loaded.rulesetState());
+            GameInstance<?> next = loaded.withProgress(world, loaded.rulesetState());
             return new AppliedAction(next, List.of(), List.of());
         }
         if (loaded.rulesetId() == null) {
@@ -107,8 +106,7 @@ public final class GameActionService {
             confirmed.addAll(afterAdvance.events());
         }
         nextWorld = nextWorld.applyWorldUpdates(accepted);
-        GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(),
-                loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, nextRevision, nextWorld, nextState);
+        GameInstance<?> next = loaded.withProgress(nextWorld, nextState);
         return new AppliedAction(next, confirmed, newEvents);
     }
 
@@ -230,7 +228,7 @@ public final class GameActionService {
             GameInstance<?> loaded = repository.load(gameId).orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
             GameRequestException.checkRevision(loaded, expectedRevision, null);
             WorldState changed = update.apply(loaded.worldState()).withRevision(loaded.revision() + 1);
-            GameInstance<?> next = new GameInstance<>(loaded.gameId(), loaded.worldId(), loaded.contentVersion(), loaded.rulesetId(), loaded.rulesetVersion(), GameInstance.Lifecycle.ACTIVE, loaded.revision() + 1, changed, loaded.rulesetState());
+            GameInstance<?> next = loaded.withProgress(changed, loaded.rulesetState());
             repository.save(next);
             return next;
         }

@@ -36,6 +36,6 @@ public final class NarrativeSnapshotFactory {
                         event.subject(), event.target(), event.amount(), event.description())));
         if (confirmedWorldEvents != null) confirmedWorldEvents.stream().skip(Math.max(0, confirmedWorldEvents.size() - 8L))
                 .forEach(event -> events.add(new NarrativeSnapshot.ConfirmedEvent("world", event.type().name(), "world", "", event.day(), event.description())));
-        return new NarrativeSnapshot(worldView, events, engineProjection);
+        return new NarrativeSnapshot(worldView, events, engineProjection, null, null, instance.character());
     }
 }

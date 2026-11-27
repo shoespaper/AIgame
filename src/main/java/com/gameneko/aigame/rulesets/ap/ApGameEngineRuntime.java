@@ -2,6 +2,7 @@ package com.gameneko.aigame.rulesets.ap;
 
 import com.gameneko.aigame.rulesets.ap.ApContent.AbilityDefinition;
 import com.gameneko.aigame.engine.ActionIntent;
+import com.gameneko.aigame.engine.CharacterProfile;
 import com.gameneko.aigame.engine.ConfirmedEvent;
 import com.gameneko.aigame.engine.EngineResolution;
 import com.gameneko.aigame.engine.GameEngineRuntime;
@@ -21,6 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** 为 AP 规则提供引擎中立接口所需的初始化、动作校验与状态投影适配。 */
 public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRuntime.ApState, ApRulesetRuntime.ApProjection> {
@@ -29,7 +31,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     private final JsonNode rules;
     private final ApRulesetRuntime runtime;
 
-    /** 创建用于开局访谈的 AP 运行时。 */
+    /** 创建用于加载及校验开局配置的 AP 运行时。 */
     public ApGameEngineRuntime() {
         this(ApContent.empty(), MissingNode.getInstance(), MissingNode.getInstance());
     }
@@ -55,35 +57,14 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
      */
     @Override public String version() { return runtime.version(); }
 
-    /** 返回 AP 引擎的初始化访谈模板，职业细节由引擎模块独立维护。
-     * @return AP 专属的初始化提示词
-     */
-    @Override
-    public String initializationPrompt() {
-        var prompt = new StringBuilder("""
-                你正在主持 AP 规则游戏的开局访谈。结合玩家已经说过的内容，自然地逐步了解角色。
-                职业可选：swordsman（剑士，均衡近战）、mage（法师，擅长法术但体质较弱）、
-                ranger（游侠，灵活的远程角色）、alchemist（炼金术师，擅长药剂辅助）。
-                难度选项及其可解释的含义见下方清单；所有枚举 updates 必须使用稳定 id。
-                字段清单里的“缺少的必填字段”是服务端校验结果，请优先收集其中尚未齐备的字段。
-                可以从玩家一句话里确认多个字段；可按玩家要求修改已填字段。把确认值放入 updates。
-                初始化期间 action 必须为 null。只输出四字段响应 JSON，未声明字段时 updates 为 {}。
-
-                难度选项与说明：
-                """);
-        ApRulesetRuntime.difficultyPresets().forEach((id, difficulty) -> prompt.append(id).append("（")
-                .append(difficulty.label()).append("）：").append(difficulty.description()).append("\n"));
-        return prompt.toString();
-    }
-
     /** 返回 AP 引擎可用的默认职业与该世界支持的默认难度。
      * @return AP 引擎拥有的类型化默认字段值
      */
     @Override
     public Map<String, InitializationValue> defaultInitializationAnswers() {
-        var schema = initializationSchema();
-        var archetypes = schema.fields().stream().filter(field -> "archetype".equals(field.id())).findFirst().orElseThrow();
-        var difficulty = schema.fields().stream().filter(field -> "difficulty".equals(field.id())).findFirst().orElseThrow();
+        InitializationSchema schema = initializationSchema();
+        InitializationField archetypes = schema.fields().stream().filter(field -> "archetype".equals(field.id())).findFirst().orElseThrow();
+        InitializationField difficulty = schema.fields().stream().filter(field -> "difficulty".equals(field.id())).findFirst().orElseThrow();
         String defaultDifficulty = difficulty.options().contains("adventure") ? "adventure" : difficulty.options().getFirst();
         return Map.of("archetype", new InitializationValue.Text(archetypes.options().getFirst()),
                 "difficulty", new InitializationValue.Text(defaultDifficulty));
@@ -94,37 +75,29 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
      */
     @Override
     public InitializationSchema initializationSchema() {
+        Map<String, String> difficultyLabels = ApRulesetRuntime.difficultyPresets().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().label()));
         return new InitializationSchema(List.of(
                 new InitializationField("archetype", "职业", InitializationField.ValueType.TEXT, true,
-                        List.of("swordsman", "mage", "ranger", "alchemist"), null, null, "请选择职业"),
+                        List.of("swordsman", "mage", "ranger", "alchemist"), null, null, "",
+                        Map.of("swordsman", "剑士", "mage", "法师", "ranger", "游侠", "alchemist", "炼金术士")),
                 new InitializationField("difficulty", "难度", InitializationField.ValueType.TEXT, true,
-                        ApRulesetRuntime.difficultyPresets().keySet().stream().sorted().toList(), null, null, "请选择难度")));
+                        difficultyLabels.keySet().stream().sorted().toList(), null, null, "", difficultyLabels)));
     }
 
     /** 校验并创建 AP 初始状态。
-     * @param answers 已通过组合 schema 校验的初始化字段
+     * @param character 玩家确认的通用角色资料
+     * @param config 已确认的 AP 配置
      * @return AP 初始规则状态
      */
     @Override
-    public ApRulesetRuntime.ApState initialize(Map<String, InitializationValue> answers) {
-        if (answers == null) throw new IllegalArgumentException("AP initialization answers are required");
-        // The application validates the combined world-book + engine schema. The
-        // adapter validates only fields owned by AP so shared world-book fields
-        // are not rejected as unknown engine fields.
-        var engineFieldIds = initializationSchema().fields().stream()
-                .map(InitializationField::id).collect(java.util.stream.Collectors.toSet());
-        var engineAnswers = new java.util.HashMap<String, InitializationValue>();
-        answers.forEach((field, value) -> {
-            if (engineFieldIds.contains(field)) engineAnswers.put(field, value);
-        });
-        var validation = initializationSchema().validate(engineAnswers);
+    public ApRulesetRuntime.ApState initialize(CharacterProfile character, Map<String, InitializationValue> config) {
+        InitializationSchema.ValidationResult validation = initializationSchema().validate(config);
         if (!validation.accepted()) throw new IllegalArgumentException("Invalid AP initialization fields: " + validation.errors());
-        String name = text(answers, "characterName", "旅人");
-        int age = (int) integer(answers, "age", 16);
-        String gender = text(answers, "gender", "未定");
-        String archetype = text(answers, "archetype", "swordsman");
-        String difficulty = text(answers, "difficulty", "adventure");
-        ApRulesetRuntime.ApState state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(name, age, gender, archetype, difficulty), content);
+        String archetype = ((InitializationValue.Text) config.get("archetype")).value();
+        String difficulty = ((InitializationValue.Text) config.get("difficulty")).value();
+        ApRulesetRuntime.ApState state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest(
+                character.name(), character.age(), character.gender(), archetype, difficulty), content);
         if (state.uniqueTalent() != null && materials.isObject()) {
             int bonus = ApTemplateContent.ruleFor(material("talent_types", state.uniqueTalent().type()), rules)
                     .path("parameters").path("max_hp_bonus").intValue();
@@ -272,16 +245,6 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
     }
 
     @Override public ApRulesetRuntime.ApProjection project(ApRulesetRuntime.ApState state) { return runtime.project(state); }
-
-    private static String text(Map<String, InitializationValue> values, String key, String fallback) {
-        var value = values.get(key);
-        return value instanceof InitializationValue.Text text && !text.value().isBlank() ? text.value() : fallback;
-    }
-
-    private static long integer(Map<String, InitializationValue> values, String key, long fallback) {
-        var value = values.get(key);
-        return value instanceof InitializationValue.IntegerNumber number ? number.value() : fallback;
-    }
 
     /** 按精确标识查找已确认的世界素材。
      * @param group 世界模板中的素材集合

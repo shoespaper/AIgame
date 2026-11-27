@@ -29,7 +29,7 @@ public final class ClasspathGameEngineFactory implements GameEngineFactory {
     /** 读取当前游戏确认的素材后创建所选引擎。
      * @param engineId 玩家选择的引擎标识
      * @param world 世界书基础内容
-     * @param gameId 已确认的游戏标识，角色初始化访谈期间为空
+     * @param gameId 已确认的游戏标识，加载表单及校验引擎配置期间为空
      */
     @Override
     public GameEngineRuntime<?, ?> createForGame(String engineId, WorldDefinition world, String gameId) {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { loadGame, saveGame, narrate, ApiError, createInitializationSession, answerInitialization, finalizeInitialization } from '../api/client'
-import type { ConfirmedEvent, GameInstanceResponse, GameSelection, NarrativeResponse, InitializationTurn, ConversationMessage } from '../api/types'
+import { loadGame, saveGame, narrate, ApiError, finalizeInitialization } from '../api/client'
+import type { ConfirmedEvent, GameInstanceResponse, NarrativeResponse, ConversationMessage } from '../api/types'
 
 export interface TimelineEvent {
   id: number
@@ -8,13 +8,6 @@ export interface TimelineEvent {
   title: string
   detail: string
   time: string
-}
-
-/** 初始化对话流中的一条 GM 话术或玩家回答。 */
-export interface InitMessage {
-  id: number
-  role: 'gm' | 'player'
-  text: string
 }
 
 const CURRENT_GAME_KEY = 'aigame.currentGameId'
@@ -47,10 +40,6 @@ export const useGameStore = defineStore('game', {
     notice: '',
     narration: null as NarrativeResponse | null,
     conversation: [] as ConversationMessage[],
-    initializationSessionId: '',
-    initializationTurn: null as InitializationTurn | null,
-    initializationBusy: false,
-    initializationHistory: [] as InitMessage[],
   }),
   getters: { currentGameId: (state) => state.game?.gameId || localStorage.getItem(CURRENT_GAME_KEY) || '' },
   actions: {
@@ -72,51 +61,14 @@ export const useGameStore = defineStore('game', {
         if (localStorage.getItem(CURRENT_GAME_KEY) === gameId) localStorage.removeItem(CURRENT_GAME_KEY)
       } catch { /* 浏览器限制本地存储时，服务端删除结果仍然有效。 */ }
     },
-    /** 创建 AI 初始化会话并保存首个 GM 回合。
-     * @param selection 玩家选择的世界书和可选引擎
+    /** 确认已校验的角色表单并保存游玩页需要的开场和提示。
+     * @param id 初始化会话标识
+     * @param version 确认页使用的表单版本
      */
-    async startInitialization(selection: GameSelection) {
-      this.initializationBusy = true; this.clearMessages()
+    async finalizeInitialization(id: string, version: number) {
+      this.clearMessages()
       try {
-        const session = await createInitializationSession(selection)
-        this.initializationSessionId = session.id
-        this.initializationTurn = session.turn
-        this.initializationHistory = []
-        this.pushInitMessage('gm', session.turn.narration)
-        return session
-      } catch (cause) { this.error = cause instanceof Error ? cause.message : '无法开始初始化问答'; throw cause
-      } finally { this.initializationBusy = false }
-    },
-    /** 在初始化对话流中追加一条 GM 或玩家消息。
-     * @param role 消息角色
-     * @param text 消息正文
-     */
-    pushInitMessage(role: 'gm' | 'player', text: string) {
-      this.initializationHistory.push({ id: Date.now() + Math.floor(Math.random() * 1000), role, text })
-    },
-    /** 提交初始化自然语言回答并更新 GM 回合。
-     * @param answer 玩家当前回答
-     */
-    async answerInitialization(answer: string) {
-      if (!this.initializationSessionId) return null
-      this.initializationBusy = true; this.clearMessages()
-      this.pushInitMessage('player', answer)
-      try {
-        const result = await answerInitialization(this.initializationSessionId, answer)
-        this.initializationTurn = result.turn
-        this.pushInitMessage('gm', result.turn.narration)
-        return result
-      } catch (cause) { this.initializationHistory.pop(); this.error = cause instanceof Error ? cause.message : '初始化回答未通过校验'; throw cause
-      } finally { this.initializationBusy = false }
-    },
-    /** 在 GM 回合标记完成后创建正式游戏，并保留无模板开局提示供游玩页显示。
-     * @returns 新建的游戏实例
-     */
-    async finalizeInitialization() {
-      if (!this.initializationSessionId) return null
-      this.initializationBusy = true; this.clearMessages()
-      try {
-        const result = await finalizeInitialization(this.initializationSessionId)
+        const result = await finalizeInitialization(id, version)
         this.game = result.game
         this.remember(this.game.gameId)
         this.conversation = []
@@ -126,12 +78,11 @@ export const useGameStore = defineStore('game', {
           this.conversation.push({ role: 'gm', text: result.opening.narration })
           result.opening.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
         }
-        this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []
         localStorage.setItem(conversationKey(this.game.gameId), JSON.stringify(this.conversation))
         if (result.templateBuildFailed) this.notice = '模板构建失败，本局以无模板形式开始游戏。'
         return this.game
       } catch (cause) { this.error = cause instanceof Error ? cause.message : '创建游戏失败'; throw cause
-      } finally { this.initializationBusy = false }
+      }
     },
     /** 加载指定权威存档和本地对话，清除上一次游玩留下的临时选项。
      * @param gameId 待加载的游戏存档标识
@@ -186,6 +137,6 @@ export const useGameStore = defineStore('game', {
       catch (cause) { this.conversation = transcript; if (cause instanceof ApiError && cause.code === 'REVISION_MISMATCH') { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
       finally { this.acting = false }
     },
-    reset() { this.game = null; this.events = []; this.narration = null; this.conversation = []; this.initializationSessionId = ''; this.initializationTurn = null; this.initializationHistory = []; this.clearMessages() },
+    reset() { this.game = null; this.events = []; this.narration = null; this.conversation = []; this.clearMessages() },
   },
 })

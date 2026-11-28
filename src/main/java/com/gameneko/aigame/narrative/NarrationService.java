@@ -32,6 +32,7 @@ public interface NarrationService {
 
     /** 用一次模型调用描写已确认结果。
      * @param request 结算后的权威快照及玩家上下文
+     * @param correction 上一次描写失败的纠正指令，可为空
      */
-    NarrativeResponse describeConfirmedTurnOnce(NarrativeRequest request);
+    NarrativeResponse describeConfirmedTurnOnce(NarrativeRequest request, String correction);
 }

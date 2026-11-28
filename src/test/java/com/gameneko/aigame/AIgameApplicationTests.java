@@ -31,6 +31,7 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -569,7 +570,7 @@ class AIgameApplicationTests {
         verify(narrativeProvider, times(5)).respond(any());
     }
 
-    /** 验证描写失败后仍返回已结算回执，换一个流控制器也可以从存档恢复。 */
+    /** 验证描写用完剩余预算后返回已结算回执，换一个流控制器也可以从存档恢复。 */
     @Test
     void streamedNarrationRecoversCommittedReceiptAfterDescriptionFails() throws Exception {
         String gameId = "retry-receipt-" + UUID.randomUUID();
@@ -580,8 +581,11 @@ class AIgameApplicationTests {
                         List.of("继续赶路")))
                 .thenThrow(NarrativeProviderException.invalidOutput("描写失败", null));
         List<JsonNode> first = stream(mockMvc, gameId, turnId, "吃一份口粮");
-        assertEquals(List.of("started", "committed", "attempt_failed", "complete"), eventTypes(first));
+        assertEquals(List.of("started", "committed", "attempt_failed", "attempt_failed", "attempt_failed",
+                "attempt_failed", "complete"), eventTypes(first));
+        assertEquals(List.of(2, 3, 4, 5), first.subList(2, 6).stream().map(node -> node.path("attempt").asInt()).toList());
         assertEquals(1, first.get(1).at("/result/game/revision").asInt());
+        assertTrue(first.getLast().at("/result/receiptOnly").asBoolean());
         assertEquals(first.get(1).path("result"), first.getLast().path("result"));
         MockMvc fresh = MockMvcBuilders.standaloneSetup(new NarrationStreamController(narrativeApplication)).build();
         List<JsonNode> reconnected = stream(fresh, gameId, turnId, "吃一份口粮");
@@ -590,7 +594,39 @@ class AIgameApplicationTests {
         mockMvc.perform(get("/api/games/{gameId}", gameId)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(1))
                 .andExpect(jsonPath("$.rulesetState.resources.rations").value(2));
-        verify(narrativeProvider, times(2)).respond(any());
+        verify(narrativeProvider, times(5)).respond(any());
+    }
+
+    /** 验证直接接取只结算一次，遇到过长选项后可以在第五次补全描写。 */
+    @Test
+    void streamedChoiceUsesFiveDescriptionAttemptsWithoutReapplyingAction() throws Exception {
+        String gameId = "retry-choice-" + UUID.randomUUID();
+        openApInTown(gameId);
+        performAction(gameId, 0, "offer_quest", Map.of("questId", "caravan_job", "questTemplateId", "lost_caravan"))
+                .andExpect(status().isOk());
+        String atLimit = "去医帐问那个归来的先遣队员关于当晚巡逻时看到什么";
+        NarrativeResponse tooLong = new NarrativeResponse("记录员替你登记。", null, List.of(atLimit + "？"));
+        NarrativeResponse valid = new NarrativeResponse("记录员替你登记。", null, List.of(atLimit, "去医帐问那个归来的先遣队员"));
+        when(narrativeProvider.respond(any())).thenReturn(tooLong, tooLong, tooLong, tooLong, valid);
+        UUID turnId = UUID.randomUUID();
+        Map<String, Object> payload = Map.of("expectedRevision", 1, "choiceId", "accept_quest:caravan_job");
+        List<JsonNode> events = stream(mockMvc, gameId, turnId, payload);
+        assertEquals(List.of("started", "committed", "attempt_failed", "attempt_failed", "attempt_failed",
+                "attempt_failed", "complete"), eventTypes(events));
+        assertEquals(List.of(1, 2, 3, 4), events.subList(2, 6).stream().map(node -> node.path("attempt").asInt()).toList());
+        assertEquals("ACTIVE", events.getLast().at("/result/game/rulesetState/systems/questLog/0/status").asText());
+        assertEquals(2, events.getLast().at("/result/game/revision").asInt());
+        assertEquals("记录员替你登记。", events.getLast().at("/result/narration").asText());
+        assertEquals(atLimit, events.getLast().at("/result/options/0").asText());
+        assertTrue(events.getLast().at("/result/receiptOnly").isBoolean());
+        assertFalse(events.getLast().at("/result/receiptOnly").asBoolean());
+        MockMvc fresh = MockMvcBuilders.standaloneSetup(new NarrationStreamController(narrativeApplication)).build();
+        assertTrue(stream(fresh, gameId, turnId, payload).getLast().at("/result/receiptOnly").asBoolean());
+        ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
+        verify(narrativeProvider, times(5)).respond(prompts.capture());
+        assertTrue(prompts.getAllValues().stream().allMatch(prompt -> prompt.singleAttempt()
+                && prompt.snapshot().equals(prompts.getValue().snapshot())));
+        assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("上一次描写与修正要求"));
     }
 
     /** 验证第五次才结算时直接返回回执，预算用尽后不再调用模型描写。 */
@@ -616,9 +652,19 @@ class AIgameApplicationTests {
      * @param input 本轮玩家输入
      */
     private List<JsonNode> stream(MockMvc client, String gameId, UUID turnId, String input) throws Exception {
+        return stream(client, gameId, turnId, Map.of("expectedRevision", 0, "playerInput", input));
+    }
+
+    /** 获取模拟叙事回合的 SSE 数据，玩家可发送正文或选择服务端行动。
+     * @param client 用于发送请求的 MockMvc 实例
+     * @param gameId 本轮所属存档标识
+     * @param turnId 重连时复用的回合标识
+     * @param payload 完整的叙事请求字段
+     */
+    private List<JsonNode> stream(MockMvc client, String gameId, UUID turnId, Map<String, Object> payload) throws Exception {
         MvcResult opened = client.perform(post("/api/games/{gameId}/narration/turns/{turnId}", gameId, turnId)
                         .accept("text/event-stream").contentType(APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(Map.of("expectedRevision", 0, "playerInput", input))))
+                        .content(mapper.writeValueAsString(payload)))
                 .andExpect(request().asyncStarted()).andReturn();
         opened.getAsyncResult(8000);
         String response = client.perform(asyncDispatch(opened)).andExpect(status().isOk()).andReturn()

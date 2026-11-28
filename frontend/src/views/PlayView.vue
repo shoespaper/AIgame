@@ -33,8 +33,8 @@ async function speak() {
 /** 使用原回合标识查询中断的回复。 */
 async function resumeTurn() {
   const pending = game.pendingTurn
-  if (!pending || await game.resumeTextTurn()) return
-  await restoreInput(pending.gameId, pending.playerInput)
+  if (!pending || await game.resumeTurn()) return
+  if (!pending.choiceId) await restoreInput(pending.gameId, pending.playerInput)
 }
 /** 回合确认失败后恢复玩家原文。
  * @param id 回合所属游戏

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import type { CreationProgress } from '../api/types'
-import { loadGame, saveGame, narrate, streamNarration, ApiError, finalizeInitialization } from '../api/client'
-import type { ConfirmedEvent, GameInstanceResponse, NarrativeResponse, ConversationMessage, TextNarrationTurn } from '../api/types'
+import { loadGame, saveGame, streamNarration, ApiError, finalizeInitialization } from '../api/client'
+import type { ConfirmedEvent, GameInstanceResponse, NarrativeResponse, ConversationMessage, NarrationTurnRequest } from '../api/types'
 
 export interface TimelineEvent {
   id: number
@@ -13,10 +13,18 @@ export interface TimelineEvent {
 
 const CURRENT_GAME_KEY = 'aigame.currentGameId'
 function conversationKey(gameId: string): string { return `aigame.conversation.${gameId}` }
-function readConversation(gameId: string): ConversationMessage[] {
+
+/** 游玩页对话记录包含玩家、GM 与系统回执。 */
+type GameConversationMessage = ConversationMessage | { role: 'system'; text: string }
+
+/** 从本地存储读取可显示的游玩对话。
+ * @param gameId 对话所属存档标识
+ */
+function readConversation(gameId: string): GameConversationMessage[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(conversationKey(gameId)) || '[]')
-    return Array.isArray(value) ? value.filter((item): item is ConversationMessage => item && (item.role === 'player' || item.role === 'gm') && typeof item.text === 'string') : []
+    return Array.isArray(value) ? value.filter((item): item is GameConversationMessage => item
+      && (item.role === 'player' || item.role === 'gm' || item.role === 'system') && typeof item.text === 'string') : []
   } catch { return [] }
 }
 function nowLabel(): string { return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date()) }
@@ -48,8 +56,8 @@ export const useGameStore = defineStore('game', {
     error: '',
     notice: '',
     narration: null as NarrativeResponse | null,
-    conversation: [] as ConversationMessage[],
-    pendingTurn: null as TextNarrationTurn | null,
+    conversation: [] as GameConversationMessage[],
+    pendingTurn: null as NarrationTurnRequest | null,
     turnError: '',
     retryHint: '',
     retryQueue: [] as string[],
@@ -115,7 +123,7 @@ export const useGameStore = defineStore('game', {
         this.events = [event('system', '新的远征已建立', '世界状态和角色初始状态已由服务器确认。')]
         if (result.opening) {
           this.narration = result.opening
-          this.conversation.push({ role: 'gm', text: result.opening.narration })
+          this.conversation.push({ role: result.opening.receiptOnly ? 'system' : 'gm', text: result.opening.narration })
           result.opening.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
         }
         localStorage.setItem(conversationKey(this.game.gameId), JSON.stringify(this.conversation))
@@ -163,32 +171,16 @@ export const useGameStore = defineStore('game', {
     /** @param choiceId 若为直接执行按钮，传入当前状态提供的行动标识 */
     async speak(input: string, choiceId?: string) {
       if (!this.game || this.acting || this.pendingTurn) return
-      if (!choiceId) {
-        this.clearTurnMessages()
-        this.pendingTurn = {
-          id: turnId(), gameId: this.game.gameId, expectedRevision: this.game.revision,
-          playerInput: input, history: this.conversation.slice(-40),
-        }
-        return this.resumeTextTurn()
+      this.clearTurnMessages()
+      this.pendingTurn = {
+        id: turnId(), gameId: this.game.gameId, expectedRevision: this.game.revision,
+        playerInput: input, choiceId,
+        history: this.conversation.filter((message): message is ConversationMessage => message.role !== 'system').slice(-40),
       }
-      this.acting = true; this.clearMessages()
-      const gameId = this.game.gameId; const revision = this.game.revision
-      const transcript = [...this.conversation]
-      this.conversation.push({ role: 'player', text: input })
-      try {
-        const result = await narrate(gameId, revision, input, transcript, choiceId)
-        this.game = result.game
-        this.narration = result
-        this.conversation.push({ role: 'gm', text: result.narration })
-        localStorage.setItem(conversationKey(gameId), JSON.stringify(this.conversation))
-        result.confirmedEvents.forEach((item) => this.events.push(confirmedEvent(item)))
-        return result
-      }
-      catch (cause) { this.conversation = transcript; if (cause instanceof ApiError && cause.code === 'REVISION_MISMATCH') { await this.load(gameId); this.notice = '存档已更新，已刷新最新状态。'; return }; this.error = cause instanceof Error ? cause.message : '叙事请求失败'; throw cause }
-      finally { this.acting = false }
+      return this.resumeTurn()
     },
-    /** 完成或恢复当前文本回合，重连沿用原标识，待确认时保留原文与已知回执。 */
-    async resumeTextTurn() {
+    /** 完成或恢复当前回合，重连沿用原标识，待确认时保留已知回执。 */
+    async resumeTurn() {
       const pending = this.pendingTurn
       if (!pending || this.acting || this.game?.gameId !== pending.gameId) return
       this.acting = true
@@ -210,20 +202,22 @@ export const useGameStore = defineStore('game', {
         try {
           result = await receive()
         } catch (cause) {
-          if (receipt) result = receipt
-          else if (isCurrent() && cause instanceof ApiError && (cause.status === 0 || cause.code === 'RESULT_UNCONFIRMED')) {
+          if (isCurrent() && cause instanceof ApiError && (cause.status === 0 || cause.code === 'RESULT_UNCONFIRMED')) {
             try { result = await receive() }
             catch (reattachFailure) {
               if (!receipt) throw reattachFailure
               result = receipt
             }
-          } else throw cause
+          } else if (receipt) result = receipt
+          else throw cause
         }
         if (!isCurrent()) return result
         this.game = result.game
         this.narration = result
         this.pendingTurn = null
-        this.conversation.push({ role: 'player', text: pending.playerInput }, { role: 'gm', text: result.narration })
+        this.conversation.push({ role: 'player', text: pending.playerInput },
+          { role: result.receiptOnly ? 'system' : 'gm', text: result.narration })
+        if (result.receiptOnly) this.turnError = '行动已结算，GM 暂未生成后续描写。你可以继续行动。'
         try {
           localStorage.setItem(conversationKey(pending.gameId), JSON.stringify(this.conversation))
         } catch { /* 浏览器存储受限时，已确认的回合仍然可见。 */ }

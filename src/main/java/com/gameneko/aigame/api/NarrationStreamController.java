@@ -2,6 +2,8 @@ package com.gameneko.aigame.api;
 
 import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.NarrativeApplicationService;
+import com.gameneko.aigame.application.NarrativeApplicationService.AttemptFailure;
+import com.gameneko.aigame.application.NarrativeApplicationService.NarratedTurn;
 import com.gameneko.aigame.logging.DiagnosticLog;
 import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeRequest.ConversationMessage;
@@ -20,8 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
-/** 流式发送文本回合进度，重连使用相同标识并共享响应。 */
+/** 流式发送自由文本和直接行动的回合进度，重连使用相同标识并共享响应。 */
 @RestController
 @RequestMapping("/api/games/{gameId}/narration/turns")
 public final class NarrationStreamController {
@@ -31,22 +34,22 @@ public final class NarrationStreamController {
     private final NarrativeApplicationService narratives;
 
     /** 注入负责重试与结算的应用服务。
-     * @param narratives 执行文本回合并读取回执的服务
+     * @param narratives 执行叙事回合并读取回执的服务
      */
     public NarrationStreamController(NarrativeApplicationService narratives) {
         this.narratives = narratives;
     }
 
-    /** 启动一个文本回合，或重新附着到相同回合。
+    /** 启动一个叙事回合，或重新附着到相同回合。
      * @param gameId 游戏标识
-     * @param turnId 客户端为本次文本发送生成的 UUID
+     * @param turnId 客户端为本轮提交生成的 UUID
      * @param request 原始请求及近期对话
      */
     @PostMapping(path = "/{turnId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter narrate(@PathVariable String gameId, @PathVariable UUID turnId,
                               @RequestBody NarrationHttpRequest request) {
-        if (request == null || request.choiceId() != null || request.playerInput() == null
-                || request.playerInput().isBlank() || request.playerInput().length() > 2000) {
+        if (request == null || (request.choiceId() == null && (request.playerInput() == null
+                || request.playerInput().isBlank() || request.playerInput().length() > 2000))) {
             throw GameRequestException.invalid("请输入有效的自由叙事文本。");
         }
         TurnKey key = new TurnKey(gameId, turnId);
@@ -92,12 +95,18 @@ public final class NarrationStreamController {
             NarrationHttpRequest request = session.request();
             List<ConversationMessage> history = request.history().stream()
                     .map(message -> new ConversationMessage(message.role(), message.text())).toList();
-            terminal = narratives.retryNarration(key.gameId(), request.expectedRevision(), key.turnId(),
-                            request.playerInput(), request.locale(), history,
-                            failure -> send(stream, new StreamEvent("attempt_failed", failure.attempt(), failure.message(), null, null)),
-                            receipt -> send(stream, result("committed", receipt)))
-                    .map(turn -> result("complete", turn))
-                    .orElseGet(() -> failed("ATTEMPTS_EXHAUSTED", "5 次尝试均未成功，原文已恢复。"));
+            Consumer<AttemptFailure> onFailure = failure -> send(stream,
+                    new StreamEvent("attempt_failed", failure.attempt(), failure.message(), null, null));
+            Consumer<NarratedTurn> onCommit = receipt -> send(stream, result("committed", receipt));
+            if (request.choiceId() != null) {
+                terminal = result("complete", narratives.retryChoice(key.gameId(), request.expectedRevision(), key.turnId(),
+                        request.choiceId(), request.locale(), history, onFailure, onCommit));
+            } else {
+                terminal = narratives.retryNarration(key.gameId(), request.expectedRevision(), key.turnId(),
+                                request.playerInput(), request.locale(), history, onFailure, onCommit)
+                        .map(turn -> result("complete", turn))
+                        .orElseGet(() -> failed("ATTEMPTS_EXHAUSTED", "5 次尝试均未成功，原文已恢复。"));
+            }
         } catch (NarrativeProviderException failure) {
             terminal = failed("MODEL_UNAVAILABLE", "GM 暂时无法回复，原文已恢复。");
         } catch (GameRequestException failure) {
@@ -105,7 +114,8 @@ public final class NarrationStreamController {
                 case REVISION_MISMATCH -> "游戏状态已更新，请根据当前状态重新发送。";
                 case MODEL_CONFIGURATION_REQUIRED -> "请在设置中启用并配置叙事模型。";
                 case SAVE_NOT_FOUND -> "这份存档已不存在。";
-                default -> "这条消息暂时无法处理，请检查输入后重试。";
+                default -> session.request().choiceId() == null ? "这条消息暂时无法处理，请检查输入后重试。"
+                        : "此行动暂时无法执行，请选择当前可用的行动。";
             });
         } catch (RuntimeException failure) {
             DiagnosticLog.requestFailed(ROUTE, 500, "NARRATION_STREAM_FAILED", null, null, null, failure);
@@ -145,7 +155,7 @@ public final class NarrationStreamController {
      * @param type 已提交或已完成的事件类型
      * @param turn 权威回合数据
      */
-    private static StreamEvent result(String type, NarrativeApplicationService.NarratedTurn turn) {
+    private static StreamEvent result(String type, NarratedTurn turn) {
         return new StreamEvent(type, null, null, null, NarrationHttpResponse.from(turn));
     }
 
@@ -157,14 +167,14 @@ public final class NarrationStreamController {
         return new StreamEvent("failed", null, message, code, null);
     }
 
-    /** 标识一个游戏内的独立文本回合。
+    /** 标识一个游戏内的独立叙事回合。
      * @param gameId 游戏标识
      * @param turnId 回合标识
      */
     private record TurnKey(String gameId, UUID turnId) {}
 
     /** 短期保留的原请求及最终结果。
-     * @param request 客户端初次提交的文本请求
+     * @param request 客户端初次提交的回合请求
      * @param result 等待或复用该回合结果的句柄
      */
     private record TurnSession(NarrationHttpRequest request, CompletableFuture<StreamEvent> result) {}

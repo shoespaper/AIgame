@@ -14,6 +14,9 @@ import java.util.Map;
  */
 public record NarrativeResponse(String narration, ActionIntent action, List<String> options,
                                 Map<String, InitializationValue> updates) {
+    /** 单条候选行动的字符上限，包含标点。 */
+    public static final int MAX_OPTION_LENGTH = 24;
+
     /** 复制集合并规范化缺失的可选输出。 */
     public NarrativeResponse {
         narration = narration == null ? "" : narration;
@@ -49,7 +52,7 @@ public record NarrativeResponse(String narration, ActionIntent action, List<Stri
     void validateProtocol() {
         if (narration.isBlank() || narration.length() > 6000) throw NarrativeProviderException.invalidOutput("叙述文本长度无效", null);
         if (options.isEmpty()) throw NarrativeProviderException.invalidOutput("叙事响应缺少候选行动", null);
-        if (options.size() > 4 || options.stream().anyMatch(option -> option.isBlank() || option.length() > 12)) {
+        if (options.size() > 4 || options.stream().anyMatch(option -> option.isBlank() || option.length() > MAX_OPTION_LENGTH)) {
             throw NarrativeProviderException.invalidOutput("候选行动字段无效", null);
         }
         validateUpdates();

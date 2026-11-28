@@ -79,7 +79,21 @@ export interface RulesView {
 const ARCHETYPE_LABELS: Record<string, string> = { swordsman: '剑士', mage: '法师', ranger: '游侠', alchemist: '炼金术士' }
 const DIFFICULTY_LABELS: Record<string, string> = { story: '叙事', adventure: '冒险', hard: '艰难', nightmare: '噩梦' }
 const THREAT_LABELS: Record<string, string> = { Dormant: '沉寂', Low: '低', Moderate: '中等', High: '高', Severe: '严重', Crisis: '危机' }
-const NPC_TYPE_LABELS: Record<string, string> = { family: '家人', companion: '同伴', merchant: '商人', instructor: '导师', questgiver: '委托人', antagonist: '敌对', authority: '官员', refugee: '难民', traveler: '旅人', pilgrim: '朝圣者', other: '其他' }
+const NPC_TYPE_LABELS: Record<string, string> = {
+  family: '家人',
+  companion: '同伴',
+  merchant: '商人',
+  instructor: '导师',
+  questgiver: '委托人',
+  antagonist: '敌对',
+  authority: '官员',
+  refugee: '难民',
+  traveler: '旅人',
+  pilgrim: '朝圣者',
+  guild_receptionist: '协会接待员',
+  frontier_guide: '边境向导',
+  other: '其他',
+}
 const NPC_STATUS_LABELS: Record<string, string> = { ACTIVE: '活跃', DEAD: '死亡', MISSING: '失踪' }
 const QUEST_STATUS_LABELS: Record<string, string> = { AVAILABLE: '可接取', ACTIVE: '进行中', COMPLETED: '已完成', FAILED: '已失败' }
 const ITEM_TYPE_LABELS: Record<string, string> = { weapon: '武器', armor: '护甲', accessory: '饰品', consumable: '消耗品', material: '材料' }
@@ -88,6 +102,16 @@ const ITEM_TYPE_LABELS: Record<string, string> = { weapon: '武器', armor: '护
 /** @param map 键到中文文案的映射 @param key 原始枚举键 */
 function label(map: Record<string, string>, key: string): string {
   return key && map[key] ? map[key] : key
+}
+
+/**
+ * 返回 NPC 类别的中文标签，保留已有中文名称，缺少译名的标识归入「其他」。
+ * @param value 规则状态中的 NPC 类别标识或中文名称，可为空
+ */
+function npcTypeLabel(value: JsonValue | undefined): string {
+  const type = asStr(value).trim()
+  if (Object.hasOwn(NPC_TYPE_LABELS, type)) return NPC_TYPE_LABELS[type]
+  return /\p{Script=Han}/u.test(type) ? type : NPC_TYPE_LABELS.other
 }
 
 /** 将 JSON 值安全转换为对象映射，非对象或数组时返回 null。 */
@@ -189,7 +213,7 @@ export function parseNpcGroups(state: JsonMap | null): NpcGroup[] {
     return {
       id: asStr(npc.npcId) || name,
       name,
-      typeLabel: label(NPC_TYPE_LABELS, asStr(npc.type, 'other')),
+      typeLabel: npcTypeLabel(npc.type),
       location: asStr(npc.location),
       relationship: asNum(npc.relationship),
       mood: asNum(npc.mood),

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
-import type { CreationProgress, NarrationStreamEvent, TextNarrationTurn } from './types'
-import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, CheckedInitialization, InitializationFormValues, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn, ConversationMessage } from './types'
+import type { CreationProgress, NarrationStreamEvent, NarrationTurnRequest } from './types'
+import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, CheckedInitialization, InitializationFormValues, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn } from './types'
 
 const apiRoot = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
@@ -146,25 +146,15 @@ export function validateInitialization(id: string, profile: InitializationFormVa
 export function finalizeInitialization(id: string, version: number, onProgress: (progress: CreationProgress) => void): Promise<InitializationFinalizeResult> {
   return streamCreation(`/initialization/sessions/${encodeURIComponent(id)}/finalize/stream`, { version }, onProgress)
 }
-/** 将当前输入与近期非权威对话上下文提交给 GM。 */
-/** @param gameId 当前游戏标识 @param expectedRevision 客户端观察到的游戏修订号 @param playerInput 玩家本轮输入 */
-/** @param history 仅用于叙事连贯性的近期玩家与 GM 消息 */
-export function narrate(gameId: string, expectedRevision: number, playerInput: string, history: ConversationMessage[] = [], choiceId?: string): Promise<NarrativeResponse> {
-  return request<NarrativeResponse>(`${gamePath(gameId)}/narration`, {
-    method: 'POST',
-    body: JSON.stringify({ expectedRevision, playerInput, choiceId, locale: 'zh-CN', history: history.slice(-40) }),
-  })
-}
-
-/** 发送或恢复流式文本回合，按完整 SSE 事件读取 UTF-8 响应。
+/** 发送或恢复流式叙事回合，按完整 SSE 事件读取 UTF-8 响应。
  * @param turn 本轮不变的请求数据
  * @param onProgress 消费一次失败提示或已结算回执
  */
-export async function streamNarration(turn: TextNarrationTurn, onProgress: (event: NarrationStreamEvent) => void): Promise<NarrativeResponse> {
+export async function streamNarration(turn: NarrationTurnRequest, onProgress: (event: NarrationStreamEvent) => void): Promise<NarrativeResponse> {
   const response = await fetchApi(`${gamePath(turn.gameId)}/narration/turns/${encodeURIComponent(turn.id)}`, {
     method: 'POST',
     headers: { Accept: 'text/event-stream' },
-    body: JSON.stringify({ expectedRevision: turn.expectedRevision, playerInput: turn.playerInput, history: turn.history, locale: 'zh-CN' }),
+    body: JSON.stringify({ expectedRevision: turn.expectedRevision, playerInput: turn.playerInput, choiceId: turn.choiceId, history: turn.history, locale: 'zh-CN' }),
   })
   return readStream<NarrativeResponse, NarrationStreamEvent>(response, onProgress, '回合连接已中断，正在等待确认结果。')
 }

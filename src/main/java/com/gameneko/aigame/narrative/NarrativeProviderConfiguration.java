@@ -83,7 +83,7 @@ public class NarrativeProviderConfiguration {
             Respond with a single JSON object containing exactly these four fields (all required; use [] for empty options and {} for empty updates):
             1. "narration": a string of narrative text.
             2. "action": null, or an object {"type": string, "target": string|null, "arguments": [{"name": string, "value": {"type": "text"|"integer"|"decimal"|"flag", "value": ...}}]} representing one engine call. Use null for pure narration.
-            3. "options": an array of short strings, each a suggested next action for the player (each at most 12 Chinese characters).
+            3. "options": an array of short strings, each a suggested next action for the player (each at most %d characters, including punctuation).
             4. "updates": an object keyed by field name, with typed values {"type": "text"|"integer"|"decimal"|"flag", "value": ...}. Declare confirmed values directly; use {} when there are no updates.
             Output length guidance and structural limits:
             - narration: normally 300 to 600 Chinese characters, including opening scenes. Important dialogue or scene transitions may extend to 1000.
@@ -91,7 +91,7 @@ public class NarrativeProviderConfiguration {
             - options: at most 4 items.
             - updates: at most 16 fields.
             Start the reply immediately with `{"narration":` and end with `}`. Output only the JSON object, with no Markdown or leading whitespace.
-            """;
+            """.formatted(NarrativeResponse.MAX_OPTION_LENGTH);
 
     /**
      * 构造要求模型返回 JSON 对象的响应格式，兼容 OpenAI 与 DeepSeek 等仅支持 json_object 模式的服务。

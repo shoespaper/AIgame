@@ -18,6 +18,7 @@ import com.gameneko.aigame.narrative.NarrationService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -153,7 +154,7 @@ public final class NarrativeApplicationService {
         }
     }
 
-    /** 发布结算回执，并在预算许可时调用一次模型描写结果。
+    /** 发布结算回执，并用剩余的回合预算描写结果。
      * @param applied 已结算的实例和确认事件
      * @param response 校验通过的模型提案
      * @param request 同一回合的原始请求
@@ -173,16 +174,43 @@ public final class NarrativeApplicationService {
         NarratedTurn receipt = confirmedOnly(instance, events);
         onCommit.accept(receipt);
         if (events.isEmpty()) return turn(instance, response.narration(), response.options(), events);
-        if (attempt >= MAX_MODEL_ATTEMPTS) return receipt;
-        try {
-            NarrativeSnapshot confirmed = confirmedSnapshot(applied);
-            NarrativeResponse description = narrationService.describeConfirmedTurnOnce(new NarrativeRequest(
-                    instance.gameId(), instance.revision(), request.playerInput(), request.locale(), confirmed, request.history()));
-            return turn(instance, description.narration(), description.options(), events);
-        } catch (NarrativeProviderException | GameRequestException failure) {
-            onFailure.accept(new AttemptFailure(attempt + 1, "后续描写未生成，行动已结算"));
-            return receipt;
+        return retryDescription(applied, request.playerInput(), request.locale(), request.history(), attempt + 1, receipt, onFailure);
+    }
+
+    /** 在已结算的同一份快照上尝试描写，预算耗尽时返回结算回执。
+     * @param applied 本轮已经保存的权威实例和确认事件
+     * @param input 玩家输入或引擎行动的展示文字
+     * @param locale 叙事语言标识
+     * @param history 近期对话，仅作为叙事参考
+     * @param firstAttempt 本阶段的首次尝试序号，从 1 起
+     * @param receipt 描写无法完成时返回的结算回执
+     * @param onFailure 报告单次失败及进度
+     */
+    private NarratedTurn retryDescription(GameActionService.AppliedAction applied, String input, String locale,
+                                          List<NarrativeRequest.ConversationMessage> history, int firstAttempt,
+                                          NarratedTurn receipt, Consumer<AttemptFailure> onFailure) {
+        if (firstAttempt > MAX_MODEL_ATTEMPTS) return receipt;
+        GameInstance<?> instance = applied.instance();
+        NarrativeSnapshot snapshot = confirmedSnapshot(applied);
+        NarrativeRequest request = new NarrativeRequest(instance.gameId(), instance.revision(), input, locale, snapshot, history);
+        String correction = null;
+        for (int attempt = firstAttempt; attempt <= MAX_MODEL_ATTEMPTS; attempt++) {
+            try {
+                NarrativeResponse description = narrationService.describeConfirmedTurnOnce(request, correction);
+                return turn(instance, description.narration(), description.options(), snapshot.confirmedEvents());
+            } catch (NarrativeProviderException failure) {
+                RetryReason reason = retryReason(failure);
+                onFailure.accept(new AttemptFailure(attempt, reason.message() + "，行动已结算"));
+                if (!reason.retryable()) return receipt;
+                correction = reason.correction();
+                failure.pauseBeforeRetry(attempt, MAX_MODEL_ATTEMPTS);
+            } catch (GameRequestException failure) {
+                if (failure.code() != GameRequestException.Code.MODEL_CONFIGURATION_REQUIRED) throw failure;
+                onFailure.accept(new AttemptFailure(attempt, "请在设置中配置叙事模型，行动已结算"));
+                return receipt;
+            }
         }
+        return receipt;
     }
 
     /** 将模型错误转换成界面文案和可安全发送给模型的纠正指令。
@@ -192,7 +220,9 @@ public final class NarrativeApplicationService {
         return switch (failure.reasonCode()) {
             case "empty_output" -> new RetryReason("GM 回复为空", "上一次回复只有空白。请返回完整 JSON 对象，包含叙事和有效选项。", true);
             case "output_parse_failed", "invalid_model_output", "response_decoding_failed", "missing_choice" ->
-                    new RetryReason("GM 回复格式有误", "上一次回复不符合协议。请只返回完整 JSON，检查每个必填字段、参数类型和选项长度。", true);
+                    new RetryReason("GM 回复格式有误",
+                            "上一次回复不符合协议。请只返回一个完整 JSON 对象，检查每个必填字段、参数类型，每个候选行动最多 %d 个字符（含标点）。"
+                                    .formatted(NarrativeResponse.MAX_OPTION_LENGTH), true);
             case "output_truncated", "incomplete_output" ->
                     new RetryReason("GM 回复不完整", "上一次回复没有完整结束。请缩短叙事和选项，并完整闭合 JSON 对象。", true);
             default -> failure.retryable()
@@ -223,12 +253,38 @@ public final class NarrativeApplicationService {
      */
     public NarratedTurn choose(String gameId, long expectedRevision, String choiceId, String locale,
                                List<NarrativeRequest.ConversationMessage> history) {
+        return retryChoice(gameId, expectedRevision, null, choiceId, locale, history, failure -> {}, receipt -> {});
+    }
+
+    /** 校验并结算一次直接行动，随后最多尝试五次 GM 描写。
+     * @param gameId 游戏存档标识
+     * @param expectedRevision 客户端读取到的修订号
+     * @param turnId 用于断线恢复的回合标识，非流式请求可为空
+     * @param choiceId 引擎提供的行动标识
+     * @param locale 叙事语言标识
+     * @param history 近期对话，仅作为叙事参考
+     * @param onFailure 报告一次描写失败的尝试
+     * @param onCommit 在后续描写前发布权威结算回执
+     */
+    public NarratedTurn retryChoice(String gameId, long expectedRevision, UUID turnId, String choiceId, String locale,
+                                   List<NarrativeRequest.ConversationMessage> history, Consumer<AttemptFailure> onFailure,
+                                   Consumer<NarratedTurn> onCommit) {
+        if (turnId != null) {
+            Optional<NarratedTurn> recovered = recoverTurn(gameId, turnId);
+            if (recovered.isPresent()) return recovered.get();
+        }
         GameInstance<?> instance = load(gameId, expectedRevision);
         EngineActionChoice choice = gameActionService.actionChoices(instance).stream()
                 .filter(candidate -> candidate.id().equals(choiceId)).findFirst()
                 .orElseThrow(() -> GameRequestException.invalid("此行动已不可用，请选择当前可用的行动。"));
-        return describeTurn(gameActionService.applyIntent(gameId, expectedRevision, choice.intent()),
-                choice.label(), locale, history);
+        GameActionService.AppliedAction applied = gameActionService.applyNarrativeTurn(
+                gameId, expectedRevision, choice.intent(), Map.of(), turnId);
+        GameInstance<?> committed = applied.instance();
+        List<ConfirmedEvent> events = NarrativeSnapshotFactory.fromConfirmed(committed, applied.events(),
+                applied.worldEvents(), null).confirmedEvents();
+        NarratedTurn receipt = confirmedOnly(committed, events);
+        onCommit.accept(receipt);
+        return retryDescription(applied, choice.label(), locale, history, 1, receipt, onFailure);
     }
 
     /** 在尚未存档的初始实例上生成并结算开场，返回可一次性持久化的结果。
@@ -308,7 +364,8 @@ public final class NarrativeApplicationService {
     private NarratedTurn confirmedOnly(GameInstance<?> instance, List<ConfirmedEvent> events) {
         String description = events.isEmpty() ? "本轮状态已更新。"
                 : String.join("\n", events.stream().map(ConfirmedEvent::outcome).toList());
-        return turn(instance, description, List.of("继续行动", "观察四周", "查看状态"), events);
+        return new NarratedTurn(instance, description, List.of("继续行动", "观察四周", "查看状态"), events,
+                gameActionService.actionChoices(instance), true);
     }
 
     /** 使用同一份权威实例生成回合和可执行选项。
@@ -319,7 +376,7 @@ public final class NarrativeApplicationService {
      */
     private NarratedTurn turn(GameInstance<?> instance, String narration, List<String> options,
                               List<ConfirmedEvent> events) {
-        return new NarratedTurn(instance, narration, options, events, gameActionService.actionChoices(instance));
+        return new NarratedTurn(instance, narration, options, events, gameActionService.actionChoices(instance), false);
     }
 
     /** 包含叙事、权威实例与可选动作的回合结果。
@@ -328,15 +385,17 @@ public final class NarrativeApplicationService {
      * @param options 引导玩家下一步的纯文本建议
      * @param confirmedEvents 本次引擎与世界层确认事件
      * @param actionChoices 当前引擎提供的直接行动
+     * @param receiptOnly 是否只有已结算回执，没有 GM 描写
      */
     public record NarratedTurn(GameInstance<?> instance, String narration, List<String> options,
-                               List<ConfirmedEvent> confirmedEvents, List<EngineActionChoice> actionChoices) {
+                               List<ConfirmedEvent> confirmedEvents, List<EngineActionChoice> actionChoices, boolean receiptOnly) {
         /** 复制选项和确认事件，保持返回快照不可变。
          * @param instance 当前权威实例
          * @param narration 本轮叙事
          * @param options GM 的文本建议
          * @param confirmedEvents 本轮已确认事件
          * @param actionChoices 当前引擎可执行选项
+         * @param receiptOnly 是否只有已结算回执
          */
         public NarratedTurn {
             options = List.copyOf(options);

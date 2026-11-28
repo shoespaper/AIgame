@@ -40,10 +40,10 @@ export interface EngineConfirmedEvent { source: string; type: string; descriptio
 /** 展示与叙事模型参考用的对话消息，不代表权威游戏状态。 */
 export interface ConversationMessage { role: 'player' | 'gm'; text: string }
 /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
-export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[] }
-/** 文本回合请求；重连时复用原始标识、版本、输入和上下文。 */
-export interface TextNarrationTurn { id: string; gameId: string; expectedRevision: number; playerInput: string; history: ConversationMessage[] }
-/** 文本回合通过同一连接发送的进度和最终结果。 */
+export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[]; receiptOnly: boolean }
+/** 叙事回合请求；重连时复用原始标识、版本、输入和上下文。 */
+export interface NarrationTurnRequest { id: string; gameId: string; expectedRevision: number; playerInput: string; history: ConversationMessage[]; choiceId?: string }
+/** 叙事回合通过同一连接发送的进度和最终结果。 */
 export type NarrationStreamEvent =
   | { type: 'started' }
   | { type: 'attempt_failed'; attempt: number; message: string }
@@ -58,7 +58,7 @@ export interface WorldEvent { id: string; day: number; type: 'DEADLINE'; descrip
 /** 按分类应用的价格倍率。 */
 export interface WorldPriceModifier { category: string; percent: number; source: string; expiresDay: number }
 /** 引擎中立的权威世界状态。 */
-export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; visitedLocations: string[]; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; originScene: string; deadlineEvents: TimedWorldEvent[]; worldEvents: WorldEvent[]; activePriceModifiers: Record<string, WorldPriceModifier> }
+export interface WorldState { worldId: string; contentVersion: string; revision: number; setting: string | null; settingDescription: string | null; location: string | null; currentRegion: string | null; mainQuest: string | null; day: number; time: string | null; flags: Record<string, boolean>; originScene: string; deadlineEvents: TimedWorldEvent[]; worldEvents: WorldEvent[]; activePriceModifiers: Record<string, WorldPriceModifier> }
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 export interface CharacterProfile { name: string; age: number; gender: string; background: string }
 export interface GameInstanceResponse { gameId: string; worldId: string; contentVersion: string; rulesetId: string | null; rulesetVersion: string | null; lifecycle: Lifecycle; revision: number; world: WorldState; character: CharacterProfile; rulesetState: { [key: string]: JsonValue } | null; confirmedEvents: EngineConfirmedEvent[]; actionChoices: EngineActionChoice[] }

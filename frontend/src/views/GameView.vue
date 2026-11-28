@@ -42,8 +42,8 @@ async function send() {
 /** 使用原回合标识查询中断的回复。 */
 async function resumeTurn() {
   const pending = store.pendingTurn
-  if (!pending || await store.resumeTextTurn()) return
-  await restoreAnswer(pending.gameId, pending.playerInput)
+  if (!pending || await store.resumeTurn()) return
+  if (!pending.choiceId) await restoreAnswer(pending.gameId, pending.playerInput)
 }
 
 /** 回合确认失败后恢复原文并将焦点放回输入框。
@@ -93,7 +93,7 @@ watch(gameId, async (id, _, onCleanup) => {
         </div>
         <div class="conversation-log" aria-live="polite">
           <article v-for="(message, index) in store.conversation" :key="`${index}-${message.role}`" class="conversation-message" :class="message.role">
-            <span>{{ message.role === 'gm' ? 'GM' : '你' }}</span>
+            <span>{{ message.role === 'player' ? '你' : message.role === 'system' ? '系统' : 'GM' }}</span>
             <p>{{ message.text }}</p>
           </article>
           <article v-if="store.pendingTurn" class="conversation-message player">

@@ -1,11 +1,12 @@
-.narrative-turn { padding: 0 24px 16px; }
+.narrative-turn { --option-font-size: 13px; padding: 0 24px 16px; }
 .narrative-section { padding: 16px 0; border-bottom: 1px solid var(--line); }
-.narrative-section h3 { color: var(--accent-strong); font-size: 13px; font-weight: 600; margin: 0 0 12px; }
+.narrative-section h3 { color: var(--accent-strong); font-size: var(--option-font-size); font-weight: 600; margin: 0 0 10px; }
 .narration-copy { color: var(--text); line-height: 1.8; white-space: pre-wrap; }
 .narration-copy p { margin: 0; }
-.narrative-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-.narrative-options .action-button { min-height: 52px; }
-.narrative-options small { color: var(--muted); }
+.narrative-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.narrative-options .action-button { min-height: 36px; justify-content: center; padding: 6px 9px; font-size: var(--option-font-size); color: #d9ded9; overflow-wrap: anywhere; }
+.narrative-options .engine-action { color: #f0e0b4; }
+@media (max-width: 560px) { .narrative-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .structured-item { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid rgba(43, 60, 67, .55); }
 .structured-item:first-of-type { border-top: 0; }
 .structured-item strong { font-size: 13px; }
@@ -68,6 +69,7 @@ input, textarea, select { color: var(--text); background: #0d171d; border: 1px s
 .conversation-message { max-width: 84%; padding: 12px 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .conversation-message.player { align-self: flex-end; border-color: rgba(197, 169, 106, .45); background: rgba(197, 169, 106, .1); }
 .conversation-message.gm { align-self: flex-start; border-color: rgba(112, 188, 174, .35); }
+.conversation-message.system { align-self: flex-start; color: var(--muted); }
 .conversation-message > span { display: block; margin-bottom: 6px; color: var(--accent-strong); font-size: 11px; font-weight: 600; }
 .conversation-message.player > span { color: var(--accent); }
 .conversation-message p { margin: 0; white-space: pre-wrap; line-height: 1.75; }

@@ -64,12 +64,12 @@ public class NarrativeProviderConfiguration {
             2. "action": null, or an object {"type": string, "target": string|null, "arguments": [{"name": string, "value": {"type": "text"|"integer"|"decimal"|"flag", "value": ...}}]} representing one engine call. Use null for pure narration.
             3. "options": an array of short strings, each a suggested next action for the player (each at most 12 Chinese characters).
             4. "updates": an object keyed by field name, with typed values {"type": "text"|"integer"|"decimal"|"flag", "value": ...}. Declare confirmed values directly; use {} when there are no updates.
-            Output size limits (the response is cut off when the total output exceeds the token budget, so stay well below these):
-            - narration: at most 220 Chinese characters for a normal turn, at most 320 for an opening scene.
+            Output length guidance and structural limits:
+            - narration: normally 300 to 600 Chinese characters, including opening scenes. Important dialogue or scene transitions may extend to 1000.
             - action: at most 3 arguments.
             - options: at most 4 items.
             - updates: at most 16 fields.
-            Output only the JSON object and nothing else.
+            Start the reply immediately with `{"narration":` and end with `}`. Output only the JSON object, with no Markdown or leading whitespace.
             """;
 
     /**

@@ -87,7 +87,7 @@ public class NarrativeProviderConfiguration {
             4. "updates": an object keyed by field name, with typed values {"type": "text"|"integer"|"decimal"|"flag", "value": ...}. Declare confirmed values directly; use {} when there are no updates.
             Output length guidance and structural limits:
             - narration: normally 300 to 600 Chinese characters, including opening scenes. Important dialogue or scene transitions may extend to 1000.
-            - action: at most 3 arguments.
+            - action: use the argument names and types defined by the selected action.
             - options: at most 4 items.
             - updates: at most 16 fields.
             Start the reply immediately with `{"narration":` and end with `}`. Output only the JSON object, with no Markdown or leading whitespace.

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,9 @@ import java.util.function.Consumer;
 public final class NarrationStreamController {
     private static final String ROUTE = "/api/games/{gameId}/narration/turns/{turnId}";
     private static final int MAX_CACHED_TURNS = 128;
+    /** 按每次调用两分钟的流连接预算覆盖整个回合。 */
+    private static final long STREAM_TIMEOUT_MS = Duration.ofMinutes(2)
+            .multipliedBy(NarrativeApplicationService.MAX_MODEL_ATTEMPTS).toMillis();
     private final Map<TurnKey, TurnSession> sessions = new LinkedHashMap<>();
     private final NarrativeApplicationService narratives;
 
@@ -53,7 +57,7 @@ public final class NarrationStreamController {
             throw GameRequestException.invalid("请输入有效的自由叙事文本。");
         }
         TurnKey key = new TurnKey(gameId, turnId);
-        SseEmitter stream = new SseEmitter(600_000L);
+        SseEmitter stream = new SseEmitter(STREAM_TIMEOUT_MS);
         stream.onTimeout(stream::complete);
         boolean owner;
         TurnSession session;
@@ -105,7 +109,8 @@ public final class NarrationStreamController {
                 terminal = narratives.retryNarration(key.gameId(), request.expectedRevision(), key.turnId(),
                                 request.playerInput(), request.locale(), history, onFailure, onCommit)
                         .map(turn -> result("complete", turn))
-                        .orElseGet(() -> failed("ATTEMPTS_EXHAUSTED", "5 次尝试均未成功，原文已恢复。"));
+                        .orElseGet(() -> failed("ATTEMPTS_EXHAUSTED", "%d 次尝试均未成功，原文已恢复。"
+                                .formatted(NarrativeApplicationService.MAX_MODEL_ATTEMPTS)));
             }
         } catch (NarrativeProviderException failure) {
             terminal = failed("MODEL_UNAVAILABLE", "GM 暂时无法回复，原文已恢复。");

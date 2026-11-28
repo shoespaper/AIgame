@@ -25,15 +25,18 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.AdditionalAnswers.returnsElementsOf;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -368,6 +371,72 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.confirmedEvents[0].amount").value(5));
     }
 
+    /** 验证 GM 的购买意图，以及赠礼、以物易物、单向付款与失败回滚。 */
+    @Test
+    void mockedGmExchangesWithNpcInventory() throws Exception {
+        String gameId = "ap-npc-exchange-" + UUID.randomUUID();
+        openApInTown(gameId);
+        performAction(gameId, 0, "register_npc", Map.of("npcId", "horn", "npcType", "merchant", "name", "霍恩",
+                        "stockItemName", "山草药剂", "stockItemCategory", "herbal_draught", "stockQuantity", "3", "stockCopper", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].mood").doesNotExist());
+        performAction(gameId, 1, "acquire_item", Map.of("itemName", "包扎布", "itemCategory", "herbal_draught", "itemTier", "common"))
+                .andExpect(status().isOk());
+
+        ActionIntent exchange = new ActionIntent("exchange_with_npc", "", List.of(
+                new ActionIntent.Argument("npcId", new InitializationValue.Text("horn")),
+                new ActionIntent.Argument("giveCopper", new InitializationValue.IntegerNumber(2)),
+                new ActionIntent.Argument("receiveItem", new InitializationValue.Text("山草药剂")),
+                new ActionIntent.Argument("receiveQuantity", new InitializationValue.IntegerNumber(1))));
+        when(narrativeProvider.respond(any())).thenReturn(
+                new NarrativeResponse("你把两枚铜币放到桌上。", exchange, List.of("问问情报")),
+                new NarrativeResponse("霍恩收下两枚铜币，递给你一瓶山草药剂。", null, List.of("问问情报")));
+        List<JsonNode> events = stream(mockMvc, gameId, UUID.randomUUID(), Map.of("expectedRevision", 2,
+                "playerInput", "给霍恩两枚铜币买一瓶山草药剂"));
+        assertEquals(List.of("started", "committed", "complete"), eventTypes(events));
+        JsonNode result = events.getLast().path("result");
+        assertEquals(3, result.at("/game/revision").asInt());
+        assertEquals(13, result.at("/game/rulesetState/resources/copper").asInt());
+        assertEquals(7, result.at("/game/rulesetState/systems/npcs/0/copper").asInt());
+        assertEquals(2, result.at("/game/rulesetState/systems/npcs/0/inventory/0/quantity").asInt());
+        assertEquals("山草药剂", result.at("/game/rulesetState/inventory/3/name").asText());
+        assertEquals("npc_exchange", result.at("/confirmedEvents/0/type").asText());
+        ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
+        verify(narrativeProvider, times(2)).respond(prompts.capture());
+        assertTrue(prompts.getAllValues().getFirst().systemInstruction().contains("exchange_with_npc"));
+        assertTrue(prompts.getAllValues().getLast().snapshot().confirmedEvents().stream().anyMatch(event -> "npc_exchange".equals(event.type())));
+
+        assertRejected(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn", "giveCopper", "1",
+                "receiveItem", "山草药剂", "receiveQuantity", "3"), "数量不足");
+        assertRejected(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn", "giveCopper", "16"), "玩家铜币不足");
+        assertRejected(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn", "receiveCopper", "8"), "NPC 铜币不足");
+        assertRejected(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn", "giveCopper", "-1"), "数量无效");
+        assertRejected(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn", "giveItem",
+                result.at("/game/rulesetState/equipment/weapon").asText()), "正在装备");
+        assertRejected(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn"), "至少需要一方");
+        mockMvc.perform(get("/api/games/{gameId}", gameId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(3))
+                .andExpect(jsonPath("$.rulesetState.resources.copper").value(13))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].copper").value(7))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].inventory[0].quantity").value(2));
+
+        performAction(gameId, 3, "exchange_with_npc", Map.of("npcId", "horn", "giveCopper", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rulesetState.resources.copper").value(12));
+        performAction(gameId, 4, "exchange_with_npc", Map.of("npcId", "horn", "giveItem", "包扎布", "receiveItem", "山草药剂"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rulesetState.inventory[2].quantity").value(2))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].inventory[1].name").value("包扎布"));
+        performAction(gameId, 5, "exchange_with_npc", Map.of("npcId", "horn", "giveItem", "山草药剂", "receiveCopper", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rulesetState.resources.copper").value(14))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].copper").value(6));
+        performAction(gameId, 6, "exchange_with_npc", Map.of("npcId", "horn", "receiveItem", "包扎布"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rulesetState.inventory[3].name").value("包扎布"));
+        performAction(gameId, 7, "exchange_with_npc", Map.of("npcId", "horn", "giveItem", "包扎布"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rulesetState.inventory.length()").value(3));
+        mockMvc.perform(get("/api/games/{gameId}", gameId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(8))
+                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].inventory[1].name").value("包扎布"));
+    }
+
     /** 验证批量登记原子提交，存档恢复后也能通过服务端标识直接接取。 */
     @Test
     void questChoicesAreAvailableOnlyAfterConfirmedPublication() throws Exception {
@@ -433,7 +502,7 @@ class AIgameApplicationTests {
                 .andExpect(jsonPath("$.revision").value(0));
     }
 
-    /** 验证到期事件只保存事实，AP 按素材结算补给与 NPC 心情且只执行一次。 */
+    /** 验证到期事件只保存事实，AP 按素材结算补给且只执行一次。 */
     @Test
     void apResolvesDeadlineFactsThroughRegisteredEventRules() throws Exception {
         String gameId = "ap-world-facts";
@@ -441,23 +510,18 @@ class AIgameApplicationTests {
         performAction(gameId, 0, "register_npc", Map.of("npcId", "guide", "npcType", "merchant", "name", "向导"))
                 .andExpect(status().isOk());
         scheduleDeadline(gameId, 1, "delivery", "caravan_arrival");
-        scheduleDeadline(gameId, 2, "patrol", "patrol_return");
-
-        performAction(gameId, 3, "advance_day", Map.of()).andExpect(status().isOk())
+        performAction(gameId, 2, "advance_day", Map.of()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.world.day").value(2))
-                .andExpect(jsonPath("$.world.worldEvents.length()").value(2))
+                .andExpect(jsonPath("$.world.worldEvents.length()").value(1))
                 .andExpect(jsonPath("$.world.worldEvents[0].materialId").value("caravan_arrival"))
                 .andExpect(jsonPath("$.world.worldEvents[0].effects").doesNotExist())
                 .andExpect(jsonPath("$.rulesetState.resources.rations").value(3))
-                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].mood").value(2))
                 .andExpect(jsonPath("$.rulesetState.systems.threatDays").value(1))
-                .andExpect(jsonPath("$.confirmedEvents[1].type").value("supply_event"))
-                .andExpect(jsonPath("$.confirmedEvents[2].type").value("event_npc_mood"));
+                .andExpect(jsonPath("$.confirmedEvents[1].type").value("supply_event"));
 
-        performAction(gameId, 4, "advance_day", Map.of()).andExpect(status().isOk())
-                .andExpect(jsonPath("$.world.worldEvents.length()").value(2))
-                .andExpect(jsonPath("$.rulesetState.resources.rations").value(2))
-                .andExpect(jsonPath("$.rulesetState.systems.npcs[0].mood").value(1));
+        performAction(gameId, 3, "advance_day", Map.of()).andExpect(status().isOk())
+                .andExpect(jsonPath("$.world.worldEvents.length()").value(1))
+                .andExpect(jsonPath("$.rulesetState.resources.rations").value(2));
     }
 
     /** 登记下一天到期的世界事件。
@@ -552,22 +616,23 @@ class AIgameApplicationTests {
         assertTrue(prompts.getAllValues().get(2).systemInstruction().contains("引擎动作被拒绝"));
     }
 
-    /** 验证五次失败后不写入状态，重新连接也不会再次调用模型。 */
+    /** 验证十次失败后不写入状态，重新连接也不会再次调用模型。 */
     @Test
-    void streamedNarrationExhaustsExactlyFiveAttemptsWithoutMutation() throws Exception {
+    void streamedNarrationExhaustsExactlyTenAttemptsWithoutMutation() throws Exception {
         String gameId = "retry-exhausted-" + UUID.randomUUID();
         openApInTown(gameId);
         UUID turnId = UUID.randomUUID();
         when(narrativeProvider.respond(any())).thenThrow(NarrativeProviderException.invalidOutput("格式错误", null));
         List<JsonNode> events = stream(mockMvc, gameId, turnId, "看看委托板");
-        assertEquals(List.of("started", "attempt_failed", "attempt_failed", "attempt_failed", "attempt_failed",
-                "attempt_failed", "failed"), eventTypes(events));
-        assertEquals(List.of(1, 2, 3, 4, 5), events.subList(1, 6).stream().map(node -> node.path("attempt").asInt()).toList());
+        assertEquals("started", events.getFirst().path("type").asText());
+        assertFailedAttempts(events.subList(1, events.size() - 1), 1, 10);
+        assertEquals("failed", events.getLast().path("type").asText());
         assertEquals("ATTEMPTS_EXHAUSTED", events.getLast().path("code").asText());
+        assertEquals("10 次尝试均未成功，原文已恢复。", events.getLast().path("message").asText());
         mockMvc.perform(get("/api/games/{gameId}", gameId)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(0));
         assertEquals(List.of("started", "failed"), eventTypes(stream(mockMvc, gameId, turnId, "看看委托板")));
-        verify(narrativeProvider, times(5)).respond(any());
+        verify(narrativeProvider, times(10)).respond(any());
     }
 
     /** 验证描写用完剩余预算后返回已结算回执，换一个流控制器也可以从存档恢复。 */
@@ -581,9 +646,9 @@ class AIgameApplicationTests {
                         List.of("继续赶路")))
                 .thenThrow(NarrativeProviderException.invalidOutput("描写失败", null));
         List<JsonNode> first = stream(mockMvc, gameId, turnId, "吃一份口粮");
-        assertEquals(List.of("started", "committed", "attempt_failed", "attempt_failed", "attempt_failed",
-                "attempt_failed", "complete"), eventTypes(first));
-        assertEquals(List.of(2, 3, 4, 5), first.subList(2, 6).stream().map(node -> node.path("attempt").asInt()).toList());
+        assertEquals(List.of("started", "committed"), eventTypes(first.subList(0, 2)));
+        assertFailedAttempts(first.subList(2, first.size() - 1), 2, 10);
+        assertEquals("complete", first.getLast().path("type").asText());
         assertEquals(1, first.get(1).at("/result/game/revision").asInt());
         assertTrue(first.getLast().at("/result/receiptOnly").asBoolean());
         assertEquals(first.get(1).path("result"), first.getLast().path("result"));
@@ -594,12 +659,12 @@ class AIgameApplicationTests {
         mockMvc.perform(get("/api/games/{gameId}", gameId)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(1))
                 .andExpect(jsonPath("$.rulesetState.resources.rations").value(2));
-        verify(narrativeProvider, times(5)).respond(any());
+        verify(narrativeProvider, times(10)).respond(any());
     }
 
-    /** 验证直接接取只结算一次，遇到过长选项后可以在第五次补全描写。 */
+    /** 验证直接接取只结算一次，遇到过长选项后可以在第十次补全描写。 */
     @Test
-    void streamedChoiceUsesFiveDescriptionAttemptsWithoutReapplyingAction() throws Exception {
+    void streamedChoiceUsesTenDescriptionAttemptsWithoutReapplyingAction() throws Exception {
         String gameId = "retry-choice-" + UUID.randomUUID();
         openApInTown(gameId);
         performAction(gameId, 0, "offer_quest", Map.of("questId", "caravan_job", "questTemplateId", "lost_caravan"))
@@ -607,13 +672,15 @@ class AIgameApplicationTests {
         String atLimit = "去医帐问那个归来的先遣队员关于当晚巡逻时看到什么";
         NarrativeResponse tooLong = new NarrativeResponse("记录员替你登记。", null, List.of(atLimit + "？"));
         NarrativeResponse valid = new NarrativeResponse("记录员替你登记。", null, List.of(atLimit, "去医帐问那个归来的先遣队员"));
-        when(narrativeProvider.respond(any())).thenReturn(tooLong, tooLong, tooLong, tooLong, valid);
+        List<NarrativeResponse> replies = new ArrayList<>(Collections.nCopies(9, tooLong));
+        replies.add(valid);
+        when(narrativeProvider.respond(any())).thenAnswer(returnsElementsOf(replies));
         UUID turnId = UUID.randomUUID();
         Map<String, Object> payload = Map.of("expectedRevision", 1, "choiceId", "accept_quest:caravan_job");
         List<JsonNode> events = stream(mockMvc, gameId, turnId, payload);
-        assertEquals(List.of("started", "committed", "attempt_failed", "attempt_failed", "attempt_failed",
-                "attempt_failed", "complete"), eventTypes(events));
-        assertEquals(List.of(1, 2, 3, 4), events.subList(2, 6).stream().map(node -> node.path("attempt").asInt()).toList());
+        assertEquals(List.of("started", "committed"), eventTypes(events.subList(0, 2)));
+        assertFailedAttempts(events.subList(2, events.size() - 1), 1, 9);
+        assertEquals("complete", events.getLast().path("type").asText());
         assertEquals("ACTIVE", events.getLast().at("/result/game/rulesetState/systems/questLog/0/status").asText());
         assertEquals(2, events.getLast().at("/result/game/revision").asInt());
         assertEquals("记录员替你登记。", events.getLast().at("/result/narration").asText());
@@ -623,26 +690,40 @@ class AIgameApplicationTests {
         MockMvc fresh = MockMvcBuilders.standaloneSetup(new NarrationStreamController(narrativeApplication)).build();
         assertTrue(stream(fresh, gameId, turnId, payload).getLast().at("/result/receiptOnly").asBoolean());
         ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
-        verify(narrativeProvider, times(5)).respond(prompts.capture());
+        verify(narrativeProvider, times(10)).respond(prompts.capture());
         assertTrue(prompts.getAllValues().stream().allMatch(prompt -> prompt.singleAttempt()
                 && prompt.snapshot().equals(prompts.getValue().snapshot())));
         assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("上一次描写与修正要求"));
     }
 
-    /** 验证第五次才结算时直接返回回执，预算用尽后不再调用模型描写。 */
+    /** 验证第十次才结算时直接返回回执，预算用尽后不再调用模型描写。 */
     @Test
-    void streamedNarrationCapsModelCallsEvenWhenFifthAttemptCommits() throws Exception {
+    void streamedNarrationCapsModelCallsEvenWhenTenthAttemptCommits() throws Exception {
         String gameId = "retry-budget-" + UUID.randomUUID();
         openApInTown(gameId);
         NarrativeProviderException invalid = NarrativeProviderException.invalidOutput("格式错误", null);
-        when(narrativeProvider.respond(any())).thenThrow(invalid, invalid, invalid, invalid)
+        when(narrativeProvider.respond(any()))
+                .thenThrow(Collections.nCopies(9, invalid).toArray(NarrativeProviderException[]::new))
                 .thenReturn(new NarrativeResponse("你准备吃一份口粮。", new ActionIntent("consume_ration", "", List.of()),
                         List.of("继续赶路")));
         List<JsonNode> events = stream(mockMvc, gameId, UUID.randomUUID(), "吃一份口粮");
-        assertEquals(List.of("started", "attempt_failed", "attempt_failed", "attempt_failed", "attempt_failed",
-                "committed", "complete"), eventTypes(events));
+        assertEquals("started", events.getFirst().path("type").asText());
+        assertFailedAttempts(events.subList(1, events.size() - 2), 1, 9);
+        assertEquals(List.of("committed", "complete"), eventTypes(events.subList(events.size() - 2, events.size())));
         assertEquals(1, events.getLast().at("/result/game/revision").asInt());
-        verify(narrativeProvider, times(5)).respond(any());
+        assertTrue(events.getLast().at("/result/receiptOnly").asBoolean());
+        verify(narrativeProvider, times(10)).respond(any());
+    }
+
+    /** 验证一段失败事件的类型和连续尝试序号。
+     * @param events 模拟流中属于失败尝试的事件片段
+     * @param first 起始尝试序号，含该次
+     * @param last 结束尝试序号，含该次
+     */
+    private static void assertFailedAttempts(List<JsonNode> events, int first, int last) {
+        assertEquals(Collections.nCopies(last - first + 1, "attempt_failed"), eventTypes(events));
+        assertEquals(IntStream.rangeClosed(first, last).boxed().toList(),
+                events.stream().map(node -> node.path("attempt").asInt()).toList());
     }
 
     /** 获取一次模拟文本回合的 SSE 数据。

@@ -28,7 +28,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 /** 编排叙事与引擎结算，保持权威状态由服务端持有：世界声明与经引擎校验的动作共同结算一次。 */
 @Service
 public final class NarrativeApplicationService {
-    public static final int MAX_MODEL_ATTEMPTS = 5;
+    /** 游玩回合提案与结算后描写共用的模型调用上限，包含首次。 */
+    public static final int MAX_MODEL_ATTEMPTS = 10;
     private final GameRepository repository;
     private final ContentCatalog contentCatalog;
     private final NarrationService narrationService;
@@ -256,7 +257,7 @@ public final class NarrativeApplicationService {
         return retryChoice(gameId, expectedRevision, null, choiceId, locale, history, failure -> {}, receipt -> {});
     }
 
-    /** 校验并结算一次直接行动，随后最多尝试五次 GM 描写。
+    /** 校验并结算一次直接行动，完整的回合额度用于 GM 描写。
      * @param gameId 游戏存档标识
      * @param expectedRevision 客户端读取到的修订号
      * @param turnId 用于断线恢复的回合标识，非流式请求可为空

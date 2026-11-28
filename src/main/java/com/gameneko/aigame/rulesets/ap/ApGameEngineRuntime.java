@@ -1,6 +1,10 @@
 package com.gameneko.aigame.rulesets.ap;
 
 import com.gameneko.aigame.rulesets.ap.ApContent.AbilityDefinition;
+import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ExchangeSide;
+import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.ExchangeWithNpc;
+import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.Item;
+import com.gameneko.aigame.rulesets.ap.ApRulesetRuntime.RegisterNpc;
 import com.gameneko.aigame.engine.ActionIntent;
 import com.gameneko.aigame.engine.CharacterProfile;
 import com.gameneko.aigame.engine.ConfirmedEvent;
@@ -23,6 +27,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SplittableRandom;
 import java.util.stream.Collectors;
 
 /** 为 AP 规则提供引擎中立接口所需的初始化、动作校验与状态投影适配。 */
@@ -37,6 +42,16 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
             new SupportedAction.Parameter("deadlineDays", "integer", "期限天数，无模板时省略", false));
     private static final List<SupportedAction.Parameter> BATCH_QUEST_OFFER_PARAMETERS = batchOfferParameters();
     private static final Set<String> BATCH_QUEST_OFFER_FIELDS = BATCH_QUEST_OFFER_PARAMETERS.stream()
+            .map(SupportedAction.Parameter::name).collect(Collectors.toUnmodifiableSet());
+    private static final List<SupportedAction.Parameter> NPC_EXCHANGE_PARAMETERS = List.of(
+            new SupportedAction.Parameter("npcId", "text", "当前快照中已登记且活跃的 NPC 实例标识", true),
+            new SupportedAction.Parameter("giveCopper", "integer", "玩家交付的铜币枚数，必须为正整数", false),
+            new SupportedAction.Parameter("giveItem", "text", "玩家交付的物品名，精确使用玩家背包中的名称", false),
+            new SupportedAction.Parameter("giveQuantity", "integer", "交付的物品件数，默认 1，仅与 giveItem 同用", false),
+            new SupportedAction.Parameter("receiveCopper", "integer", "玩家从 NPC 获得的铜币枚数，必须为正整数", false),
+            new SupportedAction.Parameter("receiveItem", "text", "玩家获得的物品名，精确使用 NPC 库存中的名称", false),
+            new SupportedAction.Parameter("receiveQuantity", "integer", "收到的物品件数，默认 1，仅与 receiveItem 同用", false));
+    private static final Set<String> NPC_EXCHANGE_FIELDS = NPC_EXCHANGE_PARAMETERS.stream()
             .map(SupportedAction.Parameter::name).collect(Collectors.toUnmodifiableSet());
 
     private final ApContent content;
@@ -142,8 +157,17 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                 new SupportedAction("cast_spell", "施放已学法术。", List.of(new SupportedAction.Parameter("abilityId", "text", "技能实例标识", true), new SupportedAction.Parameter("targetId", "text", "战斗目标标识", false))),
                 new SupportedAction("advance_battle_turn", "结束玩家回合，由敌方依次进行普通攻击。", List.of()),
                 new SupportedAction("settle_battle", "结算已结束的战斗。", List.of(new SupportedAction.Parameter("result", "text", "战斗结果枚举", true))),
-                new SupportedAction("register_npc", "根据世界 NPC 类型创建角色。", List.of(new SupportedAction.Parameter("npcId", "text", "角色标识", true), new SupportedAction.Parameter("npcType", "text", "世界素材中的角色类别", true), new SupportedAction.Parameter("name", "text", "展示名称", true))),
+                new SupportedAction("register_npc", "根据世界 NPC 类型创建角色。可在首次登记时按剧情设置一种已有素材的库存物品及铜币。", List.of(
+                        new SupportedAction.Parameter("npcId", "text", "角色标识", true),
+                        new SupportedAction.Parameter("npcType", "text", "世界素材中的角色类别", true),
+                        new SupportedAction.Parameter("name", "text", "展示名称", true),
+                        new SupportedAction.Parameter("stockItemName", "text", "初始库存道具的具体名称，如山草药剂，与 stockItemCategory 同用", false),
+                        new SupportedAction.Parameter("stockItemCategory", "text", "初始库存物品的世界道具素材标识", false),
+                        new SupportedAction.Parameter("stockQuantity", "integer", "初始库存物品件数，默认 1", false),
+                        new SupportedAction.Parameter("stockCopper", "integer", "初始持有的铜币枚数，默认 0", false))),
                 new SupportedAction("talk_npc", "与已登记角色交谈。", List.of(new SupportedAction.Parameter("npcId", "text", "角色标识", true))),
+                new SupportedAction("exchange_with_npc", "交易或赠礼，每侧最多一种资产，允许一侧为空。询价或未获玩家授权时只叙事。"
+                        + "在 NPC 同意且玩家授权具体付出后提交；付款换情报只提交 giveCopper。结算确认后才描写资产交接。", NPC_EXCHANGE_PARAMETERS),
                 new SupportedAction("supply_event", "处理已发生的补给事件。", List.of(new SupportedAction.Parameter("eventId", "text", "世界事件素材标识", true))),
                 new SupportedAction("create_skill", "创作并学习技能或法术。可用模板：" + String.join("、", skillRules), List.of(
                         new SupportedAction.Parameter("abilityId", "text", "新能力的实例标识，施放时使用此标识", true),
@@ -166,7 +190,7 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                 new SupportedAction("fail_quest", "使一个任务失败。", List.of(
                         new SupportedAction.Parameter("questId", "text", "任务标识", true),
                         new SupportedAction.Parameter("reason", "text", "失败原因", false))),
-                new SupportedAction("acquire_item", "获得一件物品。", List.of(
+                new SupportedAction("acquire_item", "拾取或发现一件物品。NPC 交付的物品使用 exchange_with_npc。", List.of(
                         new SupportedAction.Parameter("itemName", "text", "物品名称", true),
                         new SupportedAction.Parameter("itemCategory", "text", "世界道具素材标识", true),
                         new SupportedAction.Parameter("itemTier", "text", "物品品质", true))),
@@ -288,22 +312,6 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
                                 material.path("name").asText(), parameters.path("rations").intValue()));
                 next = supply.nextState();
                 supply.events().stream().map(this::confirmed).forEach(confirmed::add);
-            } else if ("shift_npc_mood".equals(rule.path("rule_type").asText())) {
-                int delta = parameters.path("mood_delta").intValue();
-                List<ApNpc> previous = next.systems().npcs();
-                List<ApNpc> npcs = previous.stream().map(npc -> npc.status() == ApNpc.Status.ACTIVE
-                        ? npc.shiftMood(delta) : npc).toList();
-                long changed = 0;
-                for (int index = 0; index < npcs.size(); index++) {
-                    if (previous.get(index).mood() != npcs.get(index).mood()) changed++;
-                }
-                next = next.withSystems(next.systems().withNpcs(npcs));
-                if (changed > 0) {
-                    String outcome = delta > 0 ? "好转" : "变差";
-                    confirmed.add(new ConfirmedEvent(id(), "event_npc_mood",
-                            "「" + material.path("name").asText() + "」使 " + changed + " 位 NPC 的心情" + outcome + "。",
-                            changed, event.id(), ""));
-                }
             }
         }
         return new EngineResolution<>(next, confirmed);
@@ -366,10 +374,10 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
             case "cast_spell" -> new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.SPELL, textArg(intent, "targetId", ""), textArg(intent, "abilityId", intent.target()), "");
             case "advance_battle_turn" -> new ApRulesetRuntime.AdvanceBattleTurn();
             case "settle_battle" -> new ApRulesetRuntime.SettleBattle(ApBattle.Result.valueOf(textArg(intent, "result", "").toUpperCase(Locale.ROOT)));
-            case "register_npc" -> new ApRulesetRuntime.RegisterNpc(textArg(intent, "npcId", ""),
-                    textArg(intent, "name", ""), textArg(intent, "npcType", ""), location, day);
+            case "register_npc" -> registerNpc(intent, location, day);
             case "talk_npc" -> new ApRulesetRuntime.InteractNpc(textArg(intent, "npcId", ""), "talk",
                     ApNpc.InteractionResult.NEUTRAL, day, day);
+            case "exchange_with_npc" -> exchangeWithNpc(intent, fields);
             case "supply_event" -> supplyEvent(intent);
             case "create_skill" -> createdSkill(intent);
             case "defend" -> new ApRulesetRuntime.BattleAction(ApBattle.ActionKind.DEFEND, "", "", "");
@@ -384,6 +392,59 @@ public final class ApGameEngineRuntime implements GameEngineRuntime<ApRulesetRun
             case "offer_quest" -> offerQuest(intent, day, region);
             default -> throw new IllegalArgumentException("Unsupported AP intent: " + intent.type());
         };
+    }
+
+    /** 从已确认的物品素材生成 NPC 首次登记时的库存。
+     * @param intent NPC 登记意图，初始物品参数可以整体省略
+     * @param location 登记时的当前世界地点
+     * @param seed 生成 NPC 与初始物品的确定性种子
+     */
+    private RegisterNpc registerNpc(ActionIntent intent, String location, long seed) {
+        String name = textArg(intent, "stockItemName", "");
+        String category = textArg(intent, "stockItemCategory", "");
+        long quantity = longArg(intent, "stockQuantity", name.isBlank() ? 0 : 1);
+        List<Item> inventory = List.of();
+        if (!name.isBlank() || !category.isBlank() || quantity != 0
+                || intent.arguments().stream().anyMatch(argument -> argument.name().equals("stockQuantity"))) {
+            if (name.isBlank() || ApRulesetRuntime.isPotion(name) || !content.itemTemplates().containsKey(category + ":common")
+                    || quantity < 1 || quantity > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("NPC 初始库存需要有效的物品名称、素材和正整数数量");
+            }
+            inventory = List.of(runtime.createItem(content, name, category, "common", new SplittableRandom(seed))
+                    .withQuantity((int) quantity));
+        }
+        return new RegisterNpc(textArg(intent, "npcId", ""), textArg(intent, "name", ""),
+                textArg(intent, "npcType", ""), location, seed, inventory, longArg(intent, "stockCopper", 0));
+    }
+
+    /** 解析一笔 NPC 交换并拒绝没有定义的参数。
+     * @param intent 已去重的结构化交换意图
+     * @param fields 实际提交的参数名集合
+     */
+    private static ExchangeWithNpc exchangeWithNpc(ActionIntent intent, Set<String> fields) {
+        if (!NPC_EXCHANGE_FIELDS.containsAll(fields)) throw new IllegalArgumentException("NPC 交易包含未知参数");
+        return new ExchangeWithNpc(textArg(intent, "npcId", ""), exchangeSide(intent, fields, "give"),
+                exchangeSide(intent, fields, "receive"));
+    }
+
+    /** 读取玩家付出或获得一侧的资产，省略的参数代表空资产。
+     * @param intent 本次交换的结构化意图
+     * @param fields 实际提交的参数名集合
+     * @param prefix 参数名前缀，give 表示交付，receive 表示获得
+     */
+    private static ExchangeSide exchangeSide(ActionIntent intent, Set<String> fields, String prefix) {
+        String copperField = prefix + "Copper";
+        String itemField = prefix + "Item";
+        String quantityField = prefix + "Quantity";
+        boolean hasItem = fields.contains(itemField);
+        String item = textArg(intent, itemField, "");
+        long copper = longArg(intent, copperField, 0);
+        long quantity = longArg(intent, quantityField, hasItem ? 1 : 0);
+        if ((fields.contains(copperField) && copper <= 0) || (hasItem && (item.isBlank() || quantity <= 0))
+                || (fields.contains(quantityField) && !hasItem) || quantity > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("NPC 交易资产名称或数量无效");
+        }
+        return new ExchangeSide(copper, item, (int) quantity);
     }
 
     /** 解析要发放的补给事件，补给量来自该素材关联的 AP 模板。

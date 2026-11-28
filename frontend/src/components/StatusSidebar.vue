@@ -172,7 +172,7 @@ function questStatusClass(statusKey: string): string {
                 <div class="sub-body">
                   <div class="kv-row"><span class="kv-key">位置</span><span class="kv-val">{{ npc.location || '未知' }}</span></div>
                   <div class="kv-row"><span class="kv-key">好感</span><span class="kv-val">{{ npc.relationship > 0 ? '+' + npc.relationship : npc.relationship }}</span></div>
-                  <div class="kv-row"><span class="kv-key">心情</span><span class="kv-val">{{ npc.mood > 0 ? '+' + npc.mood : npc.mood }}</span></div>
+                  <div class="kv-row"><span class="kv-key">物品</span><span class="kv-val">{{ npc.inventory.map(item => `${item.name} ×${item.quantity}`).join('、') || '无' }}</span></div>
                   <div class="kv-row"><span class="kv-key">性格</span><span class="kv-val">{{ npc.personality || '—' }}</span></div>
                   <div class="kv-row"><span class="kv-key">能力</span><span class="kv-val">{{ npcCapabilities(npc) }}</span></div>
                 </div>

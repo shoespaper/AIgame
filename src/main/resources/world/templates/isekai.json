@@ -342,16 +342,6 @@
             "template_id": "event_supply_arrival"
           }
         }
-      },
-      {
-        "id": "patrol_return",
-        "name": "巡守归来",
-        "description": "巡守队平安回到村里，居民暂时松了一口气。",
-        "engines": {
-          "ap": {
-            "template_id": "event_npc_morale"
-          }
-        }
       }
     ],
     "tags": [

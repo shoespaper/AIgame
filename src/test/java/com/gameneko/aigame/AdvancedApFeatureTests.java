@@ -57,7 +57,8 @@ class AdvancedApFeatureTests {
     void npcRelationshipIsBoundedAndInteractionIsRecorded() {
         org.junit.jupiter.api.Assertions.assertTrue(ApTemplateFixture.confirmed(catalog).npcTypes().containsKey("merchant"));
         var state = runtime.initialize(new ApRulesetRuntime.ApInitializationRequest("hero", 16, "", "swordsman", "adventure"), ApTemplateFixture.confirmed(catalog));
-        state = runtime.resolve(state, new ApRulesetRuntime.RegisterNpc("n1", "Mara", "merchant", "town", 2), 0, ApTemplateFixture.confirmed(catalog)).nextState();
+        state = runtime.resolve(state, new ApRulesetRuntime.RegisterNpc("n1", "Mara", "merchant", "town", 2,
+                List.of(), 0), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         for (int i = 0; i < 30; i++) state = runtime.resolve(state, new ApRulesetRuntime.InteractNpc("n1", "trade", ApNpc.InteractionResult.POSITIVE, i, 1), 0, ApTemplateFixture.confirmed(catalog)).nextState();
         assertEquals(100, state.systems().npcs().getFirst().relationship());
         assertEquals(30, state.systems().npcs().getFirst().interactions().size());

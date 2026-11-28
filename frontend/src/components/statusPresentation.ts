@@ -40,7 +40,7 @@ export interface NpcView {
   typeLabel: string
   location: string
   relationship: number
-  mood: number
+  inventory: ItemView[]
   statusLabel: string
   statusKey: string
   personality: string
@@ -176,8 +176,14 @@ export function parseCharacter(state: JsonMap | null): CharacterView | null {
 /** 从规则状态解析背包物品列表。 */
 /** @param state 规则状态根对象 */
 export function parseInventory(state: JsonMap | null): ItemView[] {
-  if (!state) return []
-  return asList(state.inventory).map((entry) => {
+  return parseItems(state?.inventory)
+}
+
+/** 将玩家或 NPC 库存转换为界面物品列表。
+ * @param value 规则状态中的库存数组，可为空
+ */
+function parseItems(value: JsonValue | undefined): ItemView[] {
+  return asList(value).map((entry) => {
     const item = asMap(entry)
     return {
       name: asStr(item?.name),
@@ -216,7 +222,7 @@ export function parseNpcGroups(state: JsonMap | null): NpcGroup[] {
       typeLabel: npcTypeLabel(npc.type),
       location: asStr(npc.location),
       relationship: asNum(npc.relationship),
-      mood: asNum(npc.mood),
+      inventory: parseItems(npc.inventory),
       statusKey,
       statusLabel: label(NPC_STATUS_LABELS, statusKey),
       personality: asStr(npc.personality),

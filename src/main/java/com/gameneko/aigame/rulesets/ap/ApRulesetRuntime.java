@@ -153,6 +153,14 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
                     && interact.action() != null && !interact.action().isBlank()
                     ? ActionValidation.accept() : ActionValidation.reject("NPC 不可交谈或互动无效");
         }
+        if (action instanceof ExchangeWithNpc exchange) {
+            try {
+                ApNpcExchange.resolve(state, exchange);
+                return ActionValidation.accept();
+            } catch (IllegalArgumentException exception) {
+                return ActionValidation.reject(exception.getMessage());
+            }
+        }
         if (action instanceof RecordNpcLifeEvent lifeEvent) return npc(state, lifeEvent.npcId()) != null && lifeEvent.description() != null && !lifeEvent.description().isBlank() ? ActionValidation.accept() : ActionValidation.reject("NPC life event is invalid");
         if (action instanceof SetNpcStatus update) return npc(state, update.npcId()) != null && update.status() != null ? ActionValidation.accept() : ActionValidation.reject("NPC status update is invalid");
         if (action instanceof TickNpcs) return ActionValidation.accept();
@@ -292,6 +300,9 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         if (state != null && action instanceof BattleAction battle) {
             return battleAction(state, battle, prepareBattleAction(state, battle, true));
         }
+        if (state != null && state.hpCurrent() > 0 && action instanceof ExchangeWithNpc exchange) {
+            return ApNpcExchange.resolve(state, exchange);
+        }
         ActionValidation validation = validate(state, action, content);
         if (!validation.accepted()) throw new IllegalArgumentException(validation.reason());
         if (action instanceof SupplyEvent supply) {
@@ -351,9 +362,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
             int magnitude = random.nextInt(3, 9);
             int relation = interact.result() == ApNpc.InteractionResult.POSITIVE ? magnitude
                     : interact.result() == ApNpc.InteractionResult.NEGATIVE ? -magnitude : random.nextInt(0, 3);
-            int mood = interact.result() == ApNpc.InteractionResult.POSITIVE ? random.nextInt(1, 4)
-                    : interact.result() == ApNpc.InteractionResult.NEGATIVE ? -random.nextInt(1, 4) : 0;
-            ApNpc updated = current.interact(interact.day(), interact.action(), interact.result(), relation, mood);
+            ApNpc updated = current.interact(interact.day(), interact.action(), interact.result(), relation);
             int change = updated.relationship() - current.relationship();
             return result(state.withSystems(state.systems().replaceNpc(updated)), new ApEvent("npc_interaction", change,
                     "与「" + current.name() + "」进行了互动，关系变化 " + change + "。",
@@ -792,16 +801,21 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         return new Ability(definition.id(), definition.kind(), definition.tier(), definition.apCost(), definition.spCost(),
                 definition.power(), definition.name(), definition.effectHint(), definition.description(), definition.mechanic(), templateId);
     }
+    /** 根据已确认素材登记 NPC 并应用一次性初始库存。
+     * @param input 登记参数和已生成的初始库存
+     * @param content 已确认世界素材，可为空
+     */
     private ApNpc createNpc(RegisterNpc input, ApContent content) {
-        var template = content == null ? null : content.npcTypes().get(input.npcType());
-        String personality = template == null || template.personalities().isEmpty() ? "" : template.personalities().get(new java.util.SplittableRandom(input.seed()).nextInt(template.personalities().size()));
+        ApContent.NpcTemplate template = content == null ? null : content.npcTypes().get(input.npcType());
+        String personality = template == null || template.personalities().isEmpty() ? "" : template.personalities().get(new SplittableRandom(input.seed()).nextInt(template.personalities().size()));
         String scheduleTemplate = template == null ? "" : template.scheduleTemplate();
         List<ApNpc.ScheduleEntry> schedule = scheduleTemplate.isBlank() ? List.of()
                 : List.of(new ApNpc.ScheduleEntry("all_day", input.location(), scheduleTemplate));
         return new ApNpc(input.npcId(), input.name(), input.npcType(), personality, input.location(),
-                template == null ? 0 : template.relationshipBase(), 0, ApNpc.Status.ACTIVE, schedule,
+                template == null ? 0 : template.relationshipBase(), ApNpc.Status.ACTIVE, schedule,
                 List.of(), List.of(), template != null && template.canTrain(), template != null && template.canCombat(),
-                template != null && template.sellsItems(), template != null && template.givesQuests(), scheduleTemplate);
+                template != null && template.sellsItems(), template != null && template.givesQuests(), scheduleTemplate,
+                input.inventory(), input.copper());
     }
     private ApQuest quest(ApState state, String id, ApQuest.Status status) { return state.systems().questLog().stream().filter(q -> q.questId().equals(id) && q.status() == status).findFirst().orElse(null); }
     private ApNpc npc(ApState state, String id) { return state.systems().npcs().stream().filter(n -> n.npcId().equals(id)).findFirst().orElse(null); }
@@ -812,7 +826,10 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     private int scale(int value, int percent) { return Math.floorDiv(Math.multiplyExact(value, percent), 100); }
     private ApState applyExperience(ApState state, long amount) { long xp = Math.addExact(state.xp(), amount); int level = state.level(); long need = state.xpToNext(); while (xp >= need) { xp -= need; level = Math.addExact(level, 1); need = Math.multiplyExact(level, 100L); } return state.withProgression(level, xp, need); }
     private List<StatusEffect> tickStatusEffects(List<StatusEffect> effects) { return effects.stream().filter(e -> e.duration() > 1).map(e -> new StatusEffect(e.name(), e.duration() - 1, e.penalty())).toList(); }
-    private static boolean isPotion(String name) { return "potion".equalsIgnoreCase(name) || "药水".equals(name); }
+    /** 判断名称是否指向单独计数的基础药水资源。
+     * @param name 物品名称或基础药水标识，可为空
+     */
+    static boolean isPotion(String name) { return "potion".equalsIgnoreCase(name) || "药水".equals(name); }
     private RulesetResolution<ApState, ApEvent> result(ApState state, ApEvent event) { return new RulesetResolution<>(state, List.of(event)); }
     @Override public ApProjection project(ApState state) { return new ApProjection(state); }
 
@@ -857,6 +874,13 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
         public Item { if (name == null || name.isBlank() || quantity < 0 || price < 0 || value < 0 || weaponDamageBonus < 0 || armorMitigationBonus < 0) throw new IllegalArgumentException("Invalid item"); effect = effect == null ? ApItemEffect.none() : effect; }
         public Item(String name, String type, String damage, int quantity) { this(name, type, damage, quantity, ApItemEffect.none(), 0, 0, 0, 0); }
         public Item(String name, String type, String damage, int quantity, ApItemEffect effect, long price, long value) { this(name, type, damage, quantity, effect, price, value, 0, 0); }
+
+        /** 复制同一件物品的所有属性，仅替换数量。
+         * @param nextQuantity 复制后的非负数量
+         */
+        public Item withQuantity(int nextQuantity) {
+            return new Item(name, type, damage, nextQuantity, effect, price, value, weaponDamageBonus, armorMitigationBonus);
+        }
     }
     public record Equipment(String weapon, String armor) { public Equipment withWeapon(String value) { return new Equipment(value, armor); } public Equipment withArmor(String value) { return new Equipment(weapon, value); } }
     public record Resources(long copper, long rations, long potions) { public Resources { if (copper < 0 || rations < 0 || potions < 0) throw new IllegalArgumentException("Resources must not be negative"); } public Resources withRations(long value) { return new Resources(copper, value, potions); } public Resources withPotions(long value) { return new Resources(copper, rations, value); } public Resources add(long c, long r, long p) { return new Resources(Math.addExact(copper, c), Math.addExact(rations, r), Math.addExact(potions, p)); } }
@@ -879,7 +903,7 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
                           String effectHint, String description, AbilityMechanic mechanic, String templateId) {}
 
     /** AP 入口从结构化意图解析出的类型化动作。 */
-    public sealed interface ApAction permits SupplyEvent, Rest, ConsumeRation, AdvanceDay, GrantExperience, LearnAbility, EquipItem, UseItem, OfferQuest, AcceptQuest, ProgressQuest, CompleteQuest, FailQuest, RegisterNpc, InteractNpc, TickNpcs, RecordNpcLifeEvent, SetNpcStatus, AcquireItem, StartBattle, BattleAction, AdvanceBattleTurn, SettleBattle { String type(); }
+    public sealed interface ApAction permits SupplyEvent, Rest, ConsumeRation, AdvanceDay, GrantExperience, LearnAbility, EquipItem, UseItem, OfferQuest, AcceptQuest, ProgressQuest, CompleteQuest, FailQuest, RegisterNpc, InteractNpc, ExchangeWithNpc, TickNpcs, RecordNpcLifeEvent, SetNpcStatus, AcquireItem, StartBattle, BattleAction, AdvanceBattleTurn, SettleBattle { String type(); }
     /** 表示一次由已登记事件发放的补给。
      * @param id 世界补给事件素材标识
      * @param name 用于叙事的事件名称
@@ -912,7 +936,51 @@ public final class ApRulesetRuntime implements RulesetRuntime<ApRulesetRuntime.A
     public record ProgressQuest(String questId, int objectiveIndex, int amount) implements ApAction { public String type() { return "progress_quest"; } }
     public record CompleteQuest(String questId) implements ApAction { public String type() { return "complete_quest"; } }
     public record FailQuest(String questId, String reason) implements ApAction { public String type() { return "fail_quest"; } }
-    public record RegisterNpc(String npcId, String name, String npcType, String location, long seed) implements ApAction { public String type() { return "register_npc"; } }
+    /** 登记一个 NPC 及其初始资产。
+     * @param npcId 稳定的 NPC 实例标识
+     * @param name 展示名称
+     * @param npcType 已确认的 NPC 素材标识
+     * @param location 初始地点
+     * @param seed 初始性格选择的随机种子
+     * @param inventory 初始物品库存，允许为空列表
+     * @param copper 初始铜币余额
+     */
+    public record RegisterNpc(String npcId, String name, String npcType, String location, long seed,
+                              List<Item> inventory, long copper) implements ApAction {
+        /** 复制库存并拒绝负余额。 */
+        public RegisterNpc {
+            inventory = List.copyOf(inventory);
+            if (copper < 0) throw new IllegalArgumentException("NPC 初始铜币不能为负数");
+        }
+
+        /** 返回引擎登记动作标识。 */
+        public String type() { return "register_npc"; }
+    }
+
+    /** 玩家与一个已登记 NPC 的双向交换意图。
+     * @param npcId 交易对象的实例标识
+     * @param give 玩家交付的资产，可为空的一侧用空资产表示
+     * @param receive NPC 交付的资产，可为空的一侧用空资产表示
+     */
+    public record ExchangeWithNpc(String npcId, ExchangeSide give, ExchangeSide receive) implements ApAction {
+        /** 返回引擎交换动作标识。 */
+        public String type() { return "exchange_with_npc"; }
+    }
+
+    /** 描述一侧交付的铜币、物品或空资产。
+     * @param copper 铜币枚数，非铜币时为零
+     * @param itemName 现有库存中的精确物品名，非物品时为空字符串
+     * @param quantity 物品件数，非物品时为零
+     */
+    public record ExchangeSide(long copper, String itemName, int quantity) {
+        /** 每侧只允许铜币、物品或空资产之一。 */
+        public ExchangeSide {
+            if (itemName == null || copper < 0 || quantity < 0 || (itemName.isBlank() != (quantity == 0))
+                    || (copper > 0 && quantity > 0)) {
+                throw new IllegalArgumentException("交易每侧最多交付一种资产，数量须为正整数");
+            }
+        }
+    }
     public record InteractNpc(String npcId, String action, ApNpc.InteractionResult result, long seed, long day) implements ApAction { public InteractNpc(String npcId, String action, ApNpc.InteractionResult result, long seed) { this(npcId, action, result, seed, 0); } public String type() { return "interact_npc"; } }
     public record TickNpcs(long seed, long day) implements ApAction { public TickNpcs(long seed) { this(seed, 0); } public String type() { return "tick_npcs"; } }
     public record RecordNpcLifeEvent(String npcId, String description, long day) implements ApAction { public String type() { return "record_npc_life_event"; } }

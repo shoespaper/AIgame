@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { EngineActionChoice, JsonValue } from '../api/types'
 import { useGameStore } from '../stores/game'
 import NarrativeTurn from '../components/NarrativeTurn.vue'
+import NarrationRetryNotice from '../components/NarrationRetryNotice.vue'
 
 const route = useRoute(); const router = useRouter(); const game = useGameStore(); const loadError = ref('')
 const playerInput = ref('')
+const inputField = ref<HTMLInputElement | null>(null)
 const state = computed(() => game.game?.rulesetState); const world = computed(() => game.game?.world)
 /** 从路由读取当前游戏标识。 */
 function idFromRoute(): string { return String(route.params.gameId || '') }
@@ -21,12 +23,28 @@ async function save() { try { await game.save() } catch { /* store exposes the u
 async function speak() {
   const text = playerInput.value
   const id = idFromRoute()
-  if (!text.trim() || game.acting) return
+  if (!text.trim() || game.acting || game.pendingTurn) return
   playerInput.value = ''
   try {
     if (await game.speak(text)) return
   } catch { /* store 会暴露用户可见错误 */ }
-  if (idFromRoute() === id && playerInput.value === '') playerInput.value = text
+  await restoreInput(id, text)
+}
+/** 使用原回合标识查询中断的回复。 */
+async function resumeTurn() {
+  const pending = game.pendingTurn
+  if (!pending || await game.resumeTextTurn()) return
+  await restoreInput(pending.gameId, pending.playerInput)
+}
+/** 回合确认失败后恢复玩家原文。
+ * @param id 回合所属游戏
+ * @param text 玩家原始输入
+ */
+async function restoreInput(id: string, text: string) {
+  if (idFromRoute() !== id || game.pendingTurn || playerInput.value !== '') return
+  playerInput.value = text
+  await nextTick()
+  inputField.value?.focus()
 }
 /** 将候选行动填入输入框，供玩家编辑和发送。 */
 /** @param label 候选行动的文本 */
@@ -52,8 +70,11 @@ watch(() => route.params.gameId, () => { void load() }); onMounted(() => { void 
         <div class="timeline" aria-live="polite"><article v-for="item in game.events" :key="item.id" class="timeline-item" :class="item.kind"><div class="timeline-marker" aria-hidden="true" /><div class="timeline-copy"><div class="timeline-meta"><strong>{{ item.title }}</strong><time>{{ item.time }}</time></div><p>{{ item.detail }}</p></div></article><div v-if="!game.events.length" class="empty-timeline">还没有行动记录。选择右侧的行动，开始这场远征。</div></div>
         <div class="action-composer"><div class="composer-heading"><div><span class="panel-kicker">GM CONVERSATION</span><h2>你要怎么做？</h2></div><span v-if="game.acting" class="processing-label"><span class="loader small" />处理中</span></div>
           <NarrativeTurn v-if="game.narration || game.game.actionChoices.length" :turn="game.narration"
-            :action-choices="game.game.actionChoices" :acting="game.acting" @choose="choose" @execute="execute" />
-          <div class="free-input"><input v-model="playerInput" placeholder="自由输入行动或问题" @keyup.enter="speak" /><button class="primary-button" type="button" :disabled="game.acting || !playerInput.trim()" @click="speak">发送</button></div>
+            :action-choices="game.game.actionChoices" :acting="game.acting || !!game.pendingTurn" @choose="choose" @execute="execute" />
+          <div v-if="game.pendingTurn" class="conversation-message player"><span>你</span><p>{{ game.pendingTurn.playerInput }}</p></div>
+          <NarrationRetryNotice :hint="game.retryHint" :message="game.turnError"
+            :can-resume="!!game.pendingTurn && !game.acting" @resume="resumeTurn" />
+          <div class="free-input"><input ref="inputField" v-model="playerInput" placeholder="自由输入行动或问题" :disabled="!!game.pendingTurn" @keyup.enter="speak" /><button class="primary-button" type="button" :disabled="game.acting || !!game.pendingTurn || !playerInput.trim()" @click="speak">发送</button></div>
         </div>
       </main>
       <aside class="status-column">

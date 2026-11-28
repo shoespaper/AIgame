@@ -41,6 +41,55 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 /** 验证叙事模型的结构化输出约束、服务端校验与解析健壮性。 */
 class NarrationOutputReliabilityTests {
+    /** 验证统一预算模式遇到上游瞬时错误时也只发一次请求。 */
+    @Test
+    void singleAttemptDoesNotRetryTransportFailure() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://model.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://model.test/chat/completions"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        OpenAiCompatibleNarrativeProvider provider = new OpenAiCompatibleNarrativeProvider(builder.build(),
+                new ObjectMapper(), "test-model");
+        NarrativePrompt single = new NarrativePrompt("生成叙事", "观察四周", request().snapshot(), "zh-CN", List.of(), false, true);
+
+        NarrativeProviderException failure = assertThrows(NarrativeProviderException.class, () -> provider.respond(single));
+        assertTrue(failure.retryable());
+        assertEquals(503, failure.upstreamStatus());
+        server.verify();
+    }
+
+    /** 验证草案协议调用一次并保留空白输出的失败原因。 */
+    @Test
+    void singleJsonAttemptReportsBlankResponse() {
+        ObjectMapper mapper = new ObjectMapper();
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://model.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://model.test/chat/completions")).andRespond(modelReply(mapper, "  \n"));
+        OpenAiCompatibleNarrativeProvider provider = new OpenAiCompatibleNarrativeProvider(builder.build(), mapper, "test-model");
+
+        NarrativeProviderException failure = assertThrows(NarrativeProviderException.class,
+                () -> provider.completeJsonOnce("world_draft_generation", "返回草案 JSON", "{}"));
+        assertEquals("empty_output", failure.reasonCode());
+        assertTrue(failure.canRegenerate());
+        server.verify();
+    }
+
+    /** 验证模板提案保留专用输出格式，允许空叙事和空选项。 */
+    @Test
+    void singleTemplateAttemptUsesTemplateProtocol() {
+        ObjectMapper mapper = new ObjectMapper();
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://model.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://model.test/chat/completions")).andRespond(modelReply(mapper, """
+                {"narration":"","action":null,"options":[],"updates":{"template":{"type":"text","value":"{}"}}}
+                """));
+        OpenAiCompatibleNarrativeProvider provider = new OpenAiCompatibleNarrativeProvider(builder.build(), mapper, "test-model");
+        NarrativePrompt prompt = new NarrativePrompt("返回模板提案", "", request().snapshot(), "zh-CN", List.of(), false, true);
+
+        assertEquals(new InitializationValue.Text("{}"), provider.respond(prompt).updates().get("template"));
+        server.verify();
+    }
+
     /** 验证响应格式为 json_object 模式，并附带字段结构描述。 */
     @Test
     void providerUsesJsonObjectResponseFormat() {

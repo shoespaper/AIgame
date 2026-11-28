@@ -30,7 +30,8 @@ public class GlobalExceptionHandler {
             case SAVE_NOT_FOUND, SESSION_NOT_FOUND, CONTENT_NOT_FOUND, LOGS_NOT_AVAILABLE -> HttpStatus.NOT_FOUND;
             case REVISION_MISMATCH, CONTENT_ALREADY_EXISTS, MODEL_CONFIGURATION_REQUIRED -> HttpStatus.CONFLICT;
             case CONTENT_READ_ONLY, LOG_EXPORT_FORBIDDEN -> HttpStatus.FORBIDDEN;
-            case ENGINE_REQUIRED, ENGINE_ACTION_REJECTED -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case ENGINE_REQUIRED, ENGINE_ACTION_REJECTED, WORLD_DRAFT_ATTEMPTS_EXHAUSTED,
+                    TEMPLATE_ATTEMPTS_EXHAUSTED -> HttpStatus.UNPROCESSABLE_ENTITY;
             case LOG_EXPORT_FAILED -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
         GameRequestException.ActionContext context = exception.actionContext();

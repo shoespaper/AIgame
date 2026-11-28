@@ -41,6 +41,14 @@ export interface EngineConfirmedEvent { source: string; type: string; descriptio
 export interface ConversationMessage { role: 'player' | 'gm'; text: string }
 /** 叙事回合：权威实例、叙事文本、候选行动与本次结算确认事件。 */
 export interface NarrativeResponse { game: GameInstanceResponse; narration: string; options: string[]; confirmedEvents: ConfirmedEvent[] }
+/** 文本回合请求；重连时复用原始标识、版本、输入和上下文。 */
+export interface TextNarrationTurn { id: string; gameId: string; expectedRevision: number; playerInput: string; history: ConversationMessage[] }
+/** 文本回合通过同一连接发送的进度和最终结果。 */
+export type NarrationStreamEvent =
+  | { type: 'started' }
+  | { type: 'attempt_failed'; attempt: number; message: string }
+  | { type: 'committed' | 'complete'; result: NarrativeResponse }
+  | { type: 'failed'; code: string; message: string }
 /** 由服务端当前权威状态生成的可执行按钮。 */
 export interface EngineActionChoice { id: string; label: string }
 /** 世界期限事件及其已确认的结果。 */
@@ -78,8 +86,10 @@ export interface CheckedInitialization {
   profileErrors: Record<string, string>
   engineErrors: Record<string, string>
 }
-/** 创建游戏的开场结果。模板三次校验失败时，templateBuildFailed 为 true。 */
-export interface InitializationFinalizeResult { game: GameInstanceResponse; opening: NarrativeResponse; templateBuildFailed: boolean }
+/** 模板通过校验并且开场已存档后返回的结果。 */
+export interface InitializationFinalizeResult { game: GameInstanceResponse; opening: NarrativeResponse }
+/** 世界草案和开局生成时可显示在当前页的阶段进度。 */
+export interface CreationProgress { phase: string; attempt: number | null; limit: number | null; failed: boolean; message: string }
 
 /** 世界构建回合，包含后端已验收的 Markdown 草案及版本。 */
 export interface WorldbuildTurn {

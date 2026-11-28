@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import type { CreationProgress, NarrationStreamEvent, TextNarrationTurn } from './types'
 import type { ApiErrorPayload, GameCatalog, GameInstanceResponse, GameSelection, NarrativeResponse, WorldState, NarrativeSettings, SaveMetadata, InitializationSession, CheckedInitialization, InitializationFormValues, InitializationFinalizeResult, WorldbookDraft, WorldbookDetail, WorldbookResponse, WorldbuildSession, WorldbuildTurn, ConversationMessage } from './types'
 
 const apiRoot = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
@@ -140,9 +141,10 @@ export function validateInitialization(id: string, profile: InitializationFormVa
 /** 确认已通过校验的角色资料并生成开场。
  * @param id 表单会话标识
  * @param version 玩家核对过的校验版本
+ * @param onProgress 接收模板尝试和开场阶段
  */
-export function finalizeInitialization(id: string, version: number): Promise<InitializationFinalizeResult> {
-  return request(`/initialization/sessions/${encodeURIComponent(id)}/finalize`, { method: 'POST', body: JSON.stringify({ version }) })
+export function finalizeInitialization(id: string, version: number, onProgress: (progress: CreationProgress) => void): Promise<InitializationFinalizeResult> {
+  return streamCreation(`/initialization/sessions/${encodeURIComponent(id)}/finalize/stream`, { version }, onProgress)
 }
 /** 将当前输入与近期非权威对话上下文提交给 GM。 */
 /** @param gameId 当前游戏标识 @param expectedRevision 客户端观察到的游戏修订号 @param playerInput 玩家本轮输入 */
@@ -154,6 +156,74 @@ export function narrate(gameId: string, expectedRevision: number, playerInput: s
   })
 }
 
+/** 发送或恢复流式文本回合，按完整 SSE 事件读取 UTF-8 响应。
+ * @param turn 本轮不变的请求数据
+ * @param onProgress 消费一次失败提示或已结算回执
+ */
+export async function streamNarration(turn: TextNarrationTurn, onProgress: (event: NarrationStreamEvent) => void): Promise<NarrativeResponse> {
+  const response = await fetchApi(`${gamePath(turn.gameId)}/narration/turns/${encodeURIComponent(turn.id)}`, {
+    method: 'POST',
+    headers: { Accept: 'text/event-stream' },
+    body: JSON.stringify({ expectedRevision: turn.expectedRevision, playerInput: turn.playerInput, history: turn.history, locale: 'zh-CN' }),
+  })
+  return readStream<NarrativeResponse, NarrationStreamEvent>(response, onProgress, '回合连接已中断，正在等待确认结果。')
+}
+
+/** 发起创建流程并消费独立于最终业务响应的进度。
+ * @param path 创建流程的 SSE 路径
+ * @param payload 已校验的用户输入或确认版本
+ * @param onProgress 处理生成进度和失败提示的回调
+ */
+async function streamCreation<T>(path: string, payload: object, onProgress: (progress: CreationProgress) => void): Promise<T> {
+  const response = await fetchApi(path, {
+    method: 'POST', headers: { Accept: 'text/event-stream' }, body: JSON.stringify(payload),
+  })
+  return readStream<T, { type: 'progress'; progress: CreationProgress }>(response, event => onProgress(event.progress),
+    '生成连接已中断，请重试。')
+}
+
+/** 读取 SSE 的完整事件并返回成功结果。
+ * @param response 已打开的 SSE 响应
+ * @param onProgress 处理非终止事件的回调
+ * @param disconnectMessage 响应未完成时的界面提示
+ */
+async function readStream<T, P extends { type: string }>(response: Response, onProgress: (event: P) => void,
+  disconnectMessage: string): Promise<T> {
+  const requestId = response.headers.get('X-Request-Id') ?? undefined
+  const disconnected = () => new ApiError(disconnectMessage, 0, 'RESULT_UNCONFIRMED', requestId)
+  if (!response.body || !response.headers.get('Content-Type')?.startsWith('text/event-stream')) throw disconnected()
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) throw disconnected()
+      buffer += value
+      let separator = /\r?\n\r?\n/.exec(buffer)
+      while (separator) {
+        const data = buffer.slice(0, separator.index).split(/\r?\n/)
+          .filter(line => line.startsWith('data:')).map(line => line.slice(5).replace(/^ /, '')).join('\n')
+        buffer = buffer.slice(separator.index + separator[0].length)
+        if (data) {
+          const event = JSON.parse(data) as { type: string; result?: T; code?: string; message?: string }
+          if (event.type === 'complete' && event.result !== undefined) return event.result
+          if (event.type === 'failed') {
+            throw new ApiError(event.message || '操作未完成。', 200, event.code, requestId)
+          }
+          onProgress(event as P)
+        }
+        separator = /\r?\n\r?\n/.exec(buffer)
+      }
+    }
+  } catch (cause) {
+    if (cause instanceof ApiError) throw cause
+    throw disconnected()
+  } finally {
+    void reader.cancel().catch(() => {})
+  }
+}
+
 /** 创建世界构建 AI 会话。 */
 export function createWorldbuildSession(): Promise<WorldbuildSession> {
   return request('/initialization/worldbuild/sessions', { method: 'POST' })
@@ -161,9 +231,10 @@ export function createWorldbuildSession(): Promise<WorldbuildSession> {
 /** 提交世界描述或修改意见。
  * @param id 世界构建会话标识
  * @param answer 玩家自然语言回答
+ * @param onProgress 接收草案生成和 Judge 验收进度
  */
-export function answerWorldbuild(id: string, answer: string): Promise<{ done: boolean; turn: WorldbuildTurn }> {
-  return request(`/initialization/worldbuild/sessions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ answer }) })
+export function answerWorldbuild(id: string, answer: string, onProgress: (progress: CreationProgress) => void): Promise<{ done: boolean; turn: WorldbuildTurn }> {
+  return streamCreation(`/initialization/worldbuild/sessions/${encodeURIComponent(id)}/answer/stream`, { answer }, onProgress)
 }
 
 /** 保存指定的已验收草案版本。

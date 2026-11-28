@@ -2,12 +2,15 @@ package com.gameneko.aigame;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gameneko.aigame.application.CreationProgress;
+import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.port.NarrativeProvider;
 import com.gameneko.aigame.content.TemplateCatalog;
 import com.gameneko.aigame.content.WorldTemplate;
 import com.gameneko.aigame.content.WorldbookDefinition;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.narrative.NarrativePrompt;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.persistence.ConfirmedTemplateRegistry;
 import com.gameneko.aigame.rulesets.ap.ApTemplatePolicy;
@@ -18,12 +21,13 @@ import org.mockito.ArgumentCaptor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
@@ -77,16 +81,25 @@ class ConfirmedTemplateRegistryTests {
         assertEquals("dusk", registry.world("story").path("template_id").asText());
     }
 
-    /** 验证模板身份持续错误时最多尝试三次，且磁盘和内存均没有新增绑定。 */
+    /** 验证五次模型或提案失败共享同一预算，且磁盘和内存均没有新增绑定。 */
     @Test
-    void rejectsWorldAfterThreeInvalidProposalsWithoutBinding() throws IOException {
+    void rejectsWorldAfterFiveInvalidProposalsWithoutBinding() throws IOException {
         when(catalog.findTemplate("dusk")).thenReturn(Optional.empty());
-        when(provider.respond(any())).thenReturn(response("{}"));
+        when(provider.respond(any())).thenThrow(NarrativeProviderException.invalidOutput("无效模型输出", null))
+                .thenReturn(response("{}"));
         ConfirmedTemplateRegistry registry = registry();
+        List<CreationProgress> events = new ArrayList<>();
 
-        assertFalse(registry.confirm("story", book(""), null));
+        GameRequestException failure = assertThrows(GameRequestException.class,
+                () -> registry.confirm("story", book(""), null, events::add));
+        assertEquals(GameRequestException.Code.TEMPLATE_ATTEMPTS_EXHAUSTED, failure.code());
 
-        verify(provider, times(3)).respond(any());
+        ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
+        verify(provider, times(5)).respond(prompts.capture());
+        assertTrue(prompts.getAllValues().stream().allMatch(NarrativePrompt::singleAttempt));
+        assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("上次回复不符合输出协议"));
+        assertEquals(List.of(1, 2, 3, 4, 5), events.stream().filter(CreationProgress::failed)
+                .map(CreationProgress::attempt).toList());
         assertTrue(registry.world("story").isMissingNode());
         assertTrue(Files.notExists(temporary.resolve("registry.json")));
     }
@@ -192,24 +205,24 @@ class ConfirmedTemplateRegistryTests {
                 """;
         String wrongParameters = definition.replace("\"guard\":3", "\"guard\":-1");
         when(provider.respond(any())).thenReturn(response(wrongCategory), response(wrongParameters),
-                response("{}"), response(wrongCategory), response(definition));
+                response("{}"), response(wrongCategory), response("{}"), response(definition));
         ConfirmedTemplateRegistry registry = registry();
         WorldbookDefinition book = book("dusk_starter");
         registry.confirm("story", book, null);
         Path file = temporary.resolve("registry.json");
         String prior = Files.readString(file);
 
-        assertFalse(registry.confirm("ap-game", book, "ap"));
+        assertThrows(GameRequestException.class, () -> registry.confirm("ap-game", book, "ap"));
         assertEquals(prior, Files.readString(file));
         assertTrue(registry.rules("ap").isMissingNode());
         assertTrue(registry.world("ap-game").isMissingNode());
 
-        assertTrue(registry.confirm("ap-game", book, "ap"));
+        registry.confirm("ap-game", book, "ap");
         assertEquals("dusk_guard", registry.world("ap-game").at("/skill_types/0/engines/ap/template_id").asText());
         assertEquals(1, registry.rules("ap").at("/dusk_guard/parameters/ap_cost").asInt());
         assertTrue(registry.world("story").at("/skill_types/0/engines").isMissingNode());
         ArgumentCaptor<NarrativePrompt> prompts = ArgumentCaptor.forClass(NarrativePrompt.class);
-        verify(provider, times(5)).respond(prompts.capture());
+        verify(provider, times(6)).respond(prompts.capture());
         assertTrue(prompts.getAllValues().get(1).systemInstruction().contains("期望 skill，实际 npc"));
         assertTrue(prompts.getAllValues().get(2).systemInstruction().contains("parameters.guard 必须是 0 至 1000 的整数"));
         verify(catalog, times(3)).findTemplate("dusk_starter");

@@ -63,13 +63,7 @@ public final class WorldDraftModel {
      * @param allowReplyOnly 当前回合是否允许模型仅回复玩家
      */
     public Generation generate(GenerationInput input, boolean allowReplyOnly) {
-        JsonNode result;
-        try {
-            result = request(GENERATION_STAGE, GENERATE, input);
-        } catch (NarrativeProviderException exception) {
-            if (!List.of("output_parse_failed", "empty_output").contains(exception.reasonCode())) throw exception;
-            return new Generation(null, null, "生成响应无法读取，请返回包含 draft 和 reply 的 JSON 对象。");
-        }
+        JsonNode result = requestOnce(GENERATION_STAGE, GENERATE, input);
 
         String reply = result.path("reply").textValue();
         if (reply == null || reply.isBlank()) {
@@ -90,9 +84,10 @@ public final class WorldDraftModel {
 
     /** 验收候选草案，通过时返回空列表，退回时返回具体问题。
      * @param input 候选草案与对应的对话上下文
+     * @param correction 上一次 Judge 调用失败后的协议修正提示，为空时不追加
      */
-    public List<String> review(ReviewInput input) {
-        JsonNode result = request(JUDGE_STAGE, JUDGE, input);
+    public List<String> review(ReviewInput input, String correction) {
+        JsonNode result = requestOnce(JUDGE_STAGE, correction.isEmpty() ? JUDGE : JUDGE + "\n" + correction, input);
         String status = result.path("status").asText();
         if ("PASS".equals(status) && result.size() == 1) {
             DiagnosticLog.modelValidation(JUDGE_STAGE, "pass", null, null, null, null);
@@ -139,6 +134,15 @@ public final class WorldDraftModel {
      */
     private JsonNode request(String operation, String instruction, Object input) {
         return model.completeJson(operation, instruction, mapper.valueToTree(input).toString());
+    }
+
+    /** 编码生成或验收上下文，只消耗一次模型调用。
+     * @param operation 模型调用的业务阶段
+     * @param instruction 本轮输出约定
+     * @param input 待编码的上下文
+     */
+    private JsonNode requestOnce(String operation, String instruction, Object input) {
+        return model.completeJsonOnce(operation, instruction, mapper.valueToTree(input).toString());
     }
 
     /** 草案生成或纯对话结果。

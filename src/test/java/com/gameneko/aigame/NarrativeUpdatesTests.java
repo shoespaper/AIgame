@@ -21,8 +21,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -39,6 +44,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 验证确定字段声明在世界状态、回合版本及真实存档之间的一致性。 */
 class NarrativeUpdatesTests {
@@ -129,41 +138,48 @@ class NarrativeUpdatesTests {
         GameInstance<?> prepared = repository.lastAttempt;
         assertEquals(1, prepared.revision());
 
-        Callable<GameInitializationFlow.ConfirmedGame> confirm = () -> flow.confirm(started.id(), checked.version());
+        Callable<NarrativeApplicationService.NarratedTurn> confirm = () -> flow.confirm(started.id(), checked.version());
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
-            List<Future<GameInitializationFlow.ConfirmedGame>> responses =
+            List<Future<NarrativeApplicationService.NarratedTurn>> responses =
                     executor.invokeAll(List.of(confirm, confirm), 5, TimeUnit.SECONDS);
-            GameInitializationFlow.ConfirmedGame first = responses.getFirst().get();
+            NarrativeApplicationService.NarratedTurn first = responses.getFirst().get();
             assertSame(first, responses.getLast().get());
             assertSame(first, flow.confirm(started.id(), checked.version()));
-            assertFalse(first.templateBuildFailed());
-            assertSame(prepared, first.opening().instance());
+            assertSame(prepared, first.instance());
             assertEquals("石桥镇", repository.load(prepared.gameId()).orElseThrow().worldState().location());
             assertEquals(2, openingCalls.get());
             assertEquals(1, repository.writes);
         }
     }
 
-    /** 验证无模板开局保留 AP 引擎、开局提示与通用委托能力。
-     * @throws IOException 临时模板目录初始化失败
+    /** 验证五次失败阻止开场与写档，重试可复用原表单并继续确认。
+     * @throws Exception 测试端点或临时模板目录发生错误
      */
     @Test
-    void finalizationStartsApWithoutTemplateAfterThreeRejectedProposals() throws IOException {
+    void finalizationBlocksAfterFiveRejectedProposalsAndRetriesTheSameForm() throws Exception {
         CountingRepository repository = new CountingRepository(null);
         AtomicInteger proposals = new AtomicInteger();
+        AtomicInteger openingCalls = new AtomicInteger();
         TemplateCatalog emptyTemplates = mock(TemplateCatalog.class);
         when(emptyTemplates.findTemplate("isekai")).thenReturn(Optional.empty());
         Path registryFile = saves.resolve("registry.json");
         ConfirmedTemplateRegistry registry = new ConfirmedTemplateRegistry(mapper, prompt -> {
-            proposals.incrementAndGet();
-            return response(Map.of("template", text("{}")));
+            if (proposals.incrementAndGet() <= 5) return response(Map.of("template", text("{}")));
+            return response(Map.of("template", text("""
+                    {"world_template":{"template_id":"isekai","world_type":"isekai",
+                      "regions":[],"npc_types":[],"monster_types":[],"skill_types":[],"spell_types":[],
+                      "talent_types":[],"item_types":[],"quest_templates":[],"event_templates":[]}}
+                    """)));
         }, emptyTemplates, List.of(new ApTemplatePolicy(mapper)), registryFile.toString());
         ReflectionTestUtils.invokeMethod(engines, "configureTemplates", registry);
 
         GameInstanceService instances = new GameInstanceService(new WorldInitializationService(catalog), catalog, engines);
         ReflectionTestUtils.invokeMethod(instances, "configureTemplates", registry);
         NarrativeApplicationService narratives = new NarrativeApplicationService(repository, catalog,
-                new DefaultNarrationService(prompt -> new NarrativeResponse("冒险开始。", null, List.of("四处看看"))),
+                new DefaultNarrationService(prompt -> {
+                    if (openingCalls.incrementAndGet() == 1) throw new NarrativeProviderException("开场暂不可用", true);
+                    return new NarrativeResponse("冒险开始。", null, List.of("四处看看"));
+                }),
                 new GameActionService(repository, catalog, engines));
         GameInitializationFlow flow = new GameInitializationFlow(new GameInitializationSchemaService(catalog, engines), instances, narratives, new GameSaveService(repository));
         InitializationSessionController controller = new InitializationSessionController(flow);
@@ -174,12 +190,30 @@ class NarrativeUpdatesTests {
         assertNotNull(checked.version());
         assertEquals(0, proposals.get());
 
-        repository.failNextSave = true;
         ConfirmRequest confirmation = new ConfirmRequest(checked.version());
-        assertThrows(GamePersistenceException.class, () -> controller.finalizeSession(started.id(), confirmation));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MvcResult streamed = mvc.perform(post("/api/initialization/sessions/{id}/finalize/stream", started.id())
+                        .accept("text/event-stream").contentType(APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(confirmation)))
+                .andExpect(MockMvcResultMatchers.request().asyncStarted()).andReturn();
+        streamed.getAsyncResult(8000);
+        String frames = mvc.perform(asyncDispatch(streamed)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        List<String> events = frames.lines().filter(line -> line.startsWith("data:")).map(line -> line.substring(5)).toList();
+        assertEquals("TEMPLATE_ATTEMPTS_EXHAUSTED", mapper.readTree(events.getLast()).path("code").asText());
+        assertEquals(5, events.stream().filter(line -> line.contains("\"failed\":true")).count());
+        assertEquals(5, proposals.get());
+        assertEquals(0, openingCalls.get());
+        assertEquals(0, repository.writes);
+        assertNull(repository.lastAttempt);
+        assertTrue(Files.notExists(registryFile));
+
+        assertThrows(NarrativeProviderException.class, () -> controller.finalizeSession(started.id(), confirmation));
+        assertEquals(6, proposals.get());
+        assertEquals(0, repository.writes);
+        assertTrue(Files.exists(registryFile));
         InitializationSessionController.FinalizeResponse result = controller.finalizeSession(started.id(), confirmation);
 
-        assertTrue(result.templateBuildFailed());
         GameInstance<?> saved = repository.load(result.game().gameId()).orElseThrow();
         assertEquals("ap", saved.rulesetId());
         assertEquals("商队向导", saved.character().background());
@@ -188,24 +222,10 @@ class NarrativeUpdatesTests {
         disk.save(saved);
         assertEquals(saved.character(), disk.load(saved.gameId()).orElseThrow().character());
         assertEquals("冒险开始。", result.opening().narration());
-        assertEquals(3, proposals.get());
+        assertEquals(6, proposals.get());
+        assertEquals(2, openingCalls.get());
         assertEquals(1, repository.writes);
-        assertTrue(registry.world(result.game().gameId()).isMissingNode());
-        assertTrue(Files.notExists(registryFile));
-
-        GameActionService actions = new GameActionService(repository, catalog, engines);
-        GameActionService.AppliedAction offered = actions.applyIntent(saved.gameId(), saved.revision(),
-                new ActionIntent("offer_quest", "night_watch", List.of(
-                        new ActionIntent.Argument("questTitle", text("服役巡夜")),
-                        new ActionIntent.Argument("questDescription", text("到北墙第三段报到。")),
-                        new ActionIntent.Argument("deadlineDays", new InitializationValue.IntegerNumber(10)))));
-        EngineActionChoice choice = actions.actionChoices(offered.instance()).getFirst();
-        assertEquals("接取「服役巡夜」", choice.label());
-        GameActionService.AppliedAction accepted = actions.applyIntent(saved.gameId(), offered.instance().revision(),
-                choice.intent());
-        assertEquals("quest_accepted", accepted.events().getFirst().type());
-        assertTrue(actions.actionChoices(accepted.instance()).isEmpty());
-        assertTrue(registry.world(saved.gameId()).isMissingNode());
+        assertEquals("isekai", registry.world(saved.gameId()).path("template_id").asText());
     }
 
     /** 验证更新表单会淘汰旧版本并在写档失败后使用新角色生成开场。 */
@@ -235,9 +255,9 @@ class NarrativeUpdatesTests {
         GameInitializationFlow.CheckedForm revised = flow.validate(started.id(),
                 Map.of("characterName", "林舟", "age", 22, "gender", "未指定", "background", "商队向导"), Map.of());
         assertThrows(GameRequestException.class, () -> flow.confirm(started.id(), original.version()));
-        GameInitializationFlow.ConfirmedGame created = flow.confirm(started.id(), revised.version());
-        assertEquals(firstAttempt.gameId(), created.opening().instance().gameId());
-        assertEquals("林舟的冒险开始。", created.opening().narration());
+        NarrativeApplicationService.NarratedTurn created = flow.confirm(started.id(), revised.version());
+        assertEquals(firstAttempt.gameId(), created.instance().gameId());
+        assertEquals("林舟的冒险开始。", created.narration());
         assertEquals(new CharacterProfile("林舟", 22, "未指定", "商队向导"), repository.saved.character());
         assertEquals(1, repository.writes);
         assertThrows(GameRequestException.class, () -> flow.validate(started.id(), Map.of(), Map.of()));

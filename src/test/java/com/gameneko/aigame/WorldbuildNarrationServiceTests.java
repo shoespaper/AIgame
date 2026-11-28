@@ -2,6 +2,7 @@ package com.gameneko.aigame;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gameneko.aigame.application.CreationProgress;
 import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.WorldbuildNarrationService;
 import com.gameneko.aigame.application.port.WorldbookRepository;
@@ -14,6 +15,7 @@ import com.gameneko.aigame.narrative.WorldDraftModel;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -64,15 +66,43 @@ class WorldbuildNarrationServiceTests {
         calls.add(new ModelCall("世界草案验收员", null, pass()));
         calls.add(new ModelCall("世界构建 GM", null, mapper.valueToTree(Map.of("reply", "公会各自筹粮。"))));
         calls.add(new ModelCall("世界构建 GM", null, generation("尚未验收的修改")));
-        calls.add(new ModelCall("世界草案验收员", null, mapper.valueToTree(Map.of("status", "ALLOW"))));
+        for (int round = 1; round <= 5; round++) {
+            calls.add(new ModelCall(round == 1 ? "世界草案验收员" : "上次回复不符合输出协议", "尚未验收的修改",
+                    mapper.valueToTree(Map.of("status", "ALLOW"))));
+        }
         WorldbuildNarrationService service = service(calls);
         WorldbuildNarrationService.Session session = service.session("review");
         WorldbuildNarrationService.Turn accepted = service.answer(session, "松散的公会");
         WorldbuildNarrationService.Turn discussion = service.answer(session, "公会为什么难以合作？");
         assertEquals(accepted.version(), discussion.version());
         assertEquals(accepted.draft(), discussion.draft());
-        assertThrows(NarrativeProviderException.class, () -> service.answer(session, "换个开局"));
+        List<CreationProgress> progress = new ArrayList<>();
+        GameRequestException failure = assertThrows(GameRequestException.class,
+                () -> service.answer(session, "换个开局", progress::add));
+        assertEquals(GameRequestException.Code.WORLD_DRAFT_ATTEMPTS_EXHAUSTED, failure.code());
+        assertEquals(List.of(1, 2, 3, 4, 5), progress.stream().filter(CreationProgress::failed)
+                .map(CreationProgress::attempt).toList());
         assertSame(discussion, session.turn());
+        assertTrue(calls.isEmpty());
+    }
+
+    /** 验证第五轮验收通过，Judge 临时失败只重试验收同一候选。 */
+    @Test
+    void passesOnFifthRoundAfterRetryingSameCandidate() {
+        Deque<ModelCall> calls = new ArrayDeque<>();
+        calls.add(new ModelCall("世界构建 GM", null, mapper.createObjectNode()));
+        calls.add(new ModelCall("世界构建 GM", "2000", generation("待验收草案")));
+        calls.add(new ModelCall("世界草案验收员", "待验收草案", mapper.createObjectNode()));
+        calls.add(new ModelCall("上次回复不符合输出协议", "待验收草案",
+                mapper.valueToTree(Map.of("status", "REVISE", "issues", List.of("补充码头开局")))));
+        calls.add(new ModelCall("世界构建 GM", "补充码头开局", generation("码头开局草案")));
+        calls.add(new ModelCall("世界草案验收员", "码头开局草案", mapper.createObjectNode()));
+        calls.add(new ModelCall("上次回复不符合输出协议", "码头开局草案", pass()));
+        WorldbuildNarrationService service = service(calls);
+        List<CreationProgress> progress = new ArrayList<>();
+        WorldbuildNarrationService.Turn turn = service.answer(service.session("fifth"), "港口冒险", progress::add);
+        assertEquals("码头开局草案", turn.draft());
+        assertEquals(5, progress.getLast().attempt());
         assertTrue(calls.isEmpty());
     }
 

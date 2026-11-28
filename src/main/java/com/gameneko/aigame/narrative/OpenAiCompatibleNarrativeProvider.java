@@ -83,8 +83,13 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
         String system = prompt.systemInstruction() + "\n\n" + NarrativeProviderConfiguration.SCHEMA_DESCRIPTION;
         UserInput input = new UserInput(prompt.userInput(), prompt.locale(), prompt.snapshot(), prompt.history());
         try {
-            return requestNarration("narration", system, input, prompt.repairOutput(), null);
+            return requestNarration("narration", system, input, prompt.repairOutput(),
+                    null, prompt.singleAttempt());
         } catch (InvalidNarrativeReply failure) {
+            if (prompt.singleAttempt()) {
+                throw new NarrativeProviderException("模型回复不符合叙事协议", false,
+                        failure.getCause(), failure.reasonCode, failure.upstreamStatus);
+            }
             return correctNarration(failure);
         }
     }
@@ -95,9 +100,10 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
      * @param input 要序列化为用户消息的模型输入
      * @param checkTurnProtocol 是否检查游玩回合协议并提取纠错信息
      * @param original 原始 GM 回复的 JSON 对象，仅在纠错且原文能解析时提供
+     * @param singleAttempt 是否只允许一次上游请求
      */
     private NarrativeResponse requestNarration(String stage, String system, Object input, boolean checkTurnProtocol,
-                                               JsonNode original) {
+                                               JsonNode original, boolean singleAttempt) {
         return complete(stage, call -> {
             call.systemMessage = system;
             String user;
@@ -108,7 +114,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
             }
             String reply = request(system, user, call);
             return checkTurnProtocol ? parseTurnReply(reply, original, call.status) : toResponse(readStrict(reply));
-        }, result -> result.action() == null ? null : result.action().type());
+        }, result -> result.action() == null ? null : result.action().type(), singleAttempt ? 1 : MAX_ATTEMPTS);
     }
 
     /** 从原始 GM 回复出发纠错，第二次同时提供上一版及其失败原因。
@@ -126,7 +132,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
             CorrectionInput input = new CorrectionInput(original.reply,
                     correction == 1 ? null : latest.reply, correctionError(latest.getCause()));
             try {
-                return requestNarration("narration_correction", CORRECTION_INSTRUCTION, input, true, originalObject);
+                return requestNarration("narration_correction", CORRECTION_INSTRUCTION, input, true, originalObject, false);
             } catch (InvalidNarrativeReply failure) {
                 latest = failure;
             }
@@ -161,16 +167,27 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
      */
     @Override
     public JsonNode completeJson(String stage, String instruction, String input) {
-        return complete(stage, call -> readObject(request(instruction, input, call)), result -> null);
+        return complete(stage, call -> readObject(request(instruction, input, call)), result -> null, MAX_ATTEMPTS);
+    }
+
+    /** 由业务流程管理预算，执行单次 JSON 请求。
+     * @param stage 模型调用业务阶段
+     * @param instruction JSON 输出协议
+     * @param input 已编码的用户消息
+     */
+    @Override
+    public JsonNode completeJsonOnce(String stage, String instruction, String input) {
+        return complete(stage, call -> readObject(request(instruction, input, call)), result -> null, 1);
     }
 
     /** 执行模型请求、解析响应并逐轮记录诊断。
      * @param stage 用于诊断的固定业务阶段标识
      * @param operation 读取并解析单次调用的操作
      * @param actionType 可从业务结果提取的动作类型
+     * @param attempts 允许的上游调用次数
      * @param <T> 业务响应类型
      */
-    private <T> T complete(String stage, ModelOperation<T> operation, Function<T, String> actionType) {
+    private <T> T complete(String stage, ModelOperation<T> operation, Function<T, String> actionType, int attempts) {
         DiagnosticLog.ModelCall modelCall = DiagnosticLog.modelCall(stage, NarrativeProviderConfiguration.JSON_OBJECT_FORMAT);
         int budget = maxTokens;
         for (int attempt = 1; ; attempt++) {
@@ -194,7 +211,7 @@ public final class OpenAiCompatibleNarrativeProvider implements NarrativeProvide
                 boolean truncated = "output_truncated".equals(reason);
                 int nextBudget = truncated
                         ? Math.min(budget * 2, NarrativeRuntimeSettingsService.MAX_ALLOWED_MAX_TOKENS) : budget;
-                if (attempt < MAX_ATTEMPTS && (exception.retryable() || truncated && nextBudget > budget)) {
+                if (attempt < attempts && (exception.retryable() || truncated && nextBudget > budget)) {
                     long delay = truncated ? 0 : backoffMillis(attempt);
                     DiagnosticLog.modelAttempt(metrics(call, null), "retry", reason, delay);
                     if (truncated) DiagnosticLog.modelBudgetChanged(modelCall, attempt, budget, nextBudget);

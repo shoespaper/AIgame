@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { answerWorldbuild, createWorldbuildSession, saveWorldbuild } from '../api/client'
-import type { WorldbuildTurn } from '../api/types'
+import type { CreationProgress, WorldbuildTurn } from '../api/types'
 
 /** 世界构建对话中的玩家回答或 GM 回合。 */
 export interface WorldbuildMessage {
@@ -25,12 +25,13 @@ export const useWorldbuildStore = defineStore('worldbuild', {
     },
     /** 提交玩家回答，成功后追加两条对话记录。
      * @param answer 玩家自然语言回答
+     * @param onProgress 接收草案生成和验收进度
      */
-    async answer(answer: string) {
+    async answer(answer: string, onProgress: (progress: CreationProgress) => void) {
       if (!this.sessionId || this.busy) return
       this.busy = true
       try {
-        const result = await answerWorldbuild(this.sessionId, answer)
+        const result = await answerWorldbuild(this.sessionId, answer, onProgress)
         this.turn = result.turn
         this.history.push({ id: this.history.length + 1, role: 'player', text: answer })
         this.history.push({ id: this.history.length + 1, role: 'gm', text: result.turn.reply })

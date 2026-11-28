@@ -133,6 +133,9 @@ public final class DiagnosticLog {
         if (request != null) {
             index = index == null ? 1 : index + 1;
             request.setAttribute(MODEL_CALL_INDEX, index, RequestAttributes.SCOPE_REQUEST);
+        } else if (index != null) {
+            index++;
+            ASYNC_MODEL_CALL_INDEX.set(index);
         }
         return new ModelCall(operation, index, format);
     }
@@ -140,7 +143,22 @@ public final class DiagnosticLog {
     /** 获取当前请求内最近的逻辑模型调用序号，后台调用时为空。 */
     private static Integer currentModelCallIndex() {
         RequestAttributes request = RequestContextHolder.getRequestAttributes();
-        return request == null ? null : (Integer) request.getAttribute(MODEL_CALL_INDEX, RequestAttributes.SCOPE_REQUEST);
+        return request == null ? ASYNC_MODEL_CALL_INDEX.get()
+                : (Integer) request.getAttribute(MODEL_CALL_INDEX, RequestAttributes.SCOPE_REQUEST);
+    }
+
+    private static final ThreadLocal<Integer> ASYNC_MODEL_CALL_INDEX = new ThreadLocal<>();
+
+    /** 为不持有 Servlet 请求的流式工作线程建立调用序号作用域。
+     * @param work 执行一次逻辑回合的任务
+     */
+    public static void withAsyncModelCalls(Runnable work) {
+        ASYNC_MODEL_CALL_INDEX.set(0);
+        try {
+            work.run();
+        } finally {
+            ASYNC_MODEL_CALL_INDEX.remove();
+        }
     }
 
     /** 写入可关联逻辑调用的通用字段。
@@ -205,17 +223,6 @@ public final class DiagnosticLog {
         MODEL.atWarn().addKeyValue("templateId", identifier(templateId)).addKeyValue("attempt", attempt)
                 .addKeyValue("reason", "invalid_template_proposal").addKeyValue("stage", identifier(stage))
                 .addKeyValue("stack", safeStack(failure)).log("template.proposal.rejected");
-    }
-
-    /** 记录提案重试耗尽后跳过本局模板登记。
-     * @param gameId 本局游戏标识
-     * @param templateId 未能登记的模板标识
-     * @param engineId 所选引擎标识，纯叙事时为空字符串
-     */
-    public static void templateRegistrationSkipped(String gameId, String templateId, String engineId) {
-        MODEL.atWarn().addKeyValue("gameId", identifier(gameId)).addKeyValue("templateId", identifier(templateId))
-                .addKeyValue("engineId", engineId.isBlank() ? null : identifier(engineId))
-                .addKeyValue("reason", "invalid_template_proposal").log("template.registration.skipped");
     }
 
     /** 检查标识格式，避免自由文本作为日志字段内容。

@@ -1,5 +1,7 @@
 package com.gameneko.aigame.persistence;
 
+import com.gameneko.aigame.application.CreationProgress;
+import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.port.GamePersistenceException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -15,6 +17,7 @@ import com.gameneko.aigame.engine.EngineTemplatePolicy;
 import com.gameneko.aigame.engine.InitializationValue;
 import com.gameneko.aigame.logging.DiagnosticLog;
 import com.gameneko.aigame.narrative.NarrativePrompt;
+import com.gameneko.aigame.narrative.NarrativeProviderException;
 import com.gameneko.aigame.narrative.NarrativeResponse;
 import com.gameneko.aigame.narrative.NarrativeSnapshot;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,22 +37,20 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Consumer;
 
 /** 按精确标识复用模板，并在开局确认时原子登记世界素材、所选引擎规则和本局绑定。 */
 @Component
 public final class ConfirmedTemplateRegistry {
     private static final String RULE_PROPOSALS = "engine_template_registrations";
     private static final Set<String> MATERIAL_FIELDS = Set.of("id", "name", "description", "category");
-    private static final int PROPOSAL_ATTEMPTS = 3;
+    private static final int PROPOSAL_ATTEMPTS = 5;
 
     /** 将待提交的世界素材与通过校验的引擎规则索引作为一组返回。
      * @param world 本轮通过校验的世界素材
      * @param rules 本轮通过校验的规则索引，纯叙事时为空对象
      */
     private record TemplateDefinitions(ObjectNode world, ObjectNode rules) {}
-
-    /** 表示所有模板提案均未通过校验，当前目录变更可以丢弃。 */
-    private static final class ProposalAttemptsExhausted extends RuntimeException {}
 
     private final TemplateCatalog catalog;
     private final ObjectMapper mapper;
@@ -90,9 +91,18 @@ public final class ConfirmedTemplateRegistry {
      * @param gameId 本次确认的游戏标识
      * @param book 玩家完成构建的世界书，未指定模板时以世界类型作为模板标识
      * @param engineId 玩家选中的引擎标识，纯叙事时可为空
-     * @return 已绑定模板时为 true，三次提案校验失败时为 false
      */
-    public synchronized boolean confirm(String gameId, WorldbookDefinition book, String engineId) {
+    public void confirm(String gameId, WorldbookDefinition book, String engineId) {
+        confirm(gameId, book, engineId, ignored -> {});
+    }
+
+    /** 校验并登记本局所需模板，未成功时阻止本次开局。
+     * @param gameId 当前游戏标识
+     * @param book 玩家确认的世界书
+     * @param engineId 所选引擎标识，纯叙事时可为空
+     * @param progress 接收模板生成阶段与单次失败
+     */
+    public synchronized void confirm(String gameId, WorldbookDefinition book, String engineId, Consumer<CreationProgress> progress) {
         String id = book.templateId().isBlank() ? book.type() : book.templateId();
         String engine = engineId == null ? "" : engineId.trim().toLowerCase(Locale.ROOT);
         JsonNode world = registry.path("worlds").path(id);
@@ -102,22 +112,14 @@ public final class ConfirmedTemplateRegistry {
         if (!engine.isBlank()) binding.put("engine_id", engine);
         boolean ready = !world.isMissingNode()
                 && (engine.isBlank() || world.path("registered_engines").path(engine).asBoolean());
-        if (ready && binding.equals(registry.path("bindings").path(gameId))) return true;
+        if (ready && binding.equals(registry.path("bindings").path(gameId))) return;
 
         ObjectNode next = mapper.createObjectNode().setAll(registry);
         ObjectNode bindings = copyIndex(registry.path("bindings"));
         bindings.set(gameId, binding);
         next.set("bindings", bindings);
-        if (!ready) {
-            try {
-                completeTemplate(next, book, id, engine, world);
-            } catch (ProposalAttemptsExhausted exception) {
-                DiagnosticLog.templateRegistrationSkipped(gameId, id, engine);
-                return false;
-            }
-        }
+        if (!ready) completeTemplate(next, book, id, engine, world, progress);
         persist(next, id);
-        return true;
     }
 
     /** 只为缺少世界素材或所选引擎资料的模板查目录和生成提案。
@@ -126,8 +128,10 @@ public final class ConfirmedTemplateRegistry {
      * @param id 精确匹配的世界模板标识
      * @param engine 所选引擎标识，纯叙事时为空串
      * @param existing 已登记的世界素材，首次开局时为缺失节点
+     * @param progress 接收世界模板和引擎规则的生成进度
      */
-    private void completeTemplate(ObjectNode next, WorldbookDefinition book, String id, String engine, JsonNode existing) {
+    private void completeTemplate(ObjectNode next, WorldbookDefinition book, String id, String engine, JsonNode existing,
+                                  Consumer<CreationProgress> progress) {
         EngineTemplatePolicy policy = policies.get(engine);
         if (!engine.isBlank() && policy == null) throw new IllegalArgumentException("引擎不支持模板注册：" + engine);
 
@@ -154,12 +158,12 @@ public final class ConfirmedTemplateRegistry {
                 instruction += "\n为下文列出的每个引擎素材池中的每个素材添加 engines." + engine
                         + "，格式为 {\"template_id\":\"规则标识\"}。每个引用必须指向类别匹配的已有规则或本次新增规则。";
             }
-            definitions = generateValidated(book, id, policy, known, instruction, example,
+            definitions = generateValidated(book, id, policy, known, instruction, example, "world_template", progress,
                     proposal -> prepareGeneratedWorld(book, id, policy, known, proposal));
         } else {
             ObjectNode world = existing.isMissingNode() ? prepareWorld(source, id, book.type()) : existing.deepCopy();
             definitions = policy == null ? new TemplateDefinitions(world, known)
-                    : completeEngine(book, id, policy, source, world, known, true);
+                    : completeEngine(book, id, policy, source, world, known, progress);
         }
 
         ObjectNode result = definitions.world();
@@ -188,7 +192,7 @@ public final class ConfirmedTemplateRegistry {
         if (policy == null) return new TemplateDefinitions(world, known);
         ObjectNode proposedRules = copyIndex(known);
         registerProposedRules(policy, proposal, proposedRules);
-        TemplateDefinitions definitions = completeEngine(book, id, policy, source, world, proposedRules, false);
+        TemplateDefinitions definitions = completeEngine(book, id, policy, source, world, proposedRules, null);
         validateNewRuleReferences(policy, definitions.world(), known, definitions.rules());
         return definitions;
     }
@@ -214,10 +218,10 @@ public final class ConfirmedTemplateRegistry {
      * @param source 目录或首次生成的世界素材，可为缺失节点
      * @param world 待提交的世界素材
      * @param known 按精确标识索引的待提交规则
-     * @param allowSupplement 目录或已登记的世界可请求补充，完整模型提案须当轮提供全部引用
+     * @param progress 接收补齐进度；为空时完整提案须当轮提供全部引用
      */
     private TemplateDefinitions completeEngine(WorldbookDefinition book, String id, EngineTemplatePolicy policy, JsonNode source,
-                                               ObjectNode world, ObjectNode known, boolean allowSupplement) {
+                                               ObjectNode world, ObjectNode known, Consumer<CreationProgress> progress) {
         String engine = policy.id();
         ObjectNode missingReferences = mapper.createObjectNode();
         Set<String> missingRules = new LinkedHashSet<>();
@@ -254,7 +258,7 @@ public final class ConfirmedTemplateRegistry {
             }
         }
 
-        if (allowSupplement && (!missingReferences.isEmpty() || !missingRules.isEmpty())) {
+        if (progress != null && (!missingReferences.isEmpty() || !missingRules.isEmpty())) {
             ObjectNode example = mapper.createObjectNode();
             ObjectNode exampleReferences = example.putObject("engine_references");
             for (Map.Entry<String, JsonNode> group : missingReferences.properties()) {
@@ -268,7 +272,7 @@ public final class ConfirmedTemplateRegistry {
                     + "\n缺少定义的规则 ID：" + mapper.valueToTree(missingRules)
                     + "。以原 ID 提供这些定义，并提供新引用所需的缺失规则。"
                     + "\n已有世界素材：" + world;
-            return generateValidated(book, id, policy, known, instruction, example,
+            return generateValidated(book, id, policy, known, instruction, example, "engine_template", progress,
                     proposal -> applySupplement(policy, world, known, missingReferences, proposal));
         }
         validateEngineReferences(policy, world, known);
@@ -359,34 +363,49 @@ public final class ConfirmedTemplateRegistry {
         }
     }
 
-    /** 生成并校验完整提案，最多尝试三次并将上一轮的提案错误反馈给模型。
+    /** 生成并校验完整提案，模型失败和业务校验失败共用五次预算。
      * @param book 提供世界类型及叙事设定的世界书
      * @param id 当前世界模板稳定标识
      * @param policy 所选引擎的注册策略，纯叙事时为 null
      * @param known 可供模型按标识复用的引擎规则索引
      * @param task 生成世界模板或引擎补充的原始任务指令
      * @param example 当前操作的内层提案结构示例
+     * @param phase 世界模板或引擎规则补齐阶段
+     * @param progress 接收每次生成及失败状态
      * @param validate 在独立的临时数据上校验整份提案并返回结果的函数
      */
     private TemplateDefinitions generateValidated(WorldbookDefinition book, String id, EngineTemplatePolicy policy,
                                                    ObjectNode known, String task, ObjectNode example,
-                                                  Function<JsonNode, TemplateDefinitions> validate) {
+                                                    String phase, Consumer<CreationProgress> progress,
+                                                    Function<JsonNode, TemplateDefinitions> validate) {
         String feedback = "";
-        int remainingAttempts = PROPOSAL_ATTEMPTS;
-        while (true) {
-            NarrativeResponse response = requestProposal(book, policy, known, task + feedback, example);
+        String label = "engine_template".equals(phase) ? "引擎规则" : "世界模板";
+        for (int attempt = 1; attempt <= PROPOSAL_ATTEMPTS; attempt++) {
+            progress.accept(new CreationProgress(phase, attempt, PROPOSAL_ATTEMPTS, false, "正在生成" + label));
+            NarrativeResponse response;
+            try {
+                response = requestProposal(book, policy, known, task + feedback, example);
+            } catch (NarrativeProviderException failure) {
+                if (!failure.canRegenerate()) throw failure;
+                progress.accept(new CreationProgress(phase, attempt, PROPOSAL_ATTEMPTS, true, label + "回复未通过校验"));
+                feedback = "\n" + failure.regenerationHint() + "请按示例返回完整模板提案。";
+                failure.pauseBeforeRetry(attempt, PROPOSAL_ATTEMPTS);
+                continue;
+            }
             String stage = "parse_proposal";
             try {
                 JsonNode proposal = readProposal(response);
                 stage = "validate_proposal";
                 return validate.apply(proposal);
             } catch (IllegalArgumentException exception) {
-                --remainingAttempts;
-                DiagnosticLog.templateProposalRejected(id, PROPOSAL_ATTEMPTS - remainingAttempts, stage, exception);
-                if (remainingAttempts == 0) throw new ProposalAttemptsExhausted();
+                DiagnosticLog.templateProposalRejected(id, attempt, stage, exception);
+                String issue = "parse_proposal".equals(stage) ? "提案格式有误" : "提案未通过校验";
+                progress.accept(new CreationProgress(phase, attempt, PROPOSAL_ATTEMPTS, true, label + issue));
                 feedback = "\n上一次提案未通过校验。原因：" + exception.getMessage() + "。请修正后重新返回完整提案。";
             }
         }
+        throw new GameRequestException(GameRequestException.Code.TEMPLATE_ATTEMPTS_EXHAUSTED,
+                label + "五次尝试后仍未通过校验，请重试生成模板。");
     }
 
     /** 检查世界模板的标识和类型是否与当前世界书匹配。
@@ -503,7 +522,7 @@ public final class ConfirmedTemplateRegistry {
                 + payload.properties().stream().map(Map.Entry::getKey).toList() + "：\n" + response;
         NarrativeSnapshot snapshot = new NarrativeSnapshot(new NarrativeSnapshot.WorldView(1, "", "", "",
                 List.of(), List.of(), List.of()), List.of()).withWorldbook(book);
-        return provider.respond(new NarrativePrompt(instruction, book.toString(), snapshot, "zh-CN"));
+        return provider.respond(new NarrativePrompt(instruction, book.toString(), snapshot, "zh-CN", List.of(), false, true));
     }
 
     /** 解析模型声明的模板 JSON，拒绝缺失提案、重复键和额外的根值。

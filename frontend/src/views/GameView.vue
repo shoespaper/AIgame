@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { EngineActionChoice } from '../api/types'
 import { useGameStore } from '../stores/game'
 import NarrativeTurn from '../components/NarrativeTurn.vue'
+import NarrationRetryNotice from '../components/NarrationRetryNotice.vue'
 import CreateGameFlow from '../components/CreateGameFlow.vue'
 import StatusSidebar from '../components/StatusSidebar.vue'
 import SavesView from './SavesView.vue'
@@ -12,6 +13,7 @@ const route = useRoute(); const router = useRouter(); const store = useGameStore
 const showSaves = computed(() => route.query.phase === 'saves')
 const gameId = computed(() => !showSaves.value && typeof route.params.gameId === 'string' ? route.params.gameId : '')
 const answer = ref(''); const error = ref('')
+const answerField = ref<HTMLInputElement | null>(null)
 const currentWorld = computed(() => store.game?.world)
 
 /** 将候选行动填入输入框，供玩家编辑和发送。 */
@@ -29,12 +31,30 @@ async function execute(choice: EngineActionChoice) {
 async function send() {
   const text = answer.value
   const id = gameId.value
-  if (!text.trim() || store.acting) return
+  if (!text.trim() || store.acting || store.pendingTurn) return
   answer.value = ''
   try {
     if (await store.speak(text)) return
   } catch { /* store 会暴露用户可见错误 */ }
-  if (gameId.value === id && answer.value === '') answer.value = text
+  await restoreAnswer(id, text)
+}
+
+/** 使用原回合标识查询中断的回复。 */
+async function resumeTurn() {
+  const pending = store.pendingTurn
+  if (!pending || await store.resumeTextTurn()) return
+  await restoreAnswer(pending.gameId, pending.playerInput)
+}
+
+/** 回合确认失败后恢复原文并将焦点放回输入框。
+ * @param id 回合所属游戏
+ * @param text 玩家原始输入
+ */
+async function restoreAnswer(id: string, text: string) {
+  if (gameId.value !== id || store.pendingTurn || answer.value !== '') return
+  answer.value = text
+  await nextTick()
+  answerField.value?.focus()
 }
 
 watch(gameId, async (id, _, onCleanup) => {
@@ -76,6 +96,10 @@ watch(gameId, async (id, _, onCleanup) => {
             <span>{{ message.role === 'gm' ? 'GM' : '你' }}</span>
             <p>{{ message.text }}</p>
           </article>
+          <article v-if="store.pendingTurn" class="conversation-message player">
+            <span>你</span>
+            <p>{{ store.pendingTurn.playerInput }}</p>
+          </article>
           <div v-if="store.acting" class="conversation-message gm">
             <span>GM</span>
             <p class="processing-label">正在回应…</p>
@@ -84,11 +108,13 @@ watch(gameId, async (id, _, onCleanup) => {
         </div>
         <div v-if="store.narration || store.game.actionChoices.length" class="current-options">
           <NarrativeTurn :turn="store.narration && { ...store.narration, narration: '' }"
-            :action-choices="store.game.actionChoices" :acting="store.acting" @choose="choose" @execute="execute" />
+            :action-choices="store.game.actionChoices" :acting="store.acting || !!store.pendingTurn" @choose="choose" @execute="execute" />
         </div>
+        <NarrationRetryNotice :hint="store.retryHint" :message="store.turnError"
+          :can-resume="!!store.pendingTurn && !store.acting" @resume="resumeTurn" />
         <div class="free-input">
-          <input v-model="answer" placeholder="告诉 GM 你要做什么" @keyup.enter="send" />
-          <button class="primary-button" type="button" :disabled="store.acting || !answer.trim()" @click="send">发送</button>
+          <input ref="answerField" v-model="answer" placeholder="告诉 GM 你要做什么" :disabled="!!store.pendingTurn" @keyup.enter="send" />
+          <button class="primary-button" type="button" :disabled="store.acting || !!store.pendingTurn || !answer.trim()" @click="send">发送</button>
           <button class="secondary-button" type="button" :disabled="store.saving" @click="store.save">保存游戏</button>
           <button class="quiet-button" type="button" @click="router.push('/')">退出</button>
         </div>

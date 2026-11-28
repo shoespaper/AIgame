@@ -12,4 +12,13 @@ public interface ModelJsonProvider {
      * @return 解析后的 JSON 对象
      */
     JsonNode completeJson(String operation, String instruction, String input);
+
+    /** 使用由调用者管理的预算，仅发送一次请求。
+     * @param operation 模型日志的业务阶段
+     * @param instruction 本次输出约定
+     * @param input 已编码的用户消息
+     */
+    default JsonNode completeJsonOnce(String operation, String instruction, String input) {
+        return completeJson(operation, instruction, input);
+    }
 }

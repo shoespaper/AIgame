@@ -4,6 +4,7 @@ import com.gameneko.aigame.application.port.GamePersistenceException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.gameneko.aigame.application.port.GameRepository;
 import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.WorldState;
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Stream;
 import java.util.regex.Pattern;
 
@@ -31,6 +33,7 @@ import java.util.regex.Pattern;
 @Component
 public final class FileGameRepository implements GameRepository {
     private static final int SCHEMA_VERSION = 3;
+    private static final int MAX_NARRATION_RECEIPTS = 32;
     private static final Pattern SAFE_GAME_ID = Pattern.compile("[A-Za-z0-9_-]{1,80}");
     private final ObjectMapper objectMapper;
     private final Path saveRoot;
@@ -103,6 +106,55 @@ public final class FileGameRepository implements GameRepository {
      */
     @Override
     public synchronized void save(GameInstance<?> instance) {
+        write(instance, null);
+    }
+
+    /** 将带回执的状态写入同一份存档。
+     * @param instance 结算后的游戏实例
+     * @param receipt 与状态一起原子提交的叙事回执
+     */
+    @Override
+    public synchronized void saveWithNarrationReceipt(GameInstance<?> instance, NarrationReceipt receipt) {
+        write(instance, receipt);
+    }
+
+    /** 查找指定回合的已提交回执。
+     * @param gameId 游戏存档标识
+     * @param turnId 客户端生成的回合标识
+     */
+    @Override
+    public synchronized Optional<NarrationReceipt> narrationReceipt(String gameId, UUID turnId) {
+        try {
+            for (JsonNode item : readNarrationReceipts(savePath(gameId))) {
+                if (turnId.toString().equals(item.path("turnId").asText())) {
+                    return Optional.of(objectMapper.treeToValue(item, NarrationReceipt.class));
+                }
+            }
+            return Optional.empty();
+        } catch (IOException exception) {
+            throw new GamePersistenceException("Unable to read narration receipt: " + gameId, exception,
+                    "game_save", gameId, "read", "read_narration_receipt");
+        }
+    }
+
+    /** 读取此前的回执列表，首次写入时返回空集合。
+     * @param path 当前游戏的存档路径
+     */
+    private JsonNode readNarrationReceipts(Path path) throws IOException {
+        try {
+            JsonNode contents = objectMapper.readTree(Files.readString(path));
+            if (contents == null) throw new IOException("Empty game save");
+            return contents.path("narrationReceipts");
+        } catch (NoSuchFileException exception) {
+            return objectMapper.createArrayNode();
+        }
+    }
+
+    /** 写入临时文件后一次替换权威状态与回执。
+     * @param instance 待持久化的游戏实例
+     * @param receipt 本轮新增的结算回执，普通保存时为空
+     */
+    private void write(GameInstance<?> instance, NarrationReceipt receipt) {
         if (instance == null) throw new IllegalArgumentException("game instance must not be null");
         Path path = savePath(instance.gameId());
         Path temporary = null;
@@ -123,6 +175,15 @@ public final class FileGameRepository implements GameRepository {
                 envelope.putNull("engineVersion");
             }
             envelope.set("state", objectMapper.valueToTree(instance));
+            JsonNode previous = instance.revision() == 0 ? objectMapper.createArrayNode() : readNarrationReceipts(path);
+            if (!previous.isEmpty() || receipt != null) {
+                ArrayNode receipts = envelope.putArray("narrationReceipts");
+                int keep = receipt == null ? MAX_NARRATION_RECEIPTS : MAX_NARRATION_RECEIPTS - 1;
+                for (int index = Math.max(0, previous.size() - keep); index < previous.size(); index++) {
+                    receipts.add(previous.get(index));
+                }
+                if (receipt != null) receipts.add(objectMapper.valueToTree(receipt));
+            }
             String document = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(envelope);
             stage = "write_temp";
             temporary = Files.createTempFile(saveRoot, "." + instance.gameId() + ".", ".tmp");

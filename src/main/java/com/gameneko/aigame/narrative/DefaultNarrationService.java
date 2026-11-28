@@ -60,6 +60,21 @@ public final class DefaultNarrationService implements NarrationService {
         return response;
     }
 
+    /** 在回合预算内生成一次完整答复，纠正说明不改变玩家原文。
+     * @param request 玩家本轮输入与确认快照
+     * @param engineActions 引擎支持的动作
+     * @param correction 上次失败的安全纠正指令，可为空
+     */
+    @Override
+    public NarrativeResponse proposeOnce(NarrativeRequest request, List<SupportedAction> engineActions, String correction) {
+        String instruction = systemInstruction(engineActions, false);
+        if (correction != null) instruction += "\n\n## 上一次尝试与修正要求\n" + correction;
+        NarrativeResponse response = provider.respond(new NarrativePrompt(instruction, request.playerInput(),
+                request.snapshot(), request.locale(), request.history(), true, true));
+        validate(response);
+        return response;
+    }
+
     /** 生成开局首段叙事。 */
     /** @param request 包含已确认快照的开局叙事请求 */
     /** @param engineActions 当前引擎可执行的动作清单 */
@@ -78,6 +93,22 @@ public final class DefaultNarrationService implements NarrationService {
      */
     @Override
     public NarrativeResponse describeConfirmedTurn(NarrativeRequest request) {
+        return describe(request, false);
+    }
+
+    /** 在统一预算中尝试描写一次。
+     * @param request 结算后的权威快照及玩家上下文
+     */
+    @Override
+    public NarrativeResponse describeConfirmedTurnOnce(NarrativeRequest request) {
+        return describe(request, true);
+    }
+
+    /** 描写已确认结果并验证模型没有再次提出变更。
+     * @param request 已结算的回合快照
+     * @param singleAttempt 是否禁止提供器内部重试
+     */
+    private NarrativeResponse describe(NarrativeRequest request, boolean singleAttempt) {
         String instruction = """
                 你是文字冒险游戏的 GM。根据 confirmedSnapshot 中已结算的状态和 confirmedEvents 描写本轮已经发生的结果。
                 用自然的段落完整承接玩家已经决定的行动，先交代已确认的结果，再写与这些结果相符的人物反应和处境变化。
@@ -87,7 +118,7 @@ public final class DefaultNarrationService implements NarrationService {
                 之后给出 3 至 4 个针对当前新处境的中文文本建议，每项最多 12 个汉字。只返回 JSON，action 必须为 null，updates 必须为 {}。
                 """;
         NarrativeResponse response = provider.respond(new NarrativePrompt(instruction, request.playerInput(),
-                request.snapshot(), request.locale(), request.history()));
+                request.snapshot(), request.locale(), request.history(), singleAttempt, singleAttempt));
         validate(response);
         if (response.action() != null || !response.updates().isEmpty()) {
             throw NarrativeProviderException.invalidOutput("结算叙事只能描写已确认结果", null);

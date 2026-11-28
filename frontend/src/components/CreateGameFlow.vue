@@ -2,9 +2,10 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
-import type { CheckedInitialization, GameCatalog, GameSelection, InitializationField, InitializationFormValues, InitializationSession } from '../api/types'
+import type { CheckedInitialization, CreationProgress, GameCatalog, GameSelection, InitializationField, InitializationFormValues, InitializationSession } from '../api/types'
 import { ApiError, createInitializationSession, loadGameCatalog, validateInitialization } from '../api/client'
 import InitializationFormField from './InitializationFormField.vue'
+import NarrationRetryNotice from './NarrationRetryNotice.vue'
 import { useGameStore } from '../stores/game'
 import { useWorldbuildStore } from '../stores/worldbuild'
 
@@ -16,9 +17,13 @@ const step = ref(1)
 const customMode = ref(false)
 const worldChat = ref<HTMLElement | null>(null)
 const worldAnswer = ref('')
+const pendingWorldAnswer = ref('')
+const worldAnswerField = ref<HTMLTextAreaElement | null>(null)
 const worldTab = ref<'draft' | 'chat'>('chat')
 const busy = ref(false)
 const error = ref('')
+const creationStatus = ref('')
+const templateRetry = ref(false)
 const selection = reactive<GameSelection>({ worldId: '', engineId: null })
 const form = ref<InitializationSession | null>(null)
 const formSelection = ref<GameSelection | null>(null)
@@ -46,6 +51,16 @@ const reviewedEngine = computed(() => form.value?.engineFields.flatMap(field => 
   const label = typeof value === 'boolean' ? (value ? '是' : '否') : field.optionLabels[String(value)] ?? String(value)
   return [{ id: field.id, label: field.label, value: label }]
 }) ?? [])
+
+/** 更新生成进度，并对每次失败排队显示约一秒的提示。
+ * @param progress 服务端发送的阶段及尝试信息
+ */
+function showCreationProgress(progress: CreationProgress) {
+  const unit = progress.phase === 'draft' || progress.phase === 'judge' ? '轮' : '次'
+  const count = progress.attempt == null ? '' : ` · 第 ${progress.attempt}/${progress.limit} ${unit}`
+  if (progress.failed) store.showRetryHint(progress.message + count)
+  else creationStatus.value = progress.message + count
+}
 
 /** 将字段错误码转换为页面提示。
  * @param field 服务端声明的字段
@@ -135,17 +150,26 @@ async function restartWorldbuild() {
 
 /** 发送描述或修改意见，失败时保留输入和上一版草案。 */
 async function submitWorldAnswer() {
-  const input = worldAnswer.value.trim()
-  if (!input || worldbuild.busy || busy.value) return
+  const input = worldAnswer.value
+  if (!input.trim() || worldbuild.busy || busy.value) return
   error.value = ''
+  store.clearTurnMessages()
+  creationStatus.value = '正在整理世界草案…'
+  pendingWorldAnswer.value = input
+  worldAnswer.value = ''
   const previousVersion = worldbuild.turn?.version
   try {
-    await worldbuild.answer(input)
-    worldAnswer.value = ''
+    await worldbuild.answer(input, showCreationProgress)
     if (worldbuild.turn?.version !== previousVersion) worldTab.value = 'draft'
   } catch (cause) {
+    worldAnswer.value = input
     const message = cause instanceof Error ? cause.message : '世界草案处理失败，请重试。'
     error.value = worldbuild.turn?.done ? `${message} 上次通过验收的草案仍可继续。` : message
+    await nextTick()
+    worldAnswerField.value?.focus()
+  } finally {
+    pendingWorldAnswer.value = ''
+    creationStatus.value = ''
   }
 }
 
@@ -199,6 +223,7 @@ async function reviewSetup() {
     checked.value = await validateInitialization(session.id,
       formValues(session.profileFields, profileInput), formValues(session.engineFields, engineInput.value))
     if (checked.value.version !== null && checked.value.setup) {
+      templateRetry.value = false
       step.value = 4
     } else {
       error.value = '请检查角色资料和引擎配置。'
@@ -222,11 +247,14 @@ async function createGame() {
   if (!session || version == null || busy.value) return
   error.value = ''
   store.clearMessages()
+  store.clearTurnMessages()
+  creationStatus.value = '正在确认开局…'
   busy.value = true
   try {
-    const created = await store.finalizeInitialization(session.id, version)
+    const created = await store.finalizeInitialization(session.id, version, showCreationProgress)
     await router.replace('/game/' + encodeURIComponent(created.gameId))
   } catch (cause) {
+    templateRetry.value = cause instanceof ApiError && cause.code === 'TEMPLATE_ATTEMPTS_EXHAUSTED'
     if (cause instanceof ApiError && cause.code === 'SESSION_NOT_FOUND') {
       form.value = null
       checked.value = null
@@ -235,6 +263,7 @@ async function createGame() {
     error.value = cause instanceof Error ? cause.message : '创建游戏失败。'
   } finally {
     busy.value = false
+    creationStatus.value = ''
   }
 }
 
@@ -300,7 +329,7 @@ onMounted(() => { void loadCatalog() })
                 <header class="worldbuild-panel-header">
                   <h3 id="world-draft-heading">世界草案</h3>
                   <span class="worldbuild-status" :class="{ ready: worldbuild.turn?.done && !worldbuild.busy && !busy }" role="status">
-                    {{ busy ? '正在确认世界类型并保存…' : worldbuild.busy ? '正在整理世界草案…' : worldbuild.turn?.done ? '可进入下一步' : '等待生成' }}
+                    {{ busy ? '正在确认世界类型并保存…' : worldbuild.busy ? creationStatus || '正在整理世界草案…' : worldbuild.turn?.done ? '可进入下一步' : '等待生成' }}
                   </span>
                 </header>
                 <article v-if="worldDraftHtml" class="worldbuild-document" v-html="worldDraftHtml"></article>
@@ -313,10 +342,14 @@ onMounted(() => { void loadCatalog() })
                   <div v-for="message in worldbuild.history" :key="message.id" class="onboarding-message" :class="message.role">
                     <span class="message-role">{{ message.role === 'gm' ? 'GM' : '你' }}</span><p>{{ message.text }}</p>
                   </div>
-                  <div v-if="worldbuild.busy" class="onboarding-message gm thinking"><span class="loader small" />正在整理世界草案…</div>
+                  <div v-if="pendingWorldAnswer" class="onboarding-message player">
+                    <span class="message-role">你</span><p>{{ pendingWorldAnswer }}</p>
+                  </div>
+                  <div v-if="worldbuild.busy" class="onboarding-message gm thinking"><span class="loader small" />{{ creationStatus || '正在整理世界草案…' }}</div>
                 </div>
+                <NarrationRetryNotice :hint="store.retryHint" message="" :can-resume="false" />
                 <form class="worldbuild-composer" @submit.prevent="submitWorldAnswer">
-                  <textarea v-model="worldAnswer" aria-label="给 GM 的消息" rows="2" :placeholder="worldbuild.turn?.done ? '告诉 GM 你想调整什么' : '描述你想玩的世界'" :disabled="!worldbuild.sessionId || worldbuild.busy || busy" maxlength="8000"></textarea>
+                  <textarea ref="worldAnswerField" v-model="worldAnswer" aria-label="给 GM 的消息" rows="2" :placeholder="worldbuild.turn?.done ? '告诉 GM 你想调整什么' : '描述你想玩的世界'" :disabled="!worldbuild.sessionId || worldbuild.busy || busy" maxlength="8000"></textarea>
                   <button type="submit" class="onboarding-primary" :disabled="!worldbuild.sessionId || worldbuild.busy || busy || !worldAnswer.trim()">发送</button>
                 </form>
               </section>
@@ -430,8 +463,9 @@ onMounted(() => { void loadCatalog() })
       </div>
 
       <p v-if="error || store.error" class="onboarding-error" role="alert">{{ error || store.error }}</p>
+      <NarrationRetryNotice v-if="step === 4" :hint="store.retryHint" message="" :can-resume="false" />
       <footer class="onboarding-footer">
-        <span>{{ step < 3 ? `第 ${step} / 4 步` : step === 3 ? '角色与开局资料' : '准备就绪' }}</span>
+        <span role="status">{{ step < 3 ? `第 ${step} / 4 步` : step === 3 ? '角色与开局资料' : creationStatus || (templateRetry ? '等待模板生成' : '准备就绪') }}</span>
         <div class="footer-actions">
           <button type="button" class="onboarding-secondary" @click="router.push('/')">取消</button>
           <button v-if="step > 1" type="button" class="onboarding-secondary" :disabled="busy" @click="goBack()">{{ step === 4 ? '返回角色' : '上一步' }}</button>
@@ -441,7 +475,7 @@ onMounted(() => { void loadCatalog() })
           <button v-else-if="step === 1" type="button" class="onboarding-primary" :disabled="!selection.worldId || !catalog" @click="step = 2">下一步</button>
           <button v-else-if="step === 2" type="button" class="onboarding-primary" :disabled="busy || !selection.worldId" @click="startCharacterSetup">{{ busy ? '准备中…' : '下一步' }}</button>
           <button v-else-if="step === 3" type="submit" form="character-form" class="onboarding-primary" :disabled="busy || !form || loadingForm">{{ busy ? '校验中…' : '下一步' }}</button>
-          <button v-else type="button" class="onboarding-primary" :disabled="busy || checked?.version == null" @click="createGame">{{ busy ? '创建中…' : '创建并进入' }}</button>
+          <button v-else type="button" class="onboarding-primary" :disabled="busy || checked?.version == null" @click="createGame">{{ busy ? '创建中…' : templateRetry ? '重试生成模板' : '创建并进入' }}</button>
         </div>
       </footer>
     </main>

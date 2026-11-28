@@ -17,13 +17,14 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.Map;
 import java.util.stream.Stream;
 
 /** 生成、验收并保存用于开局的世界书正文。 */
 @Service
 public final class WorldbuildNarrationService {
-    private static final int MAX_REVISIONS = 2;
+    private static final int MAX_ROUNDS = 5;
 
     private final WorldDraftModel model;
     private final WorldbookRepository repository;
@@ -56,6 +57,15 @@ public final class WorldbuildNarrationService {
      * @param input 本轮自然语言输入，非空且最长 8000 字符
      */
     public Turn answer(Session session, String input) {
+        return answer(session, input, ignored -> {});
+    }
+
+    /** 生成并验收草案，模型异常和正常退回共享同一次发送的轮数。
+     * @param session 当前世界构建会话
+     * @param input 本轮玩家原文
+     * @param progress 接收生成、验收及单轮失败提示
+     */
+    public Turn answer(Session session, String input, Consumer<CreationProgress> progress) {
         if (input == null || input.isBlank() || input.length() > 8000) {
             throw GameRequestException.invalid("请输入 1 至 8000 个字符的世界描述或修改意见");
         }
@@ -63,27 +73,56 @@ public final class WorldbuildNarrationService {
             String playerInput = input.strip();
             String candidate = "";
             List<String> issues = List.of();
-            for (int revision = 0; revision <= MAX_REVISIONS; revision++) {
-                Generation generated = model.generate(
-                        new GenerationInput(session.turn.draft(), session.history, playerInput, candidate, issues),
-                        session.turn.done() && revision == 0);
-                if (generated.revisionIssue() != null) {
-                    issues = List.of(generated.revisionIssue());
-                    continue;
-                }
-                if (generated.draft() == null) {
-                    return commit(session, playerInput, generated.reply(), session.turn.draft(), session.turn.version());
+            String judgeCorrection = "";
+            Generation pendingReview = null;
+            for (int round = 1; round <= MAX_ROUNDS; round++) {
+                if (pendingReview == null) {
+                    progress.accept(new CreationProgress("draft", round, MAX_ROUNDS, false, "正在生成世界草案"));
+                    try {
+                        Generation generated = model.generate(
+                                new GenerationInput(session.turn.draft(), session.history, playerInput, candidate, issues),
+                                session.turn.done() && round == 1);
+                        if (generated.revisionIssue() != null) {
+                            issues = List.of(generated.revisionIssue());
+                            progress.accept(new CreationProgress("draft", round, MAX_ROUNDS, true, "草案格式有误"));
+                            continue;
+                        }
+                        if (generated.draft() == null) {
+                            return commit(session, playerInput, generated.reply(), session.turn.draft(), session.turn.version());
+                        }
+                        candidate = generated.draft();
+                        pendingReview = generated;
+                    } catch (NarrativeProviderException failure) {
+                        if (!failure.canRegenerate()) throw failure;
+                        issues = List.of(failure.regenerationHint() + "请返回含 draft 和 reply 的完整 JSON。");
+                        String message = "empty_output".equals(failure.reasonCode()) ? "草案回复为空" : "未取得有效草案回复";
+                        progress.accept(new CreationProgress("draft", round, MAX_ROUNDS, true, message));
+                        failure.pauseBeforeRetry(round, MAX_ROUNDS);
+                        continue;
+                    }
                 }
 
-                candidate = generated.draft();
-                issues = model.review(new ReviewInput(candidate, session.turn.draft(), session.history, playerInput));
+                progress.accept(new CreationProgress("judge", round, MAX_ROUNDS, false, "正在验收世界草案"));
+                try {
+                    issues = model.review(new ReviewInput(candidate, session.turn.draft(), session.history, playerInput), judgeCorrection);
+                } catch (NarrativeProviderException failure) {
+                    if (!failure.canRegenerate()) throw failure;
+                    judgeCorrection = failure.regenerationHint() + "请仅返回验收协议规定的 PASS 或 REVISE 对象。";
+                    progress.accept(new CreationProgress("judge", round, MAX_ROUNDS, true, "验收暂未完成"));
+                    failure.pauseBeforeRetry(round, MAX_ROUNDS);
+                    continue;
+                }
                 if (issues.isEmpty()) {
                     long version = candidate.equals(session.turn.draft())
                             ? session.turn.version() : session.turn.version() + 1;
-                    return commit(session, playerInput, generated.reply(), candidate, version);
+                    return commit(session, playerInput, pendingReview.reply(), candidate, version);
                 }
+                progress.accept(new CreationProgress("judge", round, MAX_ROUNDS, true, "草案需要按验收意见修订"));
+                pendingReview = null;
+                judgeCorrection = "";
             }
-            throw NarrativeProviderException.invalidOutput("世界草案未通过验收：" + String.join("；", issues), null);
+            throw new GameRequestException(GameRequestException.Code.WORLD_DRAFT_ATTEMPTS_EXHAUSTED,
+                    "五轮尝试后仍未得到通过验收的草案，已保留本轮输入。");
         }
     }
 

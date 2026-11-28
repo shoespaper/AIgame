@@ -1,6 +1,7 @@
 package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.application.port.GameRepository;
+import com.gameneko.aigame.application.port.GameRepository.NarrationReceipt;
 import com.gameneko.aigame.content.ContentCatalog;
 import com.gameneko.aigame.content.WorldDefinition;
 import com.gameneko.aigame.engine.*;
@@ -12,6 +13,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.UnaryOperator;
 
 /** 结算引擎动作和世界字段声明，统一推进权威修订号并持久化。 */
@@ -60,13 +62,29 @@ public final class GameActionService {
      */
     public AppliedAction applyNarrativeTurn(String gameId, long expectedRevision, ActionIntent intent,
                                             Map<String, InitializationValue> updates) {
+        return applyNarrativeTurn(gameId, expectedRevision, intent, updates, null);
+    }
+
+    /** 在一次存档提交中保存结算状态及可选的叙事回执。
+     * @param gameId 游戏存档标识
+     * @param expectedRevision 结算前的预期修订号
+     * @param intent 可为空的引擎意图
+     * @param updates 本轮世界字段声明
+     * @param turnId 可为空的叙事回合标识
+     */
+    AppliedAction applyNarrativeTurn(String gameId, long expectedRevision, ActionIntent intent,
+                                    Map<String, InitializationValue> updates, UUID turnId) {
         synchronized (repository) {
             GameInstance<?> loaded = repository.load(gameId)
                     .orElseThrow(() -> new GameRequestException(GameRequestException.Code.SAVE_NOT_FOUND, "Save not found: " + gameId));
             String actionType = intent == null ? null : intent.type();
             GameRequestException.checkRevision(loaded, expectedRevision, actionType);
             AppliedAction result = resolveNarrativeTurn(loaded, intent, updates);
-            if (result.instance().revision() != loaded.revision()) repository.save(result.instance());
+            if (result.instance().revision() != loaded.revision()) {
+                if (turnId == null) repository.save(result.instance());
+                else repository.saveWithNarrationReceipt(result.instance(), new NarrationReceipt(
+                        turnId, result.instance().revision(), result.events(), result.worldEvents()));
+            }
             return result;
         }
     }

@@ -42,6 +42,40 @@ public final class NarrativeProviderException extends RuntimeException {
         return retryable;
     }
 
+    /** 判断再次请求是否可能修复本次传输失败或模型输出错误。 */
+    public boolean canRegenerate() {
+        return retryable || switch (reasonCode) {
+            case "empty_output", "output_parse_failed", "invalid_model_output", "response_decoding_failed",
+                    "missing_choice", "output_truncated", "incomplete_output" -> true;
+            default -> false;
+        };
+    }
+
+    /** 给下一次模型调用提供归一化的失败原因。 */
+    public String regenerationHint() {
+        return switch (reasonCode) {
+            case "empty_output" -> "上次回复只有空白。";
+            case "output_truncated", "incomplete_output" -> "上次回复未完整结束。请缩短内容并完整闭合 JSON。";
+            case "output_parse_failed", "invalid_model_output", "response_decoding_failed", "missing_choice" ->
+                    "上次回复不符合输出协议。";
+            default -> "上次未取得有效的模型回复。";
+        };
+    }
+
+    /** 在瞬时传输错误后短暂退避。校验失败可立即修正。
+     * @param attempt 已失败的尝试序号，从 1 开始
+     * @param limit 本轮允许的最大尝试次数
+     */
+    public void pauseBeforeRetry(int attempt, int limit) {
+        if (!retryable || attempt >= limit) return;
+        try {
+            Thread.sleep(250L << Math.min(attempt - 1, 3));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Model retry was interrupted", exception);
+        }
+    }
+
     /** 返回可写入日志的稳定原因码。 */
     public String reasonCode() {
         return reasonCode;

@@ -2,8 +2,8 @@ package com.gameneko.aigame.application;
 
 import com.gameneko.aigame.application.GameInitializationSchemaService.Setup;
 import com.gameneko.aigame.application.GameInitializationSchemaService.Validation;
-import com.gameneko.aigame.application.GameInstanceService.InitializedGame;
 import com.gameneko.aigame.application.NarrativeApplicationService.NarratedTurn;
+import com.gameneko.aigame.engine.GameInstance;
 import com.gameneko.aigame.engine.GameSelection;
 import com.gameneko.aigame.engine.InitializationField;
 import org.springframework.stereotype.Service;
@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 
 /** 管理开局表单版本、开场准备和可重试的首次存档。 */
 @Service
@@ -76,7 +77,16 @@ public final class GameInitializationFlow {
      * @param sessionId 初始化会话标识
      * @param version 玩家确认的服务端表单版本
      */
-    public ConfirmedGame confirm(String sessionId, long version) {
+    public NarratedTurn confirm(String sessionId, long version) {
+        return confirm(sessionId, version, ignored -> {});
+    }
+
+    /** 确认开局并报告模板生成、开场和存档进度。
+     * @param sessionId 初始化会话标识
+     * @param version 已验收的表单版本
+     * @param status 接收当前确认阶段的进度
+     */
+    public NarratedTurn confirm(String sessionId, long version, Consumer<CreationProgress> status) {
         Progress progress = require(sessionId);
         progress.lock.lock();
         try {
@@ -88,14 +98,15 @@ public final class GameInitializationFlow {
                 if (progress.initial == null) {
                     InitializeWorldRequest request = InitializeWorldRequest.defaults(progress.selection.worldId());
                     progress.initial = instances.initializeForOpening(progress.gameId, request, progress.selection.engineId(),
-                            progress.approved);
+                            progress.approved, status);
                     progress.preparedSetup = progress.approved;
                 }
-                NarratedTurn opening = narratives.prepareOpening(progress.initial.instance(), "zh-CN");
-                progress.confirmed = new ConfirmedGame(opening, progress.initial.templateBuildFailed());
+                status.accept(new CreationProgress("opening", null, null, false, "正在生成开场"));
+                progress.confirmed = narratives.prepareOpening(progress.initial, "zh-CN");
                 progress.initial = null;
             }
-            saves.save(progress.confirmed.opening().instance());
+            status.accept(new CreationProgress("save", null, null, false, "正在保存游戏"));
+            saves.save(progress.confirmed.instance());
             progress.completed = true;
             return progress.confirmed;
         } finally {
@@ -129,12 +140,6 @@ public final class GameInitializationFlow {
     public record CheckedForm(Long version, Setup setup, Map<String, String> profileErrors,
                               Map<String, String> engineErrors) {}
 
-    /** 保存开局叙事及模板登记结果。
-     * @param opening 结算完毕的开场回合
-     * @param templateBuildFailed 模板构建失败并以无模板形式开局时为 true
-     */
-    public record ConfirmedGame(NarratedTurn opening, boolean templateBuildFailed) {}
-
     /** 保存单个表单会话的各阶段进度，所有可变字段均由会话锁保护。 */
     private static final class Progress {
         private final ReentrantLock lock = new ReentrantLock();
@@ -143,8 +148,8 @@ public final class GameInitializationFlow {
         private long version;
         private Setup approved;
         private Setup preparedSetup;
-        private InitializedGame initial;
-        private ConfirmedGame confirmed;
+        private GameInstance<?> initial;
+        private NarratedTurn confirmed;
         private boolean completed;
 
         /** 固定会话的世界和规则选择。

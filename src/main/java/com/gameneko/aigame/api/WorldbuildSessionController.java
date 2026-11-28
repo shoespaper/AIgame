@@ -3,11 +3,13 @@ package com.gameneko.aigame.api;
 import com.gameneko.aigame.application.GameRequestException;
 import com.gameneko.aigame.application.WorldbuildNarrationService;
 import com.gameneko.aigame.content.WorldbookDefinition;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 import java.util.UUID;
@@ -48,6 +50,20 @@ public final class WorldbuildSessionController {
         if (request == null || request.answer() == null) throw GameRequestException.invalid("Answer is required");
         WorldbuildNarrationService.Turn turn = worldbuild.answer(require(id), request.answer());
         return new AnswerResponse(turn.done(), turn);
+    }
+
+    /** 返回生成和验收进度，并在本轮成功后发布最新草案。
+     * @param id 世界构建会话标识
+     * @param request 玩家回答
+     */
+    @PostMapping(path = "/{id}/answer/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamAnswer(@PathVariable String id, @RequestBody AnswerRequest request) {
+        if (request == null || request.answer() == null) throw GameRequestException.invalid("Answer is required");
+        WorldbuildNarrationService.Session session = require(id);
+        return CreationStream.start("/api/initialization/worldbuild/sessions/{id}/answer/stream", progress -> {
+            WorldbuildNarrationService.Turn turn = worldbuild.answer(session, request.answer(), progress);
+            return new AnswerResponse(turn.done(), turn);
+        });
     }
 
     /** 将当前已通过验收的草案保存为世界书。

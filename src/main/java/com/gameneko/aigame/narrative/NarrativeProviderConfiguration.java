@@ -1,5 +1,6 @@
 package com.gameneko.aigame.narrative;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gameneko.aigame.application.NarrativeRuntimeSettingsService;
@@ -38,7 +39,27 @@ public class NarrativeProviderConfiguration {
      */
     @Bean
     ModelJsonProvider runtimeModelJsonPort(RuntimeNarrativeProvider provider) {
-        return provider::completeJson;
+        return new ModelJsonProvider() {
+            /** 请求 JSON 对象并沿用提供器的常规重试。
+             * @param operation 模型业务阶段
+             * @param instruction 输出协议
+             * @param input 已编码消息
+             */
+            @Override
+            public JsonNode completeJson(String operation, String instruction, String input) {
+                return provider.completeJson(operation, instruction, input);
+            }
+
+            /** 只请求一次 JSON 对象。
+             * @param operation 模型业务阶段
+             * @param instruction 输出协议
+             * @param input 已编码消息
+             */
+            @Override
+            public JsonNode completeJsonOnce(String operation, String instruction, String input) {
+                return provider.completeJsonOnce(operation, instruction, input);
+            }
+        };
     }
 
     static final String JSON_OBJECT_FORMAT = "json_object";
